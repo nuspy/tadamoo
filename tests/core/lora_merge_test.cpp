@@ -85,26 +85,55 @@ Pair random_pair(std::mt19937& rng, int64_t r, int64_t n_in, int64_t n_out, floa
     return p;
 }
 
-// `n_out` rows of `type`, each row re-rolled (bounded attempts) until to_float gives finite values -- the same
-// "every byte random, decode, check finite" pattern nvfp4_format_test.cpp uses, since these formats have no
-// simple reference quantizer to build controlled values with.
-std::vector<uint8_t> random_base(std::mt19937& rng, uint32_t type, int64_t n_in, int64_t n_out,
+// The byte offset(s) of `type`'s own fp16 scale field(s) within one block, read from ggml's real block structs
+// (block_q4_K/block_q5_K: d then dmin at bytes 0-3; block_q6_K: d at 208-209; block_q3_K: d at 108-109; the
+// legacy/IQ formats: d at 0-1). Fixing these to a small value keeps every random block finite and of a known
+// order of magnitude, regardless of what the rest of the block's (otherwise random) bytes decode to.
+void fix_scale_field(uint32_t type, uint8_t* block) {
+    const uint16_t d = ggml_fp32_to_fp16(0.03f);
+    auto put = [&](size_t off) { std::memcpy(block + off, &d, 2); };
+    switch (type) {
+    case GGML_TYPE_Q4_K:
+    case GGML_TYPE_Q5_K:
+        put(0);
+        put(2);
+        break;
+    case GGML_TYPE_Q6_K:
+        put(208);
+        break;
+    case GGML_TYPE_Q3_K:
+        put(108);
+        break;
+    case GGML_TYPE_IQ4_XS:
+    case GGML_TYPE_IQ3_S:
+    case GGML_TYPE_Q2_0:
+    case GGML_TYPE_Q8_0:
+        put(0);
+        break;
+    default:
+        break;
+    }
+}
+
+// `n_out` rows of `type`: random bytes, except each block's own scale field is fixed small (see fix_scale_field),
+// so every decoded value is finite and of order 1 -- comparable to random_pair's delta, so a wrong or missing
+// delta actually shows up (a value of order 1e-5 to 1e6, as unconstrained random bytes give, would hide it).
+std::vector<uint8_t> random_base(std::mt19937& rng, uint32_t type, const char* type_name, int64_t n_in, int64_t n_out,
                                  std::vector<std::vector<float>>& decoded) {
     const auto* t = ggml_get_type_traits((enum ggml_type) type);
     const size_t row_bytes = ggml_row_size((enum ggml_type) type, n_in);
+    const size_t block_bytes = t->type_size;
+    const int64_t n_blocks = n_in / t->blck_size;
     std::vector<uint8_t> data((size_t) n_out * row_bytes);
     decoded.assign((size_t) n_out, std::vector<float>((size_t) n_in));
     std::uniform_int_distribution<int> byte_dist(0, 255);
     for (int64_t i = 0; i < n_out; ++i) {
         uint8_t* row = data.data() + (size_t) i * row_bytes;
-        for (int attempt = 0; attempt < 50; ++attempt) {
-            for (size_t b = 0; b < row_bytes; ++b) row[b] = (uint8_t) byte_dist(rng);
-            t->to_float(row, decoded[(size_t) i].data(), n_in);
-            bool finite = true;
-            for (float v : decoded[(size_t) i])
-                if (!std::isfinite(v)) { finite = false; break; }
-            if (finite) break;
-        }
+        for (size_t b = 0; b < row_bytes; ++b) row[b] = (uint8_t) byte_dist(rng);
+        for (int64_t blk = 0; blk < n_blocks; ++blk) fix_scale_field(type, row + (size_t) blk * block_bytes);
+        t->to_float(row, decoded[(size_t) i].data(), n_in);
+        for (float v : decoded[(size_t) i])
+            check(std::isfinite(v), std::string(type_name) + ": a controlled-scale random block decoded to a non-finite value");
     }
     return data;
 }
@@ -128,7 +157,7 @@ void test_open() {
         check(basalt::core::LoraAdapter::open(path.string(), ad, err), "a well-formed adapter opens: " + err);
         check(ad.alpha() == 16.0f, "alpha read back");
         check(ad.covered_count() == 1, "one covered tensor");
-        check(ad.other_tensor_count() == 0, "no other tensors");
+        check(ad.router_count() == 0 && ad.expert_count() == 0 && ad.other_count() == 0, "no other tensors");
         const auto* p = ad.find("blk.0.attn_q.weight");
         check(p != nullptr, "find() returns the pair");
         if (p) {
@@ -137,14 +166,48 @@ void test_open() {
             check(p->b == proj.b, "lora_b values read back exactly");
         }
     }
-    {   // a router tensor (not one of the ten native families) is counted, not loaded
-        std::map<std::string, Pair> pairs = {{"blk.0.attn_q.weight", proj}, {"blk.0.ffn_gate_inp.weight", proj}};
-        auto path = write_adapter(tmp, "router.gguf", 16.0f, pairs);
+    {   // a router, an expert and an "other" tensor (none of the ten native families) are each counted apart
+        std::map<std::string, Pair> pairs = {
+            {"blk.0.attn_q.weight", proj}, {"blk.0.ffn_gate_inp.weight", proj},
+            {"blk.0.ffn_gate_exps.3.weight", proj}, {"blk.0.hc_attn_norm.weight", proj},
+        };
+        auto path = write_adapter(tmp, "other.gguf", 16.0f, pairs);
         basalt::core::LoraAdapter ad;
         std::string err;
-        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "an adapter with a router tensor opens: " + err);
-        check(ad.covered_count() == 1, "the router tensor is not counted as covered");
-        check(ad.other_tensor_count() == 1, "the router tensor is counted as \"other\"");
+        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "an adapter with other tensors opens: " + err);
+        check(ad.covered_count() == 1, "only the projection tensor is covered");
+        check(ad.router_count() == 1, "the router tensor is counted as \"router\"");
+        check(ad.expert_count() == 1, "the expert tensor is counted as \"expert\"");
+        check(ad.other_count() == 1, "the hyper-connection tensor is counted as \"other\"");
+    }
+    {   // energy_share is std::nullopt, not 0, when the file never wrote that metadata
+        auto path = write_adapter(tmp, "no_share.gguf", 16.0f, {{"blk.0.attn_q.weight", proj}});
+        basalt::core::LoraAdapter ad;
+        std::string err;
+        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "opens without energy_share metadata: " + err);
+        check(!ad.energy_share("projections").has_value(), "energy_share is nullopt, not 0, when absent");
+    }
+    {   // a lora_a with no matching lora_b is rejected
+        std::vector<fixture::Tensor> ts = {lora_a_tensor("blk.0.attn_q.weight", proj)};
+        const auto path = tmp / "unpaired.gguf";
+        fixture::write(path, {fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                              fixture::str("general.architecture", "qwen4exp"), fixture::f32("adapter.lora.alpha", 16.0f)}, ts);
+        basalt::core::LoraAdapter bad;
+        std::string e;
+        check(!basalt::core::LoraAdapter::open(path.string(), bad, e), "a lora_a without a lora_b is rejected");
+        check(e.find("lora_a") != std::string::npos || e.find("lora_b") != std::string::npos,
+             "error names the unpaired tensor (got: " + e + ")");
+    }
+    {   // a truncated file (the fixture's own `cut` parameter) is rejected, not read past its mapping
+        std::vector<fixture::Kv> kv = {fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                                       fixture::str("general.architecture", "qwen4exp"), fixture::f32("adapter.lora.alpha", 16.0f)};
+        std::vector<fixture::Tensor> ts = {lora_a_tensor("blk.0.attn_q.weight", proj), lora_b_tensor("blk.0.attn_q.weight", proj)};
+        const auto path = tmp / "truncated.gguf";
+        fixture::write(path, kv, ts, /* cut */ 16);
+        basalt::core::LoraAdapter bad;
+        std::string e;
+        check(!basalt::core::LoraAdapter::open(path.string(), bad, e), "a truncated adapter is rejected");
+        check(e.find("truncated") != std::string::npos, "error names the truncation (got: " + e + ")");
     }
 
     auto expect_fail = [&](const std::vector<fixture::Kv>& kv, const Pair& ab, const std::string& needle) {
@@ -174,15 +237,18 @@ void test_open() {
 }
 
 // ------------------------------------------------------------------ 2. merge parity against a double reference
+// `scale_factor` and `rank_cut` exist only to let the test sabotage its own reference (see check_parity_case):
+// 1.0 and 0 is the real reference; anything else is a deliberately wrong one the test must be able to reject.
 void double_reference_row(const std::vector<float>& base_row, const std::vector<Pair>& pairs,
                           const std::vector<float>& adapter_alpha, const std::vector<float>& user_scale,
-                          int64_t row, int64_t n_in, std::vector<double>& out) {
+                          int64_t row, int64_t n_in, double scale_factor, int64_t rank_cut, std::vector<double>& out) {
     out.resize((size_t) n_in);
     for (int64_t j = 0; j < n_in; ++j) out[j] = (double) base_row[j];
     for (size_t ai = 0; ai < pairs.size(); ++ai) {
         const Pair& p = pairs[ai];
-        const double coef0 = (double) user_scale[ai] * ((double) adapter_alpha[ai] / (double) p.r);
-        for (int64_t k = 0; k < p.r; ++k) {
+        const int64_t r_used = std::max<int64_t>(0, p.r - rank_cut);
+        const double coef0 = scale_factor * (double) user_scale[ai] * ((double) adapter_alpha[ai] / (double) p.r);
+        for (int64_t k = 0; k < r_used; ++k) {
             const double coef = coef0 * (double) p.b[(size_t) row * p.r + k];
             if (coef == 0.0) continue;
             for (int64_t j = 0; j < n_in; ++j) out[j] += coef * (double) p.a[(size_t) k * n_in + j];
@@ -190,17 +256,71 @@ void double_reference_row(const std::vector<float>& base_row, const std::vector<
     }
 }
 
+struct ViolationStats {
+    int64_t blocks = 0, violated = 0;
+    double worst_ratio = 0;
+    int64_t worst_i = -1, worst_j = -1;
+    double worst_got = 0, worst_ideal = 0, worst_tol = 0;
+};
+
+// Compares the merged output `out` against the reference built with `scale_factor`/`rank_cut` (1.0/0 for the
+// real reference), per 32-value block: a block is "violated" if any of its values misses the tolerance. The
+// tolerance is exact, not padded: 0.5 step for the code's own rounding (computed from the block's own stored,
+// already-rounded scale) plus the scale's own fp16 rounding error amplified by the largest code it multiplies
+// (127), with a 0.1% margin for using the stored rather than the exact scale.
+ViolationStats compare_to_reference(const std::vector<uint8_t>& out, const std::vector<std::vector<float>>& base_f32,
+                                    const std::vector<Pair>& pairs, const std::vector<float>& alpha,
+                                    const std::vector<float>& user_scale, int64_t n_in, int64_t n_out,
+                                    double scale_factor, int64_t rank_cut) {
+    ViolationStats s;
+    const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
+    const size_t row_bytes_q8 = (size_t) ggml_row_size(GGML_TYPE_Q8_0, n_in);
+    std::vector<double> ideal;
+    std::vector<float> got((size_t) n_in);
+    for (int64_t i = 0; i < n_out; ++i) {
+        double_reference_row(base_f32[(size_t) i], pairs, alpha, user_scale, i, n_in, scale_factor, rank_cut, ideal);
+        q8->to_float(out.data() + (size_t) i * row_bytes_q8, got.data(), n_in);
+        for (int64_t blk = 0; blk * 32 < n_in; ++blk) {
+            uint16_t d16;
+            std::memcpy(&d16, out.data() + (size_t) i * row_bytes_q8 + (size_t) blk * q8->type_size, 2);
+            const double step = (double) ggml_fp16_to_fp32(d16);
+            const double tol = 1.001 * (0.5 + 127.0 / 2048.0) * step + 1e-30;
+            const int64_t hi = std::min(blk * 32 + 32, n_in);
+            bool violated = false;
+            for (int64_t j = blk * 32; j < hi; ++j) {
+                const double diff = std::fabs((double) got[(size_t) j] - ideal[(size_t) j]);
+                if (diff > tol) violated = true;
+                const double ratio = diff / tol;
+                if (ratio > s.worst_ratio) {
+                    s.worst_ratio = ratio; s.worst_i = i; s.worst_j = j;
+                    s.worst_got = got[(size_t) j]; s.worst_ideal = ideal[(size_t) j]; s.worst_tol = tol;
+                }
+            }
+            ++s.blocks;
+            if (violated) ++s.violated;
+        }
+    }
+    return s;
+}
+
 void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint32_t type, const char* type_name,
                        int64_t n_in, int64_t n_out, const std::vector<int64_t>& ranks) {
     std::vector<std::vector<float>> base_f32;
-    const auto base_bytes = random_base(rng, type, n_in, n_out, base_f32);
+    const auto base_bytes = random_base(rng, type, type_name, n_in, n_out, base_f32);
+
+    // Fixing the scale field keeps every block finite, but a K-quant's own per-sub-block scale byte is still
+    // random and can push the decoded magnitude well past "order 1" -- so the delta's own sigma is sized from
+    // the base's ACTUAL observed magnitude, not a fixed guess, to stay comparably large regardless.
+    float max_base = 0.0f;
+    for (const auto& row : base_f32) for (float v : row) max_base = std::max(max_base, std::fabs(v));
+    const float sigma = std::max(max_base, 1e-6f) * 0.5f;
 
     const std::string gguf_name = "blk.0.attn_q.weight";
     std::vector<basalt::core::LoraAdapter> adapters(ranks.size());
     std::vector<Pair> pairs(ranks.size());
     std::vector<float> alpha(ranks.size()), user_scale(ranks.size());
     for (size_t ai = 0; ai < ranks.size(); ++ai) {
-        pairs[ai] = random_pair(rng, ranks[ai], n_in, n_out, 0.03f);
+        pairs[ai] = random_pair(rng, ranks[ai], n_in, n_out, sigma);
         alpha[ai] = 8.0f + 4.0f * (float) ai;
         user_scale[ai] = 0.5f + 0.4f * (float) ai;
         const auto path = write_adapter(tmp, std::string(type_name) + "_a" + std::to_string(ai) + ".gguf", alpha[ai],
@@ -218,41 +338,23 @@ void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint
     check(ok, std::string("merge succeeds for ") + type_name + ": " + err);
     if (!ok) return;
 
-    const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
-    const size_t row_bytes_q8 = (size_t) ggml_row_size(GGML_TYPE_Q8_0, n_in);
-    bool within_tol = true;
-    double worst_ratio = 0.0;
-    int64_t worst_i = -1, worst_j = -1;
-    double worst_got = 0, worst_ideal = 0, worst_tol = 0;
-    std::vector<double> ideal;
-    std::vector<float> got((size_t) n_in);
-    for (int64_t i = 0; i < n_out; ++i) {
-        double_reference_row(base_f32[(size_t) i], pairs, alpha, user_scale, i, n_in, ideal);
-        q8->to_float(out.data() + (size_t) i * row_bytes_q8, got.data(), n_in);
-        for (int64_t blk = 0; blk * 32 < n_in; ++blk) {
-            uint16_t d16;
-            std::memcpy(&d16, out.data() + (size_t) i * row_bytes_q8 + (size_t) blk * q8->type_size, 2);
-            const double step = (double) ggml_fp16_to_fp32(d16);
-            const int64_t hi = std::min(blk * 32 + 32, n_in);
-            for (int64_t j = blk * 32; j < hi; ++j) {
-                // 0.5 step for the code's own rounding, plus the scale's fp16 rounding (~2^-11 relative) amplified
-                // by the largest code it can multiply (127), plus a relative term for the delta's own f32 cast;
-                // x1.5 headroom since this is a test tolerance, not a claim about the format's exact error bound
-                const double tol = 1.5 * ((0.5 + 127.0 / 2048.0) * step + std::fabs(ideal[(size_t) j]) * 2e-3) + 1e-6;
-                const double diff = std::fabs((double) got[(size_t) j] - ideal[(size_t) j]);
-                if (diff > tol) within_tol = false;
-                const double ratio = diff / tol;
-                if (ratio > worst_ratio) {
-                    worst_ratio = ratio; worst_i = i; worst_j = j;
-                    worst_got = got[(size_t) j]; worst_ideal = ideal[(size_t) j]; worst_tol = tol;
-                }
-            }
-        }
-    }
-    if (!within_tol)
+    const auto real = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 0);
+    if (real.violated) {
         std::fprintf(stderr, "  %s worst: row %lld col %lld got=%.6g ideal=%.6g tol=%.6g ratio=%.3g\n", type_name,
-                     (long long) worst_i, (long long) worst_j, worst_got, worst_ideal, worst_tol, worst_ratio);
-    check(within_tol, std::string(type_name) + ": every merged value is within the Q8_0 step of the double reference");
+                     (long long) real.worst_i, (long long) real.worst_j, real.worst_got, real.worst_ideal, real.worst_tol,
+                     real.worst_ratio);
+    }
+    check(real.violated == 0, std::string(type_name) + ": every merged block is within tolerance of the double reference");
+
+    // the test must have teeth: a deliberately wrong reference (5% off scale, or one rank term missing per
+    // adapter) has to fail this same comparison in most blocks, or the comparison above is not actually checking
+    // anything
+    const auto wrong_scale = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.05, 0);
+    check(wrong_scale.violated > wrong_scale.blocks / 2,
+         std::string(type_name) + ": the test detects a 5% wrong scale (sanity check on the test itself)");
+    const auto wrong_rank = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 1);
+    check(wrong_rank.violated > wrong_rank.blocks / 2,
+         std::string(type_name) + ": the test detects a missing rank term (sanity check on the test itself)");
 }
 
 // ------------------------------------------------------------------ 3. Q8_0-specific identity properties (R1)
@@ -339,8 +441,8 @@ void test_q8_0_identities(std::mt19937& rng) {
 void microbench(std::mt19937& rng, const std::filesystem::path& tmp) {
     const int64_t n_in = 2560, n_out = 10240;
     std::vector<std::vector<float>> decoded;
-    const auto base_bytes = random_base(rng, GGML_TYPE_Q6_K, n_in, n_out, decoded);
-    const Pair p = random_pair(rng, 8, n_in, n_out, 0.03f);
+    const auto base_bytes = random_base(rng, GGML_TYPE_Q6_K, "Q6_K", n_in, n_out, decoded);
+    const Pair p = random_pair(rng, 8, n_in, n_out, 0.4f);
     basalt::core::LoraAdapter ad;
     std::string err;
     const auto path = write_adapter(tmp, "bench.gguf", 16.0f, {{"blk.0.attn_qkv.weight", p}});

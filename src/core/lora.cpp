@@ -11,20 +11,41 @@ namespace basalt::core {
 
 namespace {
 
+bool ends_with(const std::string& name, const char* suffix) {
+    const size_t sl = std::strlen(suffix);
+    return name.size() >= sl && name.compare(name.size() - sl, sl, suffix) == 0;
+}
+
 // Must stay equal to the suffix list `eligible()` in src/core/native_dense.cpp: those are the only tensors the
 // engine's merge-at-load fusion can apply.
 bool eligible_suffix(const std::string& name) {
     static const char* const suffixes[] = {".attn_qkv.weight", ".attn_gate.weight", ".ssm_out.weight",
         ".attn_q.weight", ".attn_k.weight", ".attn_v.weight", ".attn_output.weight",
         ".ffn_gate_shexp.weight", ".ffn_up_shexp.weight", ".ffn_down_shexp.weight"};
-    for (const char* s : suffixes) {
-        const size_t sl = std::strlen(s);
-        if (name.size() >= sl && name.compare(name.size() - sl, sl, s) == 0) return true;
-    }
+    for (const char* s : suffixes) if (ends_with(name, s)) return true;
     return false;
 }
 
+bool is_router(const std::string& name) { return ends_with(name, ".ffn_gate_inp.weight"); }
+
+bool is_expert(const std::string& name) {
+    return name.find(".ffn_gate_exps.") != std::string::npos || name.find(".ffn_up_exps.") != std::string::npos ||
+           name.find(".ffn_down_exps.") != std::string::npos;
+}
+
 const char* const ENERGY_GROUPS[] = {"projections", "router", "experts", "other"};
+
+// The same truncated-file check NativeDense::load makes by hand: a tensor's declared size must fit inside the
+// file's own mapped payload.
+bool check_bounds(const basalt::GgufFile& g, const basalt::TensorInfo& t, const std::string& path, std::string& err) {
+    const uint64_t want = basalt::tensor_payload_bytes(t);
+    const uint64_t payload = g.file_size() - g.data_start();
+    if (want == 0 || t.offset > payload || want > payload - t.offset) {
+        err = path + ": " + t.name + " is truncated or has no whole-block byte count";
+        return false;
+    }
+    return true;
+}
 
 }  // namespace
 
@@ -69,7 +90,13 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
                 err = path + ": " + base + ": lora_a rank " + std::to_string(r_a) + " != lora_b rank " + std::to_string(r_b);
                 return false;
             }
-            if (!eligible_suffix(base)) { ++result.other_count_; continue; }
+            if (!eligible_suffix(base)) {
+                if (is_router(base)) ++result.router_count_;
+                else if (is_expert(base)) ++result.expert_count_;
+                else ++result.other_count_;
+                continue;
+            }
+            if (!check_bounds(g, A, path, err) || !check_bounds(g, B, path, err)) return false;
             LoraPair p;
             p.r = r_a;
             p.n_in = n_in;
@@ -97,9 +124,10 @@ const LoraPair* LoraAdapter::find(const std::string& gguf_name) const {
     return it == pairs_.end() ? nullptr : &it->second;
 }
 
-float LoraAdapter::energy_share(const std::string& group) const {
+std::optional<float> LoraAdapter::energy_share(const std::string& group) const {
     const auto it = energy_share_.find(group);
-    return it == energy_share_.end() ? 0.0f : it->second;
+    if (it == energy_share_.end()) return std::nullopt;
+    return it->second;
 }
 
 bool LoraSet::covers(const std::string& gguf_name, int64_t n_in, int64_t n_out, bool& found, std::string& err) const {

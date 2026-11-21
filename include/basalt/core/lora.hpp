@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,28 +22,33 @@ struct LoraPair {
 };
 
 // One opened adapter file. Only the ten native-matrix families (native_dense.cpp's `eligible()` suffixes) are
-// kept in RAM; every other tensor (the router, the routed experts, hyper-connection, the indexer, the GDN gates,
-// the output head) is counted but not loaded — this engine does not apply them yet.
+// kept in RAM, as float32 LoraPair values; the router (ffn_gate_inp.weight), the routed experts
+// (ffn_{gate,up,down}_exps.N.weight) and everything else (hyper-connection, the indexer, the GDN gates, the
+// output head) are each counted separately, by name, but never loaded.
 class LoraAdapter {
 public:
     /// false (with `err`) on: a missing file, general.type != "adapter", adapter.type != "lora", an architecture
-    /// that is not "qwen4exp", a missing adapter.lora.alpha, a lora_a/lora_b whose "<name>" differs in r, or a
-    /// tensor present as only one of the pair.
+    /// that is not "qwen4exp", a missing adapter.lora.alpha, a lora_a/lora_b whose "<name>" differs in r, a
+    /// tensor present as only one of the pair, or a tensor whose declared size reaches past the file.
     static bool open(const std::string& path, LoraAdapter& out, std::string& err);
 
     const std::string& path() const { return path_; }
     float alpha() const { return alpha_; }
     const LoraPair* find(const std::string& gguf_name) const;
     int covered_count() const { return (int) pairs_.size(); }
-    /// Tensors this adapter has outside the ten native families (not loaded): the count, and what share of the
-    /// adapter's total energy (tools/convert/lora.py's adapter.basalt.energy_share.*) each group carries.
-    int other_tensor_count() const { return other_count_; }
-    float energy_share(const std::string& group) const;   // "projections" / "router" / "experts" / "other"
+    /// Tensors this adapter has outside the ten native families (not loaded), by what they are.
+    int router_count() const { return router_count_; }
+    int expert_count() const { return expert_count_; }
+    int other_count() const { return other_count_; }
+    /// What share of the adapter's total energy (tools/convert/lora.py's adapter.basalt.energy_share.*) each
+    /// group carries, or std::nullopt when that converter did not write the metadata (an adapter from a
+    /// different converter, say) -- never 0 standing in for "not written".
+    std::optional<float> energy_share(const std::string& group) const;   // "projections"/"router"/"experts"/"other"
 
 private:
     std::string path_;
     float alpha_ = 0;
-    int other_count_ = 0;
+    int router_count_ = 0, expert_count_ = 0, other_count_ = 0;
     std::map<std::string, float> energy_share_;
     std::map<std::string, LoraPair> pairs_;
 };
@@ -77,7 +83,7 @@ private:
 //   2. sum each covering entry's delta into its own vector first (entry scale * (alpha / r) * B[row, :] . A),
 //      THEN add that entry's vector to the row's running delta, THEN add the running delta to the base row —
 //      so two entries whose deltas are exact negations of each other (e.g. the same adapter at +1 and -1) give
-//      a net-zero delta exactly, not a base value perturbed twice and rounded twice;
+//      a net-zero delta exactly (see lora.cpp for why that needs this specific order);
 //   3. requantize the row with Q8_0's own from_float_ref — EXCEPT a 32-value block whose delta is all zero: that
 //      block's 34 bytes are copied from the base unchanged (re-quantizing an already-Q8_0 block is not always the
 //      identity, since the block's max code can be 126 instead of 127; this keeps "no net delta" exact even then).
