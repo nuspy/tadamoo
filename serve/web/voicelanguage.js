@@ -6,6 +6,13 @@
    voicetab.js puts the card under the "Speaking over the avatar" card. */
 (function () {
   const CODES = ["it", "en", "fr", "de", "es", "pt", "ja", "zh", "hi", "hu", "ru", "nl", "pl", "tr", "ko", "ar", "cs"];
+  // A short greeting per language, only to hear a voice before picking it - not the voice's own working language text.
+  const PREVIEW_TEXT = {
+    it: "Ciao, come va?", en: "Hello, how are you?", fr: "Bonjour, comment ça va ?", de: "Hallo, wie geht's?",
+    es: "Hola, ¿qué tal?", pt: "Olá, tudo bem?", ja: "こんにちは、元気ですか?", zh: "你好,你好吗?",
+    hi: "नमस्ते, आप कैसे हैं?", hu: "Szia, hogy vagy?", ru: "Привет, как дела?", nl: "Hallo, hoe gaat het?",
+    pl: "Cześć, jak się masz?", tr: "Merhaba, nasılsın?", ko: "안녕하세요, 어떻게 지내세요?", ar: "مرحبا، كيف حالك؟", cs: "Ahoj, jak se máš?",
+  };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const msgOf = r => {
     const e = r.data && r.data.error;
@@ -15,7 +22,62 @@
   const nameOf = code => T("vlg.lang." + code);
 
   let cfg = null, live = null, note = { text: "", bad: false }, timer = 0;
+  let voiceEntries = [], ttsModel = "", apiFn = null, svcFn = null;
   const ui = {};
+
+  async function loadVoiceOptions() {
+    const [models, voices] = await Promise.all([apiFn("GET", "api/voice/models"), svcFn("GET", "/engines/voices")]);
+    if (models.ok) { const tts = (models.data.services || []).find(s => s.id === "tts"); ttsModel = tts ? tts.selected : ""; }
+    if (voices.ok) voiceEntries = voices.data.models || [];
+    paint();
+  }
+
+  function voiceField(code) {
+    const id = "vlg-voice-" + code, current = cfg.voices[code] || "", w = el("div", "vlg-field"), l = el("label", "", T("vlg.voice", nameOf(code)));
+    l.htmlFor = id;
+    const entry = voiceEntries.find(e => e.model === ttsModel) || null;
+    if (!entry) {
+      // the catalog has not answered yet (or the voice service does not): the free-text box from before, nothing lost
+      const i = el("input"); i.type = "text"; i.id = id; i.maxLength = 80; i.autocomplete = "off"; i.spellcheck = false; i.value = current;
+      i.onchange = () => { const v = Object.assign({}, cfg.voices); if (i.value.trim()) v[code] = i.value.trim(); else delete v[code]; ui.save({ voices: v }); };
+      w.append(l, i);
+      return w;
+    }
+    if (entry.voices_from === "cloned") {
+      const i = el("input"); i.type = "text"; i.id = id; i.value = current; i.disabled = true; i.readOnly = true;
+      w.append(l, i, el("p", "vt-help", T("vlg.voices.oneforall", entry.name)));
+      return w;
+    }
+    const options = entry.voices.filter(v => v.lang === code);
+    const row = el("div", "vlg-voice-row"), sel = el("select");
+    sel.id = id;
+    const blank = el("option", "", T("vlg.voices.auto")); blank.value = ""; sel.append(blank);
+    let found = !current;
+    for (const v of options) {
+      const o = el("option", "", v.voice); o.value = v.voice;
+      if (v.voice === current) { o.selected = true; found = true; }
+      sel.append(o);
+    }
+    if (current && !found) { const o = el("option", "", current); o.value = current; o.selected = true; sel.append(o); }  // a stored value the catalog no longer lists stays visible
+    sel.disabled = !options.length;
+    sel.onchange = () => { const v = Object.assign({}, cfg.voices); if (sel.value) v[code] = sel.value; else delete v[code]; ui.save({ voices: v }); };
+    const play = el("button", "btn vlg-voice-play", "▶"); play.type = "button";
+    const playLabel = T("vlg.voices.play", nameOf(code));
+    play.title = playLabel; play.setAttribute("aria-label", playLabel);
+    play.disabled = !options.length;
+    play.onclick = async () => {
+      const voiceName = sel.value || options[0].voice;
+      const label = play.textContent;
+      play.disabled = true; play.textContent = T("vlg.voices.play.busy");
+      const r = await svcFn("POST", "/brain/say", { text: PREVIEW_TEXT[code] || PREVIEW_TEXT.en, voice: voiceName, engine: entry.engine, lang: code });
+      play.disabled = !options.length; play.textContent = label;
+      if (!r.ok) { note = { text: T("vlg.voices.play.failed", msgOf(r)), bad: true }; paint(); }
+    };
+    row.append(sel, play);
+    w.append(l, row);
+    if (!options.length) w.append(el("p", "vt-help", T("vlg.voices.none", entry.name)));
+    return w;
+  }
 
   function field(id, labelText, helpKey, input) {
     const w = el("div", "vlg-field"), l = el("label", "", labelText);
@@ -55,11 +117,7 @@
     ui.short.value = String(cfg.short_s);
     ui.threshold.disabled = ui.short.disabled = !cfg.follow;
     ui.voices.replaceChildren();
-    for (const code of cfg.enabled) {
-      const i = el("input"); i.type = "text"; i.maxLength = 80; i.autocomplete = "off"; i.spellcheck = false; i.value = cfg.voices[code] || "";
-      i.onchange = () => { const v = Object.assign({}, cfg.voices); if (i.value.trim()) v[code] = i.value.trim(); else delete v[code]; ui.save({ voices: v }); };
-      ui.voices.append(field("vlg-voice-" + code, T("vlg.voice", nameOf(code)), null, i));
-    }
+    for (const code of cfg.enabled) ui.voices.append(voiceField(code));
     ui.note.textContent = note.text; ui.note.hidden = !note.text; ui.note.dataset.bad = note.bad ? "1" : "0";
     ui.note.setAttribute("role", note.bad ? "alert" : "status");
   }
@@ -71,6 +129,7 @@
   }
 
   function build(api, svc) {
+    apiFn = api; svcFn = svc;
     const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vlg.title"));
     h.id = "vlg-h"; box.setAttribute("aria-labelledby", h.id);
     ui.save = async change => {
@@ -130,6 +189,7 @@
     const box = build(api, svc);
     api("GET", "api/voice/language").then(r => { if (r.ok) cfg = r.data; else note = { text: msgOf(r), bad: true }; paint(); });
     refreshLive(svc);
+    loadVoiceOptions();
     clearInterval(timer);
     timer = setInterval(() => { if (!box.isConnected) { clearInterval(timer); return; } refreshLive(svc); }, 4000);
     return box;
