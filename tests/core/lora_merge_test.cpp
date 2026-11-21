@@ -237,13 +237,16 @@ void test_open() {
 }
 
 // ------------------------------------------------------------------ 2. merge parity against a double reference
-// `scale_factor` and `rank_cut` exist only to let the test sabotage its own reference (see check_parity_case):
-// 1.0 and 0 is the real reference; anything else is a deliberately wrong one the test must be able to reject.
+// `scale_factor`, `base_scale_factor` and `rank_cut` exist only to let the test sabotage its own reference (see
+// check_parity_case): 1.0/1.0/0 is the real reference; anything else is a deliberately wrong one the test must
+// be able to reject -- scale_factor on the delta term, base_scale_factor on the base term, so a test that only
+// ever gets the delta wrong could still miss a bug that only breaks the base term.
 void double_reference_row(const std::vector<float>& base_row, const std::vector<Pair>& pairs,
                           const std::vector<float>& adapter_alpha, const std::vector<float>& user_scale,
-                          int64_t row, int64_t n_in, double scale_factor, int64_t rank_cut, std::vector<double>& out) {
+                          int64_t row, int64_t n_in, double scale_factor, double base_scale_factor, int64_t rank_cut,
+                          std::vector<double>& out) {
     out.resize((size_t) n_in);
-    for (int64_t j = 0; j < n_in; ++j) out[j] = (double) base_row[j];
+    for (int64_t j = 0; j < n_in; ++j) out[j] = base_scale_factor * (double) base_row[j];
     for (size_t ai = 0; ai < pairs.size(); ++ai) {
         const Pair& p = pairs[ai];
         const int64_t r_used = std::max<int64_t>(0, p.r - rank_cut);
@@ -271,14 +274,15 @@ struct ViolationStats {
 ViolationStats compare_to_reference(const std::vector<uint8_t>& out, const std::vector<std::vector<float>>& base_f32,
                                     const std::vector<Pair>& pairs, const std::vector<float>& alpha,
                                     const std::vector<float>& user_scale, int64_t n_in, int64_t n_out,
-                                    double scale_factor, int64_t rank_cut) {
+                                    double scale_factor, double base_scale_factor, int64_t rank_cut) {
     ViolationStats s;
     const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
     const size_t row_bytes_q8 = (size_t) ggml_row_size(GGML_TYPE_Q8_0, n_in);
     std::vector<double> ideal;
     std::vector<float> got((size_t) n_in);
     for (int64_t i = 0; i < n_out; ++i) {
-        double_reference_row(base_f32[(size_t) i], pairs, alpha, user_scale, i, n_in, scale_factor, rank_cut, ideal);
+        double_reference_row(base_f32[(size_t) i], pairs, alpha, user_scale, i, n_in, scale_factor, base_scale_factor,
+                             rank_cut, ideal);
         q8->to_float(out.data() + (size_t) i * row_bytes_q8, got.data(), n_in);
         for (int64_t blk = 0; blk * 32 < n_in; ++blk) {
             uint16_t d16;
@@ -309,11 +313,17 @@ void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint
     const auto base_bytes = random_base(rng, type, type_name, n_in, n_out, base_f32);
 
     // Fixing the scale field keeps every block finite, but a K-quant's own per-sub-block scale byte is still
-    // random and can push the decoded magnitude well past "order 1" -- so the delta's own sigma is sized from
-    // the base's ACTUAL observed magnitude, not a fixed guess, to stay comparably large regardless.
-    float max_base = 0.0f;
-    for (const auto& row : base_f32) for (float v : row) max_base = std::max(max_base, std::fabs(v));
-    const float sigma = std::max(max_base, 1e-6f) * 0.5f;
+    // random and can push the decoded magnitude well past "order 1". delta_j is a sum of r products of two
+    // N(0, sigma^2) values, each scaled by coef0 = user_scale * alpha / r: its stddev is coef0 * sigma^2 *
+    // sqrt(r) -- quadratic in sigma, not linear -- so sigma is solved for from the base's own observed RMS and
+    // the first adapter's coef0, instead of being set straight from the base's magnitude as if it were linear.
+    double sum_sq = 0.0;
+    int64_t n_values = 0;
+    for (const auto& row : base_f32) for (float v : row) { sum_sq += (double) v * v; ++n_values; }
+    const double rms_base = std::sqrt(sum_sq / (double) n_values);
+    const double alpha0 = 8.0, user_scale0 = 0.5;   // ai=0 of the alpha[ai]/user_scale[ai] formulas just below
+    const double coef0_first = user_scale0 * (alpha0 / (double) ranks[0]);
+    const float sigma = (float) std::sqrt(rms_base / (coef0_first * std::sqrt((double) ranks[0])));
 
     const std::string gguf_name = "blk.0.attn_q.weight";
     std::vector<basalt::core::LoraAdapter> adapters(ranks.size());
@@ -338,7 +348,7 @@ void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint
     check(ok, std::string("merge succeeds for ") + type_name + ": " + err);
     if (!ok) return;
 
-    const auto real = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 0);
+    const auto real = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 1.0, 0);
     if (real.violated) {
         std::fprintf(stderr, "  %s worst: row %lld col %lld got=%.6g ideal=%.6g tol=%.6g ratio=%.3g\n", type_name,
                      (long long) real.worst_i, (long long) real.worst_j, real.worst_got, real.worst_ideal, real.worst_tol,
@@ -346,13 +356,17 @@ void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint
     }
     check(real.violated == 0, std::string(type_name) + ": every merged block is within tolerance of the double reference");
 
-    // the test must have teeth: a deliberately wrong reference (5% off scale, or one rank term missing per
-    // adapter) has to fail this same comparison in most blocks, or the comparison above is not actually checking
-    // anything
-    const auto wrong_scale = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.05, 0);
+    // the test must have teeth: a deliberately wrong reference (5% off delta scale, 5% off the base term, or
+    // one rank term missing per adapter) has to fail this same comparison in most blocks, or the comparison
+    // above is not actually checking anything -- the base and the delta are checked separately, since a test
+    // that only ever perturbs the delta could still miss a bug that only breaks the base term
+    const auto wrong_scale = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.05, 1.0, 0);
     check(wrong_scale.violated > wrong_scale.blocks / 2,
-         std::string(type_name) + ": the test detects a 5% wrong scale (sanity check on the test itself)");
-    const auto wrong_rank = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 1);
+         std::string(type_name) + ": the test detects a 5% wrong delta scale (sanity check on the test itself)");
+    const auto wrong_base = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 1.05, 0);
+    check(wrong_base.violated > wrong_base.blocks / 2,
+         std::string(type_name) + ": the test detects a 5% wrong base (sanity check on the test itself)");
+    const auto wrong_rank = compare_to_reference(out, base_f32, pairs, alpha, user_scale, n_in, n_out, 1.0, 1.0, 1);
     check(wrong_rank.violated > wrong_rank.blocks / 2,
          std::string(type_name) + ": the test detects a missing rank term (sanity check on the test itself)");
 }
@@ -376,7 +390,7 @@ void test_q8_0_identities(std::mt19937& rng) {
     std::uniform_int_distribution<int> byte_dist(0, 255);
     std::vector<uint8_t> block1(34);
     for (auto& b : block1) b = (uint8_t) byte_dist(rng);
-    // make sure block1 decodes finitely (Q8_0 always does: d is fp16, codes are plain int8, no NaN encoding)
+    fix_scale_field(GGML_TYPE_Q8_0, block1.data());   // a random fp16 scale can itself decode to inf/NaN
     std::vector<uint8_t> base_bytes;
     base_bytes.insert(base_bytes.end(), block0.begin(), block0.end());
     base_bytes.insert(base_bytes.end(), block1.begin(), block1.end());
