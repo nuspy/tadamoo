@@ -225,6 +225,22 @@ std::optional<int> parse_options(int argc, char** argv, Options& o, std::string&
             else if (d.rfind("single:", 0) == 0) o.cvec_single = std::atoi(d.c_str() + 7);
             else { basalt::log::error("basalt", "--cvec-dir: per-layer or single:L, got '%s'", d.c_str()); return 2; }
         }
+        else if (a == "--lora") o.lora_files.push_back({next("--lora"), 1.0f});
+        else if (a == "--lora-scaled") {
+            // FILE:SCALE, comma-separated; the LAST colon splits
+            std::stringstream list(next("--lora-scaled"));
+            std::string item;
+            while (std::getline(list, item, ',')) {
+                const size_t colon = item.rfind(':');
+                char* end = nullptr;
+                const float sc = colon == std::string::npos ? 0.0f : std::strtof(item.c_str() + colon + 1, &end);
+                if (colon == std::string::npos || colon == 0 || end == item.c_str() + colon + 1 || *end != '\0') {
+                    basalt::log::error("basalt", "--lora-scaled: expected FILE:SCALE, got '%s'", item.c_str());
+                    return 2;
+                }
+                o.lora_files.push_back({item.substr(0, colon), sc});
+            }
+        }
         else if (a == "--eos-ids") {
             std::string e;
             if (!parse_i64_list(next("--eos-ids"), o.eos_ids, e)) { basalt::log::error("basalt", "--eos-ids: %s", e.c_str()); return 2; }

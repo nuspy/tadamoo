@@ -2,6 +2,8 @@
 #include "basalt/core/direct_upload.hpp"
 #include "basalt/core/load_progress.hpp"
 #include <cstdlib>
+#include "basalt/core/lora.hpp"
+#include "basalt/core/native_matrix_family.hpp"
 #include "basalt/core/weights.hpp"
 #include "basalt/artifact/gguf_reader.hpp"
 #include "basalt/kernels/native_mmvq.hpp"
@@ -10,6 +12,7 @@
 #include <cuda_runtime.h>
 #include <algorithm>
 #include <climits>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <limits>
@@ -31,11 +34,20 @@ bool eligible(const basalt::TensorInfo& tensor, bool include_ple_key) {
     // fallback.
     if (name == "blk.1.ple_key.weight")
         return include_ple_key && (tensor.type == 42 || tensor.type == 18 || tensor.type == 23 || tensor.type == 8);
-    static const char* suffixes[] = {".attn_qkv.weight", ".attn_gate.weight", ".ssm_out.weight",
-        ".attn_q.weight", ".attn_k.weight", ".attn_v.weight", ".attn_output.weight",
-        ".ffn_gate_shexp.weight", ".ffn_up_shexp.weight", ".ffn_down_shexp.weight"};
-    for (const char* suffix : suffixes) if (name.ends_with(suffix)) return true;
-    return false;
+    return is_native_matrix_family(name);
+}
+const LoraSet* g_lora_set = nullptr;   // set_lora; nullptr: fuse nothing (today's behaviour, unchanged)
+constexpr int kQ8_0 = 8;
+// The type NativeDense treats `tensor` as: Q8_0 (what the merge always produces) when `set_lora` covers it,
+// its own stored type otherwise. false (with `err`) only on an adapter/base shape disagreement.
+bool effective_type(const basalt::TensorInfo& tensor, int& type, bool& covered, std::string& err) {
+    type = (int) tensor.type;
+    covered = false;
+    if (!g_lora_set || g_lora_set->empty() || tensor.shape.size() != 2) return true;
+    bool found = false;
+    if (!g_lora_set->covers(tensor.name, (int64_t) tensor.shape[0], (int64_t) tensor.shape[1], found, err)) return false;
+    if (found) { type = kQ8_0; covered = true; }
+    return true;
 }
 struct DeviceFree { void operator()(void* p) const { if (p) cudaFree(p); } };
 using DevicePtr = std::unique_ptr<void, DeviceFree>;
@@ -53,10 +65,13 @@ bool NativeDense::served_names(const std::vector<std::string>& shards, bool incl
     try {
         for (const auto& path : shards) {
             basalt::GgufFile gguf(path);
-            for (const auto& tensor : gguf.tensors())
-                if (eligible(tensor, include_ple_key) && basalt::kernels::native_mmvq_supported(tensor.type) &&
-                    tensor.shape.size() == 2)
-                    out.insert(tensor.name);
+            for (const auto& tensor : gguf.tensors()) {
+                if (!eligible(tensor, include_ple_key) || tensor.shape.size() != 2) continue;
+                int type = 0;
+                bool covered = false;
+                if (!effective_type(tensor, type, covered, err)) return false;
+                if (basalt::kernels::native_mmvq_supported(type)) out.insert(tensor.name);
+            }
         }
         return true;
     } catch (const std::exception& error) {
@@ -79,11 +94,14 @@ bool NativeDense::plan_bytes(const std::vector<std::string>& shards, bool includ
             for (const auto& tensor : gguf.tensors()) {
                 if (!eligible(tensor, include_ple_key) || outside(tensor.name)) continue;
                 if (!in_range(tensor.name) && tensor.name.find("ple") == std::string::npos) continue;
-                if (!basalt::kernels::native_mmvq_supported(tensor.type) || tensor.shape.size() != 2 ||
-                    tensor.shape[0] == 0 || tensor.shape[0] > INT_MAX || tensor.shape[1] == 0 || tensor.shape[1] > INT_MAX)
+                if (tensor.shape.size() != 2 || tensor.shape[0] == 0 || tensor.shape[0] > INT_MAX ||
+                    tensor.shape[1] == 0 || tensor.shape[1] > INT_MAX)
                     continue;
-                out += basalt::kernels::native_mmvq_weight_bytes(tensor.type, (int) tensor.shape[0],
-                                                                 (int) tensor.shape[1]);
+                int type = 0;
+                bool covered = false;
+                if (!effective_type(tensor, type, covered, err)) return false;
+                if (!basalt::kernels::native_mmvq_supported(type)) continue;
+                out += basalt::kernels::native_mmvq_weight_bytes(type, (int) tensor.shape[0], (int) tensor.shape[1]);
             }
         }
         return true;
@@ -101,11 +119,14 @@ bool NativeDense::plan_bytes_by_layer(const std::vector<std::string>& shards, bo
         for (const auto& path : shards) {
             basalt::GgufFile gguf(path);
             for (const auto& tensor : gguf.tensors()) {
-                if (!eligible(tensor, include_ple_key) || !basalt::kernels::native_mmvq_supported(tensor.type) ||
-                    tensor.shape.size() != 2 || tensor.shape[0] == 0 || tensor.shape[0] > INT_MAX ||
-                    tensor.shape[1] == 0 || tensor.shape[1] > INT_MAX)
+                if (!eligible(tensor, include_ple_key) || tensor.shape.size() != 2 || tensor.shape[0] == 0 ||
+                    tensor.shape[0] > INT_MAX || tensor.shape[1] == 0 || tensor.shape[1] > INT_MAX)
                     continue;
-                const uint64_t bytes = basalt::kernels::native_mmvq_weight_bytes(tensor.type, (int) tensor.shape[0],
+                int type = 0;
+                bool covered = false;
+                if (!effective_type(tensor, type, covered, err)) return false;
+                if (!basalt::kernels::native_mmvq_supported(type)) continue;
+                const uint64_t bytes = basalt::kernels::native_mmvq_weight_bytes(type, (int) tensor.shape[0],
                                                                                  (int) tensor.shape[1]);
                 const long l = std::strtol(tensor.name.c_str() + 4, nullptr, 10);
                 if (tensor.name.find("ple") == std::string::npos && l >= 0 && l < n_layers) per_layer[(size_t) l] += bytes;
@@ -120,6 +141,31 @@ bool NativeDense::plan_bytes_by_layer(const std::vector<std::string>& shards, bo
 }
 
 void NativeDense::set_layer_range(int lb, int le) { g_layer_lb = lb; g_layer_le = le; }
+
+bool NativeDense::set_lora(const LoraSet* set, std::string& err) {
+    if (set) {
+        auto share_text = [](const LoraAdapter& a, const char* group) {
+            const auto v = a.energy_share(group);
+            if (!v) return std::string("not known");
+            char buf[16];
+            std::snprintf(buf, sizeof buf, "%.0f%%", (double) *v * 100.0);
+            return std::string(buf);
+        };
+        for (const auto& entry : set->entries()) {
+            const LoraAdapter& a = *entry.adapter;
+            if (a.router_count() || a.expert_count() || a.other_count()) {
+                err = a.path() + ": touches " + std::to_string(a.router_count()) + " router, " +
+                      std::to_string(a.expert_count()) + " expert and " + std::to_string(a.other_count()) +
+                      " other tensor(s) outside the ten families this engine fuses; energy share router=" +
+                      share_text(a, "router") + " experts=" + share_text(a, "experts") + " other=" +
+                      share_text(a, "other");
+                return false;
+            }
+        }
+    }
+    g_lora_set = set;
+    return true;
+}
 bool NativeDense::keep_unquantized_ple_key(const PackFiles& pack, std::set<std::string>& skip, std::string& err) {
     const std::string key = "blk.1.ple_key.weight";
     if (!skip.count(key)) return true;
@@ -249,7 +295,10 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                 }
                 auto& ref = found->second;
                 if (ref.native_data) { err = "native dense: override already attached"; return false; }
-                if (!basalt::kernels::native_mmvq_supported(tensor.type)) continue;
+                int type = 0;
+                bool lora_covered = false;
+                if (!effective_type(tensor, type, lora_covered, err)) return false;
+                if (!basalt::kernels::native_mmvq_supported(type)) continue;
                 // the file keeps an unquantized key here, which the PLE reads from the arena
                 if (tensor.name == "blk.1.ple_key.weight" && !ref.quantized()) continue;
                 if (!ref.quantized() || tensor.shape.size() != 2 ||
@@ -257,8 +306,7 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                     tensor.shape[0] != (uint64_t) ref.ne0 || tensor.shape[1] != (uint64_t) ref.ne1) {
                     err = "native dense: incompatible matrix " + tensor.name; return false;
                 }
-                const auto bytes = basalt::kernels::native_mmvq_weight_bytes(
-                    tensor.type, (int) ref.ne0, (int) ref.ne1);
+                const auto bytes = basalt::kernels::native_mmvq_weight_bytes(type, (int) ref.ne0, (int) ref.ne1);
                 void* where = nullptr;
                 DevicePtr own;
                 if (slab_base != nullptr && slab_used + bytes <= slab_bytes) {
@@ -272,16 +320,38 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                     if (cudaMalloc(&allocation, bytes) == cudaSuccess) own.reset(allocation);
                     where = allocation;
                 }
-                std::string upload_err;
-                if (where == nullptr || !uploader.upload(gguf.path(), gguf.data_start() + tensor.offset, bytes, where, upload_err)) {
-                    err = "native dense upload " + tensor.name + ": " +
-                          (where == nullptr ? std::string("no device memory") : upload_err);
-                    return false;
+                if (where == nullptr) { err = "native dense upload " + tensor.name + ": no device memory"; return false; }
+                if (lora_covered) {
+                    // the base blocks come from the mapped file (tensor_data), not a device-side upload: the
+                    // merge needs them on the host, and the result is already in RAM to copy from
+                    std::vector<uint8_t> fused;
+                    std::string merge_err;
+                    if (!lora_merge_q8_0((uint32_t) tensor.type, gguf.tensor_data(tensor), ref.ne0, ref.ne1,
+                                         *g_lora_set, tensor.name, fused, merge_err)) {
+                        err = "native dense lora merge " + tensor.name + ": " + merge_err;
+                        return false;
+                    }
+                    if (fused.size() != bytes) {
+                        err = "native dense lora merge " + tensor.name + ": fused " + std::to_string(fused.size()) +
+                              " bytes, expected " + std::to_string(bytes);
+                        return false;
+                    }
+                    const auto cuda_err = cudaMemcpy(where, fused.data(), bytes, cudaMemcpyHostToDevice);
+                    if (cuda_err != cudaSuccess) {
+                        err = "native dense lora upload " + tensor.name + ": " + cudaGetErrorString(cuda_err);
+                        return false;
+                    }
+                } else {
+                    std::string upload_err;
+                    if (!uploader.upload(gguf.path(), gguf.data_start() + tensor.offset, bytes, where, upload_err)) {
+                        err = "native dense upload " + tensor.name + ": " + upload_err;
+                        return false;
+                    }
                 }
                 max_in = (std::max)(max_in, (int) ref.ne0);
                 total += bytes;
                 progress.add(bytes);
-                pending.push_back(Pending{&ref, (int) tensor.type, bytes, where, std::move(own)});
+                pending.push_back(Pending{&ref, type, bytes, where, std::move(own)});
             }
         }
         if (pending.empty()) { err = "native dense: no supported GDN/QSA matrices in supplied shards"; return false; }

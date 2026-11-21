@@ -259,3 +259,26 @@ int8 KV, `--spec 0`, 400 W + 180 W, share 0 (all GPU) against 1 (all CPU): PPL 2
 top-1 93.04% / 93.12%. The paired KLD difference is +0.0025 [-0.0005, +0.0055], inside the noise of this gate, so any
 share between them is bounded by that. `basalt-probe` may print a different share
 as a suggestion ([probe](../probe.md)); it never changes it on its own.
+
+## LoRA adapters
+
+`--lora`/`--lora-scaled` fuses the adapter's delta into a dense tensor's own blocks at load (`lora_merge_q8_0`,
+`include/basalt/core/lora.hpp`); this is a weight-format change, like the NVFP4 pack's 6-bit projections above, but
+unconditional rather than per-tensor-type:
+
+- **What moves:** only the ten native-matrix families (`attn_qkv`, `attn_gate`, `ssm_out`, `attn_q`, `attn_k`,
+  `attn_v`, `attn_output`, `ffn_gate_shexp`, `ffn_up_shexp`, `ffn_down_shexp`) that an adapter actually covers. A
+  covered tensor becomes Q8_0 in VRAM regardless of its type in the pack, since not every native type can be
+  losslessly requantized back to itself after an arbitrary delta; an uncovered tensor is untouched, same bytes as
+  without `--lora`.
+- **Rounding:** a covered tensor is dequantized, has the delta added in double, and is requantized to Q8_0 — one
+  more rounding than the pack's own, on top of whatever rounding its own format already has (none, for a pack whose
+  dense tensors are already Q8_0). A null adapter (every weight zero) reproduces a Q8_0 base tensor's bytes exactly
+  (`lora_merge_test`'s R1); on another type it still rounds once, same as loading that tensor with any `--lora`
+  adapter that happens to leave its delta at zero for every value.
+- **Not yet applied:** the router, the routed experts, hyper-connection, the indexer, the GDN alpha/beta gates and
+  the output head. An adapter that covers any of these is refused at startup (see
+  [configuration](../configuration/index.md#lora-adapters)), so its effect on those parts is simply absent, never
+  silently partial.
+- **Measured numbers:** pending a real adapter and a GPU run (`tests/QUEUE_daytime.md`); `lora_merge_test` is the
+  CPU-only parity test (no quality numbers, since nothing it merges is a real trained adapter).

@@ -1,6 +1,7 @@
 #include "basalt/core/lora.hpp"
 
 #include "basalt/artifact/gguf_reader.hpp"
+#include "basalt/core/native_matrix_family.hpp"
 #include "basalt/ggml/ggml.h"
 
 #include <algorithm>
@@ -14,16 +15,6 @@ namespace {
 bool ends_with(const std::string& name, const char* suffix) {
     const size_t sl = std::strlen(suffix);
     return name.size() >= sl && name.compare(name.size() - sl, sl, suffix) == 0;
-}
-
-// Must stay equal to the suffix list `eligible()` in src/core/native_dense.cpp: those are the only tensors the
-// engine's merge-at-load fusion can apply.
-bool eligible_suffix(const std::string& name) {
-    static const char* const suffixes[] = {".attn_qkv.weight", ".attn_gate.weight", ".ssm_out.weight",
-        ".attn_q.weight", ".attn_k.weight", ".attn_v.weight", ".attn_output.weight",
-        ".ffn_gate_shexp.weight", ".ffn_up_shexp.weight", ".ffn_down_shexp.weight"};
-    for (const char* s : suffixes) if (ends_with(name, s)) return true;
-    return false;
 }
 
 bool is_router(const std::string& name) { return ends_with(name, ".ffn_gate_inp.weight"); }
@@ -90,7 +81,7 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
                 err = path + ": " + base + ": lora_a rank " + std::to_string(r_a) + " != lora_b rank " + std::to_string(r_b);
                 return false;
             }
-            if (!eligible_suffix(base)) {
+            if (!is_native_matrix_family(base)) {
                 if (is_router(base)) ++result.router_count_;
                 else if (is_expert(base)) ++result.expert_count_;
                 else ++result.other_count_;

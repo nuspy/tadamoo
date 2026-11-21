@@ -7,6 +7,7 @@
 
 namespace basalt::core {
 class WeightTable;
+class LoraSet;
 struct PackFiles;
 
 // Experimental GDN/QSA/shared-expert projection overrides. Upload unchanged native GGUF
@@ -43,6 +44,11 @@ public:
     /// Layer split: load only blocks [lb, le) (every other `blk.N.` projection belongs to another GPU's stage; the
     /// PLE tensors are loaded everywhere).  Process-wide, read by the next `load`; (-1, -1) = all layers.
     static void set_layer_range(int lb, int le);
+    /// The adapters to fuse into the next `load` (process-wide, like set_layer_range; nullptr: fuse nothing, the
+    /// behaviour before this existed). false (with `err`, naming the counts and the known energy shares) when an
+    /// adapter in `set` touches a tensor outside the ten native-matrix families -- this engine cannot apply it,
+    /// and the static state is left unchanged so a caller that ignores the error cannot silently load with it.
+    static bool set_lora(const LoraSet* set, std::string& err);
     /// A model whose dense index holds `blk.1.ple_key.weight` unquantized serves the PLE from that row, so the key is
     /// taken out of `skip` and `load` does not upload the source tensor over it.  A quantized row leaves `skip`
     /// unchanged.

@@ -26,6 +26,7 @@ int dispatch(Context& context) {
     auto& d_mrope = *context.d_mrope;
     auto& mrope_host = *context.mrope_host;
     auto& cvec_summary = *context.cvec_summary;
+    auto& lora_summary = *context.lora_summary;
     auto& ss = *context.ss;
     auto& main_stream = *context.main_stream;
     auto& main_cs = *context.main_cs;
@@ -151,6 +152,7 @@ int dispatch(Context& context) {
             .d_mrope = d_mrope,
             .mrope_host = mrope_host,
             .cvec_summary = cvec_summary,
+            .lora_summary = lora_summary,
             .ss = ss,
             .main_stream = main_stream,
             .main_cs = main_cs,

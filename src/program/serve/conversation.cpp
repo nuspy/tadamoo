@@ -37,7 +37,7 @@ bool checkpoint_restore(const ConvCheckpoint& c, basalt::core::SessionState& ss,
 
 /// The identity parked conversations on disk are written under (conversation_store.hpp): the model file
 /// (its size and samples of its bytes) and the settings that change a state's bytes - the K/V type, the rope, the draft
-/// layer, the image encoder, control vectors.  A file of another identity is never restored.
+/// layer, the image encoder, control vectors, LoRA adapters. A file of another identity is never restored.
 uint64_t conversation_identity(const Options& o, const basalt::core::ModelGeometry& g) {
     using basalt::core::conversation_store_hash;
     char num[512];
@@ -47,22 +47,30 @@ uint64_t conversation_identity(const Options& o, const basalt::core::ModelGeomet
     std::string text = std::string("basalt conversation state kv ") + o.kv + " rope " +
                        o.rope_scaling + num + " mtp " + o.mtp + " mmproj " + o.vision_mmproj;
     for (const auto& [path, scale] : o.cvec_files) text += " cvec " + path + " " + std::to_string(scale);
+    for (const auto& [path, scale] : o.lora_files) text += " lora " + path + " " + std::to_string(scale);
     uint64_t h = conversation_store_hash(text.data(), text.size(), 1);
     const int64_t geo[] = {g.n_embd, g.n_layers, g.qsa_interval, g.ssm_state_size, g.ssm_v_heads, g.n_head_kv,
                            g.head_dim, g.idx_key_dim, g.n_expert, g.n_ff};
     h = conversation_store_hash(geo, sizeof geo, h);
-    uint64_t size = 0;
-    basalt::platform::file_size(o.model, size);
-    h = conversation_store_hash(&size, sizeof size, h);
-    const int fd = basalt::platform::open_fd_utf8(o.model);
-    std::vector<uint8_t> buf((size_t) 64 << 10);
-    const uint64_t n = std::min<uint64_t>(buf.size(), size);
-    for (int i = 0; i < 16 && fd >= 0 && n > 0; ++i) {
-        const uint64_t off = (size - n) / 15 * (uint64_t) i;
-        if (!basalt::platform::pread_all(fd, buf.data(), n, off)) break;
-        h = conversation_store_hash(buf.data(), (size_t) n, h);
-    }
-    basalt::platform::close_fd(fd);
+    // the path+scale text above tells two adapters apart, but not an adapter reconverted at the same path: its
+    // own size and byte samples go into the hash too, the same way the model file's do
+    auto hash_file = [](const std::string& path, uint64_t hh) {
+        uint64_t size = 0;
+        basalt::platform::file_size(path, size);
+        hh = conversation_store_hash(&size, sizeof size, hh);
+        const int fd = basalt::platform::open_fd_utf8(path);
+        std::vector<uint8_t> buf((size_t) 64 << 10);
+        const uint64_t n = std::min<uint64_t>(buf.size(), size);
+        for (int i = 0; i < 16 && fd >= 0 && n > 0; ++i) {
+            const uint64_t off = (size - n) / 15 * (uint64_t) i;
+            if (!basalt::platform::pread_all(fd, buf.data(), n, off)) break;
+            hh = conversation_store_hash(buf.data(), (size_t) n, hh);
+        }
+        basalt::platform::close_fd(fd);
+        return hh;
+    };
+    h = hash_file(o.model, h);
+    for (const auto& [path, scale] : o.lora_files) h = hash_file(path, h);
     return h;
 }
 
