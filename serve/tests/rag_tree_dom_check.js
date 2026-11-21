@@ -89,18 +89,21 @@ async function main() {
       });
 
       await check(`${vname}: a directory switched off turns off what is below it, its parent shows mixed, and the server holds it`, async () => {
+        await waitFor(`!!${cb(sub)}`, "the directory's checkbox");
         await ev(`${cb(sub)}.click(); return 1;`);
         await until(async () => find(await treeNow(aid), sub).state === "off", "the directory off");
         const t = await treeNow(aid);
         if (find(t, deeper).state !== "off" || find(t, `s:${sid}`).state !== "mixed") throw new Error("the server does not hold the cascade: " + JSON.stringify([find(t, deeper).state, find(t, `s:${sid}`).state]));
-        await waitFor(`${cb(sub)}.checked === false && ${cb(`s:${sid}`)}.indeterminate === true`, "the page showing it");
+        await waitFor(`!!${cb(sub)} && ${cb(sub)}.checked === false && !!${cb(`s:${sid}`)} && ${cb(`s:${sid}`)}.indeterminate === true`, "the page showing it");
         if (!(await ev(`return ${cb(deeper)}.disabled`))) throw new Error("a node under an off node can still be switched");
+        await waitFor(`!!${cb(sub)}`, "the directory's checkbox again");
         await ev(`${cb(sub)}.click(); return 1;`);
         await until(async () => find(await treeNow(aid), deeper).state === "on", "everything back on");
-        await waitFor(`${cb(sub)}.checked === true && ${cb(deeper)}.checked === true`, "the page showing it");
+        await waitFor(`!!${cb(sub)} && ${cb(sub)}.checked === true && !!${cb(deeper)} && ${cb(deeper)}.checked === true`, "the page showing it");
       });
 
       await check(`${vname}: a schedule by interval and one by days are set from the dialog, kept by the server, and the periodic routine is made`, async () => {
+        await waitFor(`!!q('[id="rs-freq-s:${sid}"]')`, "the source's schedule button");
         await ev(`q('[id="rs-freq-s:${sid}"]').click(); return 1;`);
         await waitFor(`!!q("dialog[open] #rs-f-mode")`, "the schedule dialog");
         await typeIn("dialog[open] #rs-f-mode", "interval");
@@ -111,10 +114,11 @@ async function main() {
         let t = await treeNow(aid);
         const f = find(t, `s:${sid}`).freq;
         if (!f || f.mode !== "interval" || f.every !== 2 || f.unit !== "hours") throw new Error("the interval was not kept: " + JSON.stringify(f));
-        await waitFor(`q('[id="rs-freq-s:${sid}"]').textContent.includes("every 2 hours")`, "the schedule written beside the node");
+        await waitFor(`!!q('[id="rs-freq-s:${sid}"]') && q('[id="rs-freq-s:${sid}"]').textContent.includes("every 2 hours")`, "the schedule written beside the node");
         await until(async () => ((await get("api/routines")).routines || []).some(r => r.message === "due" && r.deliver_to && r.deliver_to.ref === aid), "the periodic routine");
         const routines = (await get("api/routines")).routines || [];
         if (!routines.some(r => r.message === "due" && r.deliver_to && r.deliver_to.ref === aid)) throw new Error("the periodic routine was not made; the page says: " + await ev(`return qa("#rg-root .rg-note").map(n => n.textContent).join(" / ")`));
+        await waitFor(`!!q('[id="rs-freq-${sub}"]')`, "the directory's schedule button");
         await ev(`q('[id="rs-freq-${sub}"]').click(); return 1;`);
         await waitFor(`!!q("dialog[open] #rs-f-mode")`, "the second dialog");
         await typeIn("dialog[open] #rs-f-mode", "occurrence");
@@ -130,10 +134,12 @@ async function main() {
       });
 
       await check(`${vname}: reading a node again runs a job and removing one takes two presses, takes its documents out and keeps them out`, async () => {
+        await waitFor(`!!q('[id="rs-again-${sub}"]')`, "the read again button");
         await ev(`q('[id="rs-again-${sub}"]').click(); return 1;`);
-        await waitFor(`!q('[id="rs-again-${sub}"]').disabled`, "the read again finished");
+        await waitFor(`!!q('[id="rs-again-${sub}"]') && !q('[id="rs-again-${sub}"]').disabled`, "the read again finished");
+        await waitFor(`!!q('[id="rs-rm-${deeper}"]')`, "the remove button");
         await ev(`q('[id="rs-rm-${deeper}"]').click(); return 1;`);
-        await waitFor(`q('[id="rs-rm-${deeper}"]').textContent === "Press again to remove"`, "the second press asked for");
+        await waitFor(`!!q('[id="rs-rm-${deeper}"]') && q('[id="rs-rm-${deeper}"]').textContent === "Press again to remove"`, "the second press asked for");
         if (find(await treeNow(aid), deeper) === null) throw new Error("the first press already removed it");
         await ev(`q('[id="rs-rm-${deeper}"]').click(); return 1;`);
         await waitFor(`!q('[id="rs-rm-${deeper}"]')`, "the directory gone from the page");

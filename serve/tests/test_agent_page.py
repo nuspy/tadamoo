@@ -39,7 +39,7 @@ class AgentPageTest(unittest.TestCase):
             self.assertEqual(I18N.count(f'"{key}"'), 2, key)                                    # English and Italian
 
     def test_a_conversation_in_the_agent_tab_is_made_in_the_folder_and_asks_for_one_first(self):
-        self.assertIn('...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {})', CHAT)
+        self.assertIn('...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : { folder_id: curFolderId() })', CHAT)
         self.assertIn("if (inAgent() && !curPath() && !(await addFolder()))", CHAT)
         self.assertIn("if (inAgent() && !curPath()) { addFolder(); return; }", CHAT)
         self.assertIn('if (agent) mode = "agent";', CHAT)                                      # no model-only chat or question-only kind in a folder
