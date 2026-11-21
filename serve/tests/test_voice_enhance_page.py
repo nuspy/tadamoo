@@ -95,6 +95,13 @@ class EnhancePage(unittest.TestCase):
         self.assertIn("worker_fps_cap", JS)
         self.assertIn("worker_height_cap", JS)
 
+    def test_a_refused_sdk_path_shows_its_own_reason_and_keeps_what_was_typed(self):
+        # a save the server refuses (serve/voice_settings.py::merge_enhance) must not just vanish back to the old,
+        # often empty value with the reason shown only once at the bottom of the whole card
+        self.assertIn('if (code && Object.prototype.hasOwnProperty.call(change, code)) fieldError = { key: code, text: note.text, value: change[code] };', JS)
+        self.assertIn('input.value = String(err ? err.value : (value || (numeric ? 0 : "")));', JS)
+        self.assertIn('fieldError && fieldError.key === "rtx_video_path" ? fieldError : null', JS)
+
 
 if __name__ == "__main__":
     unittest.main()

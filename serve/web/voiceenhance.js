@@ -16,7 +16,7 @@
   };
   const num = v => (v == null ? T("ae.cost.na") : `${Math.round(v * 10) / 10} ms`);
 
-  let cfg = null, info = null, note = { text: "", bad: false }, timer = null, down = "";
+  let cfg = null, info = null, note = { text: "", bad: false }, timer = null, down = "", fieldError = null;
 
   function providerOf(stage, name) { return info && info.capabilities && info.capabilities[stage] && info.capabilities[stage][name]; }
   function usable(stage, name) {
@@ -58,13 +58,15 @@
     return wrap;
   }
 
-  function field(id, labelKey, value, onPick, help, numeric) {
+  function field(id, labelKey, value, onPick, help, numeric, err) {
     const wrap = el("div", "vt-field"), label = el("label", "", T(labelKey)), input = el("input");
-    label.htmlFor = id; input.id = id; input.type = "text"; input.value = String(value || (numeric ? 0 : ""));
+    label.htmlFor = id; input.id = id; input.type = "text";
+    input.value = String(err ? err.value : (value || (numeric ? 0 : "")));            // a refused value stays on screen so it can be fixed in place
     if (numeric) { input.inputMode = "numeric"; input.autocomplete = "off"; } else { input.autocomplete = "off"; input.spellcheck = false; }
     input.onchange = () => onPick(numeric ? Number(input.value.trim() || 0) : input.value.trim());
     wrap.append(label, input);
-    if (help) wrap.append(el("p", "vt-help", help));
+    if (err) { const p = el("p", "vt-help", err.text); p.dataset.bad = "1"; wrap.append(p); }
+    else if (help) wrap.append(el("p", "vt-help", help));
     return wrap;
   }
 
@@ -82,13 +84,19 @@
 
   async function save(api, change) {
     note = { text: "", bad: false };
+    fieldError = null;
     const merged = { ...cfg, ...change };
     if (change.upscale && !scalesFor(merged.upscale).includes(Number(merged.scale))) merged.scale = scalesFor(merged.upscale).includes(2) ? 2 : scalesFor(merged.upscale)[0];
     const body = {};
     Object.keys(merged).forEach(k => { if (merged[k] !== cfg[k]) body[k] = merged[k]; });
     if (!Object.keys(body).length) { paint(api); return; }
     const r = await api("POST", "api/voice/avatar", { enhance: body });
-    if (r.ok) { cfg = r.data.enhance; note = { text: T("ae.saved"), bad: false }; await refreshInfo(api); } else note = { text: msgOf(r), bad: true };
+    if (r.ok) { cfg = r.data.enhance; note = { text: T("ae.saved"), bad: false }; await refreshInfo(api); }
+    else {
+      note = { text: msgOf(r), bad: true };
+      const code = r.data && r.data.error && r.data.error.code;                 // the refused field, so its own box can show why, with what was typed
+      if (code && Object.prototype.hasOwnProperty.call(change, code)) fieldError = { key: code, text: note.text, value: change[code] };
+    }
     paint(api);
   }
 
@@ -97,7 +105,8 @@
     if (!cfg) return;
     body.append(radios("upscale", UP, cfg.upscale, "up", name => save(api, { upscale: name })),
                 select("ae-scale", "ae.scale", scalesFor(cfg.upscale), cfg.scale, cfg.upscale === "none", v => save(api, { scale: v })),
-                field("ae-sdk", "ae.sdk", cfg.rtx_video_path, v => save(api, { rtx_video_path: v }), T("ae.sdk.help"), false),
+                field("ae-sdk", "ae.sdk", cfg.rtx_video_path, v => save(api, { rtx_video_path: v }), T("ae.sdk.help"), false,
+                      fieldError && fieldError.key === "rtx_video_path" ? fieldError : null),
                 radios("interpolate", IN, cfg.interpolate, "in", name => save(api, { interpolate: name })),
                 select("ae-factor", "ae.factor", FACTORS, cfg.factor, cfg.interpolate === "none", v => save(api, { factor: v })),
                 el("p", "ae-legend", T("ae.limits")),
