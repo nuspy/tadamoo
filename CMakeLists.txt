@@ -1414,7 +1414,7 @@ if(BUILD_TESTING)
   target_link_libraries(nvfp4_format_test PRIVATE artifact ggml_quants)
   basalt_cpu_test(NAME nvfp4_format_test COMMAND nvfp4_format_test)
   set_tests_properties(nvfp4_format_test PROPERTIES TIMEOUT 60)
-  # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks (E1: host-only, no NativeDense yet)
+  # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks; host-only, NativeDense does not call it yet
   add_executable(lora_merge_test tests/core/lora_merge_test.cpp src/core/lora.cpp)
   target_link_libraries(lora_merge_test PRIVATE artifact ggml_quants)
   basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test)

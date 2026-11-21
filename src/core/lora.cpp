@@ -12,7 +12,7 @@ namespace basalt::core {
 namespace {
 
 // Must stay equal to the suffix list `eligible()` in src/core/native_dense.cpp: those are the only tensors the
-// engine's first fusion pass (phase E2) can apply.
+// engine's merge-at-load fusion can apply.
 bool eligible_suffix(const std::string& name) {
     static const char* const suffixes[] = {".attn_qkv.weight", ".attn_gate.weight", ".ssm_out.weight",
         ".attn_q.weight", ".attn_k.weight", ".attn_v.weight", ".attn_output.weight",

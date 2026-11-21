@@ -11,7 +11,7 @@
 //    code was 126 rather than 127 (re-quantizing such a block is not its own fixed point); the same adapter at
 //    scale +1 and -1 together gives a net-zero delta and the same base bytes; two runs of the same input give
 //    the same bytes.
-// 4. A microbench line: seconds to fuse one 2560 -> 10240 tensor (used to size E4's cost).
+// 4. A microbench line: seconds to fuse one 2560 -> 10240 tensor (sizes the cost of re-fusing at runtime).
 #include "basalt/core/lora.hpp"
 #include "basalt/ggml/ggml.h"
 #include "gguf_fixture.hpp"
