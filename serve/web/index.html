@@ -119,6 +119,7 @@
 <script defer src="web/intake.js"></script>
 <script defer src="web/sideuses.js"></script>
 <script defer src="web/summarylevels.js"></script>
+<script defer src="web/langcheck.js"></script>
 <script defer src="web/gate.js"></script>
 <script defer src="web/vrambroker.js"></script>
 <script defer src="web/heavyjobs.js"></script>
@@ -1213,29 +1214,46 @@
         <div class="kn-actions"><button type="button" class="btn primary" id="su-open" data-t="su.open">Manage uses…</button></div>
       </div>
     </section>
+    <section class="sec stlangcheck" data-sub="inference" id="lk-section" aria-labelledby="lk-h">
+      <div class="sh"><b id="lk-h" data-t="lk.title">Language check</b></div>
+      <div class="pad lkbox" id="lk-root">
+        <p class="setnote kn-help" data-t="lk.help"></p>
+        <ul class="lklist" id="lk-list"></ul>
+        <p class="sud-dim" id="lk-empty" data-t="lk.empty" hidden></p>
+        <div class="lkform">
+          <div class="sud-num"><label for="lk-lang" data-t="lk.language">Language</label><select id="lk-lang"></select></div>
+          <div class="sud-num"><label for="lk-prov" data-t="lk.provider">Model server (from Providers)</label><select id="lk-prov"></select></div>
+          <div class="sud-num"><label for="lk-model" data-t="lk.model">Model name (empty: the provider's own)</label><input id="lk-model" type="text" maxlength="200" autocomplete="off"></div>
+        </div>
+        <p class="sud-dim" id="lk-noprov" data-t="lk.noprov" hidden></p>
+        <div class="kn-actions"><button type="button" class="btn primary" id="lk-add" data-t="lk.add">Add or change</button></div>
+        <label class="sud-switch"><input type="checkbox" id="lk-auto"><span data-t="lk.auto">After a translation into one of these languages, offer to check it</span></label>
+        <p class="setnote" id="lk-note" role="status" aria-live="polite"></p>
+      </div>
+    </section>
     <section class="sec stsummary" data-sub="inference" id="sl-section" aria-labelledby="sl-h">
-      <div class="sh"><b id="sl-h" data-t="sl.title">Summarise a text</b></div>
+      <div class="sh"><b id="sl-h" data-t="sm.title">Summarise a text</b></div>
       <div class="pad slbox" id="sl-root">
-        <p class="setnote kn-help" data-t="sl.help"></p>
-        <label for="sl-text" data-t="sl.text">The text</label>
-        <textarea id="sl-text" rows="8" spellcheck="false" data-t-ph="sl.text.ph"></textarea>
+        <p class="setnote kn-help" data-t="sm.help"></p>
+        <label for="sl-text" data-t="sm.text">The text</label>
+        <textarea id="sl-text" rows="8" spellcheck="false" data-t-ph="sm.text.ph"></textarea>
         <div class="kn-actions">
-          <label class="btn" for="sl-file" data-t="sl.file">Read a file…</label>
+          <label class="btn" for="sl-file" data-t="sm.file">Read a file…</label>
           <input type="file" id="sl-file" accept=".txt,.md,.markdown,.csv,.json,.log,.srt,.vtt,.html,text/*" hidden>
-          <button type="button" class="btn ghost" id="sl-clear" data-t="sl.clear">Clear</button>
+          <button type="button" class="btn ghost" id="sl-clear" data-t="sm.clear">Clear</button>
         </div>
         <div class="slrow">
-          <div class="sud-num"><label for="sl-level" data-t="sl.level">Level</label><select id="sl-level"></select></div>
-          <div class="sud-num"><label for="sl-lang" data-t="sl.lang">Language of the summary (empty: the text's own)</label><input id="sl-lang" type="text" maxlength="40" autocomplete="off"></div>
+          <div class="sud-num"><label for="sl-level" data-t="sm.level">Level</label><select id="sl-level"></select></div>
+          <div class="sud-num"><label for="sl-lang" data-t="sm.lang">Language of the summary (empty: the text's own)</label><input id="sl-lang" type="text" maxlength="40" autocomplete="off"></div>
         </div>
         <p class="sud-dim" id="sl-level-help"></p>
-        <div class="kn-actions"><button type="button" class="btn primary" id="sl-go" data-t="sl.go">Summarise</button></div>
+        <div class="kn-actions"><button type="button" class="btn primary" id="sl-go" data-t="sm.go">Summarise</button></div>
         <p class="setnote" id="sl-note" role="status" aria-live="polite"></p>
         <div id="sl-result" hidden>
-          <label for="sl-out" data-t="sl.result">The summary</label>
+          <label for="sl-out" data-t="sm.result">The summary</label>
           <textarea id="sl-out" rows="10" readonly spellcheck="false"></textarea>
           <p class="sud-dim" id="sl-stats"></p>
-          <div class="kn-actions"><button type="button" class="btn" id="sl-copy" data-t="sl.copy">Copy</button><button type="button" class="btn" id="sl-save" data-t="sl.save">Save as .md</button></div>
+          <div class="kn-actions"><button type="button" class="btn" id="sl-copy" data-t="sm.copy">Copy</button><button type="button" class="btn" id="sl-save" data-t="sm.save">Save as .md</button></div>
         </div>
       </div>
     </section>

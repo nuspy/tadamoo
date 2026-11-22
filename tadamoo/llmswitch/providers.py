@@ -599,6 +599,10 @@ class Registry:
         prov = self.provider_for(consumer)
         if prov is None:
             return None
+        return self.endpoint_of(prov, embedding, carica)
+
+    def endpoint_of(self, prov: dict, embedding: bool = False, carica: bool = True) -> tuple[str, str, str] | None:
+        """Come `endpoint_for`, per la voce di un provider che si ha già in mano (non assegnata a un consumer)."""
         spec = TYPES.get(prov.get("type") or "", {})
         if embedding:
             modello = (prov.get("embed_model") or "").strip()

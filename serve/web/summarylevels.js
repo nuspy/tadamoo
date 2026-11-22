@@ -14,33 +14,33 @@
 
   function paintLevels() {
     const keep = level.value || "medium";
-    level.replaceChildren(...LEVELS.map(l => Object.assign(document.createElement("option"), { value: l, textContent: T("sl.l." + l) })));
+    level.replaceChildren(...LEVELS.map(l => Object.assign(document.createElement("option"), { value: l, textContent: T("sm.l." + l) })));
     level.value = keep;
-    q("sl-level-help").textContent = T("sl.l." + level.value + ".d");
+    q("sl-level-help").textContent = T("sm.l." + level.value + ".d");
   }
 
   function paintResult() {
     q("sl-result").hidden = !last;
     if (!last) return;
     out.value = last.summary;
-    q("sl-stats").textContent = T("sl.stats", num(last.chars_in), num(last.chars_out), Math.round(100 * last.chars_out / Math.max(1, last.chars_in)), last.parts, T(last.side ? "sl.where.side" : "sl.where.slot"));
+    q("sl-stats").textContent = T("sm.stats", num(last.chars_in), num(last.chars_out), Math.round(100 * last.chars_out / Math.max(1, last.chars_in)), last.parts, T(last.side ? "sm.where.side" : "sm.where.slot"));
   }
 
   function refresh() {
     go.disabled = busy || !input.value.trim();
-    go.textContent = busy ? T("sl.working") : T("sl.go");
+    go.textContent = busy ? T("sm.working") : T("sm.go");
   }
 
   async function run() {
     if (busy || !input.value.trim()) return;
-    busy = true; last = null; refresh(); paintResult(); say(T("sl.running"));
+    busy = true; last = null; refresh(); paintResult(); say(T("sm.running"));
     try {
       const r = await fetch("api/summarize", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ text: input.value, level: level.value, ...(lang.value.trim() ? { language: lang.value.trim() } : {}) }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j.error && j.error.message) || `HTTP ${r.status}`);
-      last = j; say(T("sl.done"));
-    } catch (e) { say(T("sl.failed", e.message), true); }
+      last = j; say(T("sm.done"));
+    } catch (e) { say(T("sm.failed", e.message), true); }
     busy = false; refresh(); paintResult();
   }
 
@@ -48,15 +48,15 @@
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!f) return;
-    if (f.size > 8 << 20) return say(T("sl.toolarge"), true);
-    try { input.value = await f.text(); say(T("sl.loaded", f.name, num(input.value.length))); } catch (err) { say(T("sl.failed", err.message), true); }
+    if (f.size > 8 << 20) return say(T("sm.toolarge"), true);
+    try { input.value = await f.text(); say(T("sm.loaded", f.name, num(input.value.length))); } catch (err) { say(T("sm.failed", err.message), true); }
     refresh();
   });
   input.addEventListener("input", refresh);
-  level.addEventListener("change", () => { q("sl-level-help").textContent = T("sl.l." + level.value + ".d"); });
+  level.addEventListener("change", () => { q("sl-level-help").textContent = T("sm.l." + level.value + ".d"); });
   go.addEventListener("click", run);
   q("sl-copy").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(out.value); say(T("sl.copied")); } catch (e) { out.select(); say(T("sl.select")); }
+    try { await navigator.clipboard.writeText(out.value); say(T("sm.copied")); } catch (e) { out.select(); say(T("sm.select")); }
   });
   q("sl-save").addEventListener("click", () => {
     const a = document.createElement("a");

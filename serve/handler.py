@@ -806,6 +806,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/side-uses":
                 if self._authorized():
                     self._json(200, self._side_uses_view())
+            elif path == "/api/language-check":
+                if self._authorized():
+                    self._json(200, self._language_check_view())
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -1113,6 +1116,8 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/side-uses":
                 self._side_uses_post()
                 return
+            if path == "/api/language-check" or path.startswith("/api/language-check/"):
+                self._language_check_post(path)
                 return
             if path.startswith("/api/netwatch/"):
                 self._netwatch(path, True)
@@ -2735,6 +2740,50 @@ def make_handler(svc: Service, remote: bool = False):
                          for p in view["providers"] if not p.get("agent_only") and not p.get("judge_only")]
             return {"provider": row.get("provider") or "", "ok": bool(row.get("ok", True)), "why": row.get("why") or "", "consent": bool(row.get("consent")),
                     "needs_consent": bool(row.get("needs_consent")), "providers": providers}
+
+        def _language_check_view(self) -> dict:
+            """The list language -> model of the grammar check, the providers that may be chosen (the ones that run on this PC or its network) and the languages."""
+            from serve import langcheck
+            cfg = langcheck.read()
+            providers = [p for p in self._technical_route()["providers"] if p["is_local"] or p["runs_here"]]
+            names = {p["id"]: p["name"] for p in providers}
+            return {"auto_offer": cfg["auto_offer"], "supported": langcheck.supported(), "providers": providers,
+                    "languages": {c: {**row, "provider_name": names.get(row["provider"], ""), "ok": row["provider"] in names} for c, row in cfg["languages"].items()}}
+
+        def _language_check_post(self, path):
+            """POST /api/language-check (the list: from the PC the server runs on), /run {text, language} (the text corrected) and /offer {request} (the language to offer the check in)."""
+            from serve import langcheck
+            try:
+                loopback = settings.is_loopback(self.client_address[0]) and not self.remote_listener
+                req = json.loads(self._body(langcheck.MAX_TEXT_CHARS * 4 + 4096) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if path == "/api/language-check/offer":
+                    request = req.get("request")
+                    self._json(200, {"language": langcheck.offer(request if isinstance(request, str) else "")})
+                elif path == "/api/language-check/run":
+                    code = langcheck.language_of(req.get("language"))
+                    self._json(200, langcheck.run(self._llm().registry, req.get("text") if isinstance(req.get("text"), str) else "", code))
+                elif path == "/api/language-check":
+                    if not loopback:
+                        return self._json(403, {"error": {"type": "forbidden", "message": "this list can be changed only from the PC the server runs on"}})
+                    if "set" in req:
+                        row = req["set"] if isinstance(req["set"], dict) else {}
+                        allowed = [p for p in self._technical_route()["providers"] if p["is_local"] or p["runs_here"]]
+                        langcheck.set_language(langcheck.language_of(row.get("language")), row.get("provider"), row.get("model", ""), allowed)
+                    elif "remove" in req:
+                        langcheck.remove_language(langcheck.language_of(req["remove"]))
+                    elif "auto_offer" in req:
+                        langcheck.set_auto_offer(req["auto_offer"])
+                    else:
+                        raise ValueError("send set, remove or auto_offer")
+                    self._json(200, self._language_check_view())
+                else:
+                    self._json(404, {"error": {"type": "not_found", "message": "no such route"}})
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:                                              # includes langcheck.LangCheckError
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
 
         def _side_uses_post(self):
             """Changing a use changes what the harness sends and where: only from the PC the server runs on."""

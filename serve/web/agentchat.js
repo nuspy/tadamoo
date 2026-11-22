@@ -442,7 +442,7 @@
   function assistant(turn) {
     if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
     if (!turn && current && !current.done) return current;
-    current = { kind: "assistant", blocks: [], done: false, meta: "", turn };
+    current = { kind: "assistant", blocks: [], done: false, meta: "", turn, live: !replaying };
     if (turn) byTurn[turn] = current;
     items.push(current);
     return current;
@@ -1139,6 +1139,10 @@
         save.title = T("sf.tip");
         it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
         it.el.append(it.actsEl);
+        if (window.langCheck) {                                                 // check the grammar of the answer in a language with a model; offered after a translation
+          const requestOf = () => { for (let k = items.indexOf(it) - 1; k >= 0; k--) if (items[k].kind === "user") return items[k].text || ""; return ""; };
+          window.langCheck.mount(it.actsEl, { answer: () => answerText(it), request: requestOf, offer: !!it.live });
+        }
       }
       it.blocks.forEach(b => {
         if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); window.chatDisplay.place(it, b); b.dirty = true; }
