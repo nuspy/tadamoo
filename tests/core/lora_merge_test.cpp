@@ -185,6 +185,24 @@ void test_open() {
         check(ad.expert_count() == 1, "the expert tensor is counted as \"expert\"");
         check(ad.other_count() == 1, "the hyper-connection tensor is counted as \"other\"");
     }
+    {   // a routed expert's lora_a/lora_b are 3D (stacked per expert): counted as "expert", not a hard error,
+        // because it is classified by name before its shape is ever checked
+        std::vector<float> a2(proj.a), b2(proj.b);   // two experts' worth, to match the 3D shape below
+        a2.insert(a2.end(), proj.a.begin(), proj.a.end());
+        b2.insert(b2.end(), proj.b.begin(), proj.b.end());
+        std::vector<fixture::Tensor> ts = {
+            {"blk.0.ffn_down_exps.weight.lora_a", {(uint64_t) proj.n_in, (uint64_t) proj.r, 2}, 0, 1, f32_bytes(a2)},
+            {"blk.0.ffn_down_exps.weight.lora_b", {(uint64_t) proj.r, (uint64_t) proj.n_out, 2}, 0, 1, f32_bytes(b2)},
+        };
+        const auto path = tmp / "expert_3d.gguf";
+        fixture::write(path, {fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                              fixture::str("general.architecture", "qwen4exp"), fixture::f32("adapter.lora.alpha", 16.0f)}, ts);
+        basalt::core::LoraAdapter ad;
+        std::string err;
+        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "a 3D routed-expert tensor opens: " + err);
+        check(ad.covered_count() == 0, "a 3D expert tensor is not fused");
+        check(ad.expert_count() == 1, "a 3D expert tensor is still counted as \"expert\", not rejected");
+    }
     {   // energy_share is std::nullopt, not 0, when the file never wrote that metadata
         auto path = write_adapter(tmp, "no_share.gguf", 16.0f, {{"blk.0.attn_q.weight", proj}});
         basalt::core::LoraAdapter ad;

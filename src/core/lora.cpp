@@ -73,6 +73,14 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
         for (const auto& [base, ta] : a_of) {
             const basalt::TensorInfo& A = *ta;
             const basalt::TensorInfo& B = *b_of.at(base);
+            if (!is_native_matrix_family(base)) {
+                // Not a tensor this engine fuses, so its own type/shape/rank never matter: a routed expert's
+                // lora_a/lora_b are 3D (stacked per expert), which would otherwise fail the 2D check below.
+                if (is_router(base)) ++result.router_count_;
+                else if (is_expert(base)) ++result.expert_count_;
+                else ++result.other_count_;
+                continue;
+            }
             if (A.type != 0 || B.type != 0) { err = path + ": " + base + " is not F32"; return false; }  // 0 = F32
             if (A.shape.size() != 2 || B.shape.size() != 2) { err = path + ": " + base + " is not a 2D matrix"; return false; }
             const int64_t n_in = (int64_t) A.shape[0], r_a = (int64_t) A.shape[1];
@@ -80,12 +88,6 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
             if (r_a != r_b) {
                 err = path + ": " + base + ": lora_a rank " + std::to_string(r_a) + " != lora_b rank " + std::to_string(r_b);
                 return false;
-            }
-            if (!is_native_matrix_family(base)) {
-                if (is_router(base)) ++result.router_count_;
-                else if (is_expert(base)) ++result.expert_count_;
-                else ++result.other_count_;
-                continue;
             }
             if (!check_bounds(g, A, path, err) || !check_bounds(g, B, path, err)) return false;
             LoraPair p;
