@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'i18n.dart';
 import 'server_prefs.dart';
+import 'visuals_box.dart';
 
 /// The words for a role in the app's language.
 String roleName(String id) => Texts.t('role.$id');
@@ -34,7 +35,14 @@ class RolePicker extends StatelessWidget {
 /// Opens the options of a conversation: how a request is looked at, the rewrite of the request, "work until done", the technical session,
 /// the council box of the conversation and (in a folder) the role. `onRole` and `onCouncil` return the server's complaint, or null when the change was made.
 Future<void> showChatOptions(BuildContext context,
-    {required ServerPrefs prefs, String? role, Future<String?> Function(String role)? onRole, bool council = false, Future<String?> Function(bool on)? onCouncil}) {
+    {required ServerPrefs prefs,
+    String? role,
+    Future<String?> Function(String role)? onRole,
+    bool council = false,
+    Future<String?> Function(bool on)? onCouncil,
+    String images = '',
+    String charts = '',
+    Future<String?> Function(String images, String charts)? onVisuals}) {
   prefs.load();
   return showModalBottomSheet<void>(
     context: context,
@@ -53,6 +61,11 @@ Future<void> showChatOptions(BuildContext context,
           ],
           if (onCouncil != null) ...[
             CouncilBox(on: council, onChanged: onCouncil),
+            const Divider(height: 24),
+          ],
+          if (onVisuals != null) ...[
+            Text(Texts.t('vis.title'), style: Theme.of(c).textTheme.titleSmall),
+            VisualsBox(images: images, charts: charts, onChanged: onVisuals),
             const Divider(height: 24),
           ],
           ServerOptionsBody(prefs: prefs),

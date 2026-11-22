@@ -29,6 +29,10 @@ class SessionInfo {
 
   /// Whether every real question of the conversation goes to the council first (kept on the PC with the conversation).
   bool get council => raw['council'] == true;
+
+  /// How present pictures and charts are in the conversation ('' = not at all).
+  String get images => '${raw['images'] ?? ''}';
+  String get charts => '${raw['charts'] ?? ''}';
 }
 
 /// A piece of a background command's output: what it wrote to its error stream is told apart from the rest.
@@ -297,6 +301,75 @@ class ChatController extends ChangeNotifier {
     if (s is List) _applyEvent({'event': 'suggestions', 'items': s});
   }
 
+  /// The one line that follows a long answer being written in parts; the corrected text, when it comes, replaces the text shown so far.
+  void _longNote(String turn, Map<String, dynamic> d) {
+    final a = _assistant(turn);
+    final what = '${d['event']}';
+    if (what == 'revised') {
+      for (var i = a.blocks.length - 1; i >= 0; i--) {
+        if (a.blocks[i].t == 'text') {
+          a.blocks[i].s = '${d['text'] ?? ''}';
+          break;
+        }
+      }
+      return;
+    }
+    int n(String k) => d[k] is num ? (d[k] as num).toInt() : 0;
+    String why(Object? r) {
+      final s = '$r';
+      const known = ['not_found', 'ambiguous', 'too_short', 'spans_blocks', 'protected', 'heading', 'table', 'limit'];
+      return Texts.t(known.contains(s) ? 'la.r.$s' : s == 'rejected_length' ? 'la.r.length' : s.startsWith('rejected') ? 'la.r.rejected' : 'la.r.invalid');
+    }
+
+    String text = '';
+    switch (what) {
+      case 'estimate':
+        text = Texts.t(d['long'] == true ? 'la.p.estimate' : 'la.p.short', [n('words')]);
+        break;
+      case 'plan':
+        text = Texts.t('la.p.plan', [(d['segments'] as List?)?.length ?? 0]);
+        break;
+      case 'segment_start':
+        text = Texts.t('la.p.part', [n('index'), n('of')]);
+        break;
+      case 'segment_progress':
+        text = Texts.t('la.p.words', [n('index'), n('words')]);
+        break;
+      case 'segment_done':
+        text = Texts.t('la.p.done', [n('index'), n('of'), n('words')]);
+        break;
+      case 'review':
+        text = Texts.t('la.p.review', [n('round'), n('of')]);
+        break;
+      case 'fix':
+        text = d['status'] == 'applied' ? Texts.t('la.p.fix.ok', [n('n'), n('of'), n('chunk')]) : Texts.t('la.p.fix.no', [n('n'), n('of'), n('chunk'), why(d['reason'])]);
+        break;
+      case 'done':
+        final unapplied = (d['unapplied'] as List?)?.length ?? 0;
+        final warnings = ((d['warnings'] as List?) ?? const []).whereType<Map>().toList();
+        text = Texts.t('la.summary', [n('words'), n('target_words'), n('segments'), n('of')]);
+        if (n('applied') > 0 || unapplied > 0) text += ' ${Texts.t('la.fixes', [n('applied'), unapplied])}';
+        if (warnings.isNotEmpty) text += ' ${Texts.t('la.warn', [warnings.length, warnings.take(6).map((w) => '${w['segment']}: ${w['code']}').join('; ')])}';
+        break;
+    }
+    if (text.isEmpty) return;
+    for (final b in a.blocks) {
+      if (b.t == 'note' && b.kind == 'long') {
+        b.s = text;
+        return;
+      }
+    }
+    a.blocks.add(Block('note', s: text)..kind = 'long');
+  }
+
+  /// A waiting request has begun (or was taken out): its note loses the buttons.
+  void _started(String turn) {
+    if (turn.isEmpty) return;
+    for (final it in items) {
+      if (it.kind == 'note' && it.turn == turn && !it.over) it.over = true;
+    }
+  }
+
   void _closeQuestions() {
     for (final it in items) {
       for (final b in it.blocks) {
@@ -316,7 +389,19 @@ class ChatController extends ChangeNotifier {
       case 'accepted':
       case 'started':
         if (e['event'] == 'accepted') suggestions = [];
+        _started(turn);
         _assistant(turn);
+        break;
+      case 'queued': // the person's own bubble is already there
+        break;
+      case 'routed': // what the harness did with a message that came while it was working: added to the task, waiting, urgent, or run beside it
+        final how = '${e['how'] ?? ''}';
+        final position = e['position'] is num ? (e['position'] as num).toInt() : 0;
+        _note(Texts.t('chat.routed.$how', [position]), turn: turn, how: how);
+        break;
+      case 'dropped': // a waiting request was taken out of the queue
+        _started(turn);
+        _note(Texts.t('chat.dropped'), turn: turn);
         break;
       case 'woke':
         _note('${e['text'] ?? ''}'.replaceFirst(RegExp(r'^\[planner\]\s*'), ''), turn: turn);
@@ -386,6 +471,8 @@ class ChatController extends ChangeNotifier {
         } else if (type == 'completion_check') { // the request did not look met: the agent was sent back to finish
           final note = '${d['note'] ?? ''}'.replaceFirst(RegExp(r'^\[harness\]\s*'), '');
           _addBlock(Block('note', s: Texts.t('chat.completion', ['${d['round'] ?? ''}', '${d['of'] ?? ''}', note.length > 200 ? note.substring(0, 200) : note])), turn);
+        } else if (type == 'long_answer') { // the long answer the harness writes in parts: one line that follows it
+          _longNote(turn, d);
         } else if (type == 'batch_interrupted') { // the person wrote something that changes the work: the rest of the calls was not run
           _addBlock(Block('note', s: Texts.t('chat.batch.interrupted', [d['skipped'] is num ? (d['skipped'] as num).toInt() : 0])), turn);
         }
@@ -524,6 +611,20 @@ class ChatController extends ChangeNotifier {
     await api.post('/api/agent/sessions/$sid/cancel');
   }
 
+  /// A request that waits behind the task in hand: do it now (the task is put aside at its next safe point).
+  Future<void> promote(ChatItem note) async {
+    if (sid.isEmpty || note.turn.isEmpty) return;
+    await api.post('/api/agent/sessions/$sid/promote', {'turn': note.turn});
+    _schedule(true);
+  }
+
+  /// A request that waits: take it out of the queue. It never reaches the model.
+  Future<void> drop(ChatItem note) async {
+    if (sid.isEmpty || note.turn.isEmpty) return;
+    await api.post('/api/agent/sessions/$sid/drop', {'turn': note.turn});
+    _schedule(true);
+  }
+
   Future<void> setMode(String mode) async {
     final r = await api.post('/api/agent/sessions/$sid/mode', {'mode': mode});
     info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
@@ -540,6 +641,13 @@ class ChatController extends ChangeNotifier {
   /// Changes the personality or colleague the conversation speaks as ('' for none); the conversation goes on.
   Future<void> setPersona(String slug) async {
     final r = await api.post('/api/agent/sessions/$sid/persona', {'persona': slug});
+    info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
+    notifyListeners();
+  }
+
+  /// Changes how present pictures and charts are in this conversation ('' = not at all); the conversation goes on.
+  Future<void> setVisuals(String images, String charts) async {
+    final r = await api.post('/api/agent/sessions/$sid/visuals', {'images': images, 'charts': charts});
     info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
     notifyListeners();
   }
@@ -568,8 +676,12 @@ class ChatController extends ChangeNotifier {
 
 /// What a new conversation starts with: the same fields the PC's page sends when it makes one.
 class NewChat {
-  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = '', this.persona = '', this.council = false});
+  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = '', this.persona = '', this.council = false, this.images = '', this.charts = ''});
   final String mode;
+
+  /// How present pictures and charts are in the conversation ('' = not at all, else one of `visualLevels`).
+  final String images;
+  final String charts;
 
   /// Whether the conversation starts with the council box on.
   final bool council;
@@ -588,8 +700,8 @@ class NewChat {
   final String worktree;
   final bool askOnly;
 
-  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role, String? persona, bool? council}) =>
-      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role, persona: persona ?? this.persona, council: council ?? this.council);
+  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role, String? persona, bool? council, String? images, String? charts}) =>
+      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role, persona: persona ?? this.persona, council: council ?? this.council, images: images ?? this.images, charts: charts ?? this.charts);
 
-  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role, if (persona.isNotEmpty) 'persona': persona, if (council) 'council': true};
+  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role, if (persona.isNotEmpty) 'persona': persona, if (council) 'council': true, if (images.isNotEmpty) 'images': images, if (charts.isNotEmpty) 'charts': charts};
 }
