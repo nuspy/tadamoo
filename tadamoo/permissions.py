@@ -38,7 +38,7 @@ class PermissionLevel(str, enum.Enum):
     AUTO = "auto"            # Level 3: everything passes unless the Rule of Two is broken
 
 
-DEFAULT_ALWAYS_ASK = frozenset({"phone_call"})
+DEFAULT_ALWAYS_ASK = frozenset({"phone_call", "meeting_join"})
 # tools that walk a folder: one answer about a folder outside the workspace covers the files the walk finds below it
 OUTSIDE_FOLDER_TOOLS = frozenset({"list_directory", "search_code", "tree", "repo_map", "repo_diagram"})
 # tools that only read: in plan mode a path outside the workspace is asked about for them, like at the other levels

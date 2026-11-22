@@ -234,6 +234,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--next-steps-file", default="", help="where the person's choice for the card of next steps after a task is kept (tadamoo/nextsteps.py)")
     parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .tadamoo folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (tadamoo/past.py): the conversation can search and reread them")
+    parser.add_argument("--voice", action="store_true", help="offer the voice tools (speech to text, speech synthesis in the language of the text, the avatar, meetings; tadamoo/voice_tools.py) and tell the model about the voice")
 
 
 def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
@@ -245,7 +246,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_cdp_url=args.browser_cdp_url, browser_private=args.browser_private,
         browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, browser_backend=args.browser_backend, computer=args.computer, computer_prefs=args.computer_prefs, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
-        wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
+        wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone, voice=args.voice,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
@@ -348,6 +349,7 @@ class AgentConfig:
     progress: bool = False              # print a line for each tool call as the run goes
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)
     phone_on_behalf_of: str = ""
+    voice: bool = False                 # offer the voice tools and tell the model about the voice (tadamoo/voice_tools.py)
     skill_paths: List[str] = field(default_factory=list)
     data_dir: Optional[str] = None
     context_patterns: Dict[str, Any] = field(default_factory=dict)   # tadamoo/context_patterns.py: what shapes the context
@@ -886,6 +888,11 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of,
                              contacts=ContactStore(userdata.path("contacts.json")))
 
+    voice_link = None
+    if cfg.voice:
+        from tadamoo import voice_tools
+        voice_link = voice_tools.register_voice_tools(registry, sandbox=sandbox)
+
     if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
         from tadamoo.attachment_tools import register_attachment_tools
         from tadamoo.attachments import AttachmentStore, OutputStore
@@ -1078,13 +1085,13 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if not valid_role(cfg.role):
         raise ValueError(f"role must be one of {list(ROLE_IDS)}")
     role = RolePolicy(workspace, tool_names, cfg.role, on_change=role_changed, checks=lambda: permissions.safe_commands)
-    present = {"browser": cfg.browser, "computer": cfg.computer, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
+    present = {"browser": cfg.browser, "computer": cfg.computer, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "voice": cfg.voice, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
                "past": bool(cfg.past_index), "skills": bool(cfg.personal_skills_dir), "lsp": cfg.lsp, "mcp": bool(cfg.mcp_servers), "media": media_ready}
     if cfg.self_block:
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
-            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True))
+            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True, voice=voice_tools.KNOWLEDGE if cfg.voice else ""))
     agent = AgentLoop(
         client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
@@ -1151,6 +1158,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         if project_recall is not None:
             from tadamoo.rag.tools import knowledge_index
             agent.knowledge_index = knowledge_index(project_recall.store, project_recall)
+        if voice_link is not None:                      # the voice stack now, told when it changes (tadamoo/voice_tools.py)
+            voice_cache = voice_tools._Cache()
+            agent.voice_state = lambda: voice_tools.state_line(voice_link, voice_cache)
         agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
         awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
     if project_recall is not None:

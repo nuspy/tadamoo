@@ -82,7 +82,7 @@ KNOWN_EFFECTS: Dict[str, str] = {
                      "cron_create", "cron_update", "cron_pause", "cron_resume", "cron_delete", "cron_fire_now"), "reversible"),
     **dict.fromkeys(("shell_command", "browser_click", "browser_type", "browser_sign_in", "browser_select", "browser_press", "browser_back", "computer_focus_window", "computer_move", "computer_click", "computer_drag", "computer_scroll",
                      "computer_type_text", "computer_key",
-                     "call_capability", "mcp_call", "request_payment", "phone_call", "phone_say", "phone_listen", "phone_hangup", "run_code", "spawn_subagent",
+                     "call_capability", "mcp_call", "request_payment", "phone_call", "phone_say", "phone_listen", "phone_hangup", "meeting_join", "run_code", "spawn_subagent",
                      "delegate_to_acp_agent", "ask_a2a_agent", "session_send", "session_spawn"), "irreversible"),
 }
 FILE_TOOLS = ("write_file", "edit_file", "docx_edit", "docx_create")

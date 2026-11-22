@@ -240,7 +240,8 @@ class ProxyTests(ServerBase):
     def test_every_allowed_route_reaches_the_service_with_the_token(self):
         calls = [("GET", "/status", None), ("GET", "/functions", None), ("GET", "/brain/state", None), ("GET", "/session/state", None), ("GET", "/diag/brain", None),
                  ("POST", "/session/start", {"mode": "full", "brain": "direct"}), ("POST", "/session/stop", None), ("POST", "/session/new", None),
-                 ("POST", "/brain/say", {"text": "Prova."}), ("POST", "/brain/say", {"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"})]
+                 ("POST", "/brain/say", {"text": "Prova."}), ("POST", "/brain/say", {"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"}),
+                 ("POST", "/brain/say", {"text": "Bonjour.", "lang": "fr"})]
         for method, path, body in calls:
             code, out = self.call(method, path, body)
             self.assertEqual((code, out["route"]), (200, path), path)
@@ -248,6 +249,7 @@ class ProxyTests(ServerBase):
         self.assertEqual(self.service.seen[5][3], {"mode": "full", "brain": "direct", "avatar": False})
         self.assertEqual(self.service.seen[8][3], {"text": "Prova."})
         self.assertEqual(self.service.seen[9][3], {"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"})
+        self.assertEqual(self.service.seen[10][3], {"text": "Bonjour.", "lang": "fr"})               # a language alone reaches the service: it picks the voice
 
     def test_the_token_never_comes_back(self):
         code, out = self.call("GET", "/status")

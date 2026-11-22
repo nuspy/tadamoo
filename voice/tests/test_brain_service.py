@@ -219,6 +219,42 @@ def test_a_test_sentence_with_no_voice_field_never_builds_a_preview(env, monkeyp
     assert r.status_code == 200 and seen == ["hi"]
 
 
+def test_a_language_with_no_voice_asks_for_the_voice_that_language_gets_in_the_avatars_order(env, monkeypatch):
+    env.state.functions._live = lambda name: "loaded"
+    seen = []
+    monkeypatch.setattr(brain_service.Speaker, "_default_synth", lambda self, text, preview=None: (seen.append((text, preview)), ([0.0] * 100, 100))[1])
+    monkeypatch.setattr(brain_service.Speaker, "_default_play", lambda self, samples, rate: None)
+    r = env.client.post("/brain/say", json={"text": "Bonjour.", "lang": "fr"}, headers=AUTH)
+    assert r.status_code == 200 and seen == [("Bonjour.", {"voice": "", "engine": "", "lang": "fr"})]
+
+
+def test_the_language_voice_is_chosen_by_the_language_order_and_the_engine_is_never_the_callers(env, monkeypatch):
+    from callbridge import engines
+    from callbridge.language_voice import VoiceChoice
+    calls = []
+
+    class Router:
+        def synth(self, text, voice, lang, speed, engine):
+            calls.append((text, voice, lang, engine))
+            return [0.0] * 100, 100
+    monkeypatch.setattr(engines, "_get_tts_engine", lambda cfg: Router())
+    monkeypatch.setattr("callbridge.language_voice.choose_voice", lambda code, **kw: VoiceChoice(True, "ff_siwis", "kokoro", "fr-fr", "standard"))
+    speaker = brain_service.Speaker(env.state)
+    samples, rate = speaker._default_synth("Bonjour.", {"voice": "", "engine": "", "lang": "fr"})
+    assert (len(samples), rate) == (100, 100) and calls == [("Bonjour.", "ff_siwis", "fr-fr", "kokoro")]
+
+
+def test_a_language_no_voice_speaks_is_a_409_with_its_own_code(env, monkeypatch):
+    from callbridge import engines
+    from callbridge.language_voice import VoiceChoice
+    env.state.functions._live = lambda name: "loaded"
+    monkeypatch.setattr(engines, "_get_tts_engine", lambda cfg: object())
+    monkeypatch.setattr("callbridge.language_voice.choose_voice", lambda code, **kw: VoiceChoice(False, "", "", "ja", "engine_cannot"))
+    monkeypatch.setattr(brain_service.Speaker, "_default_play", lambda self, samples, rate: None)
+    r = env.client.post("/brain/say", json={"text": "こんにちは", "lang": "ja"}, headers=AUTH)
+    assert r.status_code == 409 and r.get_json()["code"] == "language_unavailable" and "'ja'" in r.get_json()["error"]
+
+
 @pytest.mark.parametrize("body", [{}, {"text": ""}, {"text": 5}, {"text": "x" * 301}])
 def test_a_bad_test_sentence_is_refused(env, body):
     env.state.functions._live = lambda name: "loaded"

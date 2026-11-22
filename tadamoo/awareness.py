@@ -15,6 +15,7 @@ FEATURES = (
     ("computer", "no computer control (the screen, mouse and keyboard): the person has not enabled it"),
     ("vault", "no vault: it cannot sign in or fill in personal data"),
     ("phone", "no phone calls"),
+    ("voice", "no voice: it cannot listen, speak or show an avatar"),
     ("memory", "no project notes"),
     ("personal_memory", "no memories of the person"),
     ("past", "cannot search earlier conversations"),
@@ -26,7 +27,7 @@ FEATURES = (
 
 
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False) -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False, voice: str = "") -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -74,6 +75,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
                      "web addresses; the server reads, cuts and indexes them, and downloads the addresses into the archive's download folder), `knowledge_index` indexes again (or describes the passages) "
                      "and `knowledge_status` says how it stands and what still runs. For a request like 'find all the patents on X and add them to the RAG', search the web, collect the addresses of "
                      "the documents themselves, add them in one `knowledge_add` call (up to 200), then report with `knowledge_status`: what was added, what was already there, what failed and why.")
+    if voice:
+        lines.append(voice)
     if council:
         lines.append(council)
     if lessons:
