@@ -75,6 +75,15 @@
       tell(origin);
       return r.data;
     }
+    /* the update that keeps what the person changed: the window of updatemerge.js, with this tab's calls */
+    function update(r) {
+      const name = pick(r.title) || r.name;
+      UpdateMerge.open({ title: name, errText: why,
+        load: instructions => call("POST", "api/skills/update/plan", { name: r.name, instructions, language: LANG }),
+        apply: body => call("POST", "api/skills/update/apply", body),
+        notes: { set: notes => call("POST", "api/skills/update/notes", { name: r.name, notes }) },
+        done: async text => { say(text); await refresh(); tell(origin); } });
+    }
     async function start(path, payload) {
       const r = await call("POST", path, payload);
       if (!r.ok) { say(why(r), true); paint(); return; }
@@ -214,7 +223,7 @@
         if (r.has_models && r.models !== "ready") { const b = btn(T("sk.models.get"), "", () => start("api/skills/models", { name: r.name })); b.disabled = locked; acts.append(b); }
         acts.append(btn(T("sk.remove"), "ghost", () => { S.remove = S.remove === r.name ? "" : r.name; paint(); }));
         const more = h("details", "sk-more", h("summary", "", T("sk.more")), h("div", "sk-acts",
-          btn(T("sk.update"), "", () => act("api/skills/update", { name: r.name }, d => T(d.status === "updated" ? "sk.updated" : "sk.uptodate", pick(r.title) || r.name))),
+          btn(T("sk.update"), "", () => update(r)),
           r.has_models ? btn(T("sk.models.check"), "", async () => {
             say(T("sk.checking")); paint();
             const d = await call("POST", "api/skills/models/check", { name: r.name });
@@ -268,7 +277,7 @@
         if (!row || row.state === "not_installed") { say(T("sk.cmd.notinstalled", m[2].trim()), true); paint(); return; }
         const name = pick(row.title) || row.name;
         if (verb === "remove" || verb === "delete") { S.remove = row.name; paint(); return; }
-        if (verb === "update") { await act("api/skills/update", { name: row.name }, d => T(d.status === "updated" ? "sk.updated" : "sk.uptodate", name)); return; }
+        if (verb === "update") { update(row); return; }
         const on = verb === "on" || verb === "enable";
         await act(`api/skills/${on ? "enable" : "disable"}`, { name: row.name }, () => T(on ? "sk.enabled" : "sk.disabled", name));
         return;
