@@ -18,10 +18,9 @@ tempo è suo: gli adapter devono esistere già.
   sufficiente a cambiare l'uscita), un parziale solo su `attn_q`/`attn_v` (`ADAPTER_PARTIAL_QV.gguf`), uno solo su
   `attn_qkv` (`ADAPTER_PARTIAL_QKV.gguf`), e uno con almeno un tensore esperto e un tensore router (per P8, per
   esempio un `.ffn_gate_exps.<E>` e un `.ffn_gate_inp.weight`, qualunque siano — l'adapter non deve essere coerente
-  con un vero addestramento per questa prova). Per P2/P3, due adapter in più con le forme di
-  `Qwen3.6-35B-A3B-NVFP4.basalt` (diverse da quelle dell'IQ4_XS: è un modello diverso), uno nullo su tutte le dieci
-  famiglie e uno uguale ma non nullo. Per P2b, un adapter nullo sui soli tensori Q8_0 trovati per nome (vedi
-  sotto). Si può provare fino al file GGUF senza GPU: farlo ora.
+  con un vero addestramento per questa prova). Per P2b, un adapter nullo sul solo tensore Q8_0 trovato per nome nel
+  pacchetto GSQ-RCO-IQ3_S (vedi sotto). `ADAPTER_NULL.gguf` serve anche per P9. Si può provare fino al file GGUF
+  senza GPU: farlo ora.
 - **L'anello che manca tra Python e C++.** Oggi i test C++ (`lora_merge_test`) leggono file scritti dalla fixture
   C++, e i test Python (`tools/convert/test_lora.py`) rileggono con il lettore Python: nessun test fa leggere al
   lettore C++ un file scritto davvero da `lora.py`. Un adapter GGUF piccolo (poche centinaia di byte), scritto una
@@ -59,13 +58,17 @@ Eseguito il 22 novembre 2026 sui tre pacchetti presenti su questa macchina:
 - `E:\Modelli\basalt\v2\Qwen3.8-Flash-Next-Uncensored-IQ4_XS.basalt` (quello che l'utente usa oggi): nessun tensore
   delle dieci famiglie è Q8_0 (IQ4_XS, Q5_K o IQ4_NL secondo la famiglia). **P2b si salta su questo pacchetto.**
 - `E:\Modelli\basalt\v2\Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S.basalt`: quasi tutto Q4_K/Q5_K/Q6_K/IQ4_XS/IQ4_NL, **ma
-  un solo tensore è Q8_0** (`ffn_down_shexp.weight` di un layer, 1 su 48) — un caso reale, minimo, per P2b su
-  questo pacchetto: un adapter nullo che copre solo quel tensore per nome.
-- `E:\Modelli\basalt\v2\Qwen3.6-35B-A3B-NVFP4.basalt` (un modello diverso, Qwen3.6-35B-A3B, non Qwen3.8-Flash-Next):
-  **tutte e dieci le famiglie sono Q8_0, su ogni layer.** Non serve costruire un pacchetto di prova da 120+ GiB per
-  P2 e P3: questo pacchetto esiste già e li esegue davvero, anche se è un modello diverso da quello che l'utente
-  userà — la fusione non guarda la semantica del modello, solo i tipi e le forme dei tensori. Gli adapter per P2/P3
-  vanno generati con le forme di QUESTO pacchetto (diverse da quelle del pacchetto IQ4_XS), non riusati da P2b/P4.
+  un solo tensore è Q8_0** (`ffn_down_shexp.weight` di un layer, 1 su 48) — l'unico confronto disponibile oggi
+  contro il modello senza adapter su un pacchetto `qwen4exp` reale: vedi P2b.
+- `E:\Modelli\basalt\v2\Qwen3.6-35B-A3B-NVFP4.basalt` **non serve a P2/P3**, anche se tutti i suoi densi sono Q8_0:
+  è un altro modello (`qwen35moe`), con un percorso del motore tutto suo (`src/qwen35`, deciso in
+  `src/program/cli/startup.cpp` prima che `configure.cpp` — dove vive `load_lora` — esista). `--lora` su quel
+  pacchetto non arriva mai a `lora_merge_q8_0`: in esecuzione diretta cade nel ramo `else` finale del parser di
+  `q36_engine.cu` ed esce con errore 2 (`usage: --model GGUF ...`); nel percorso del server (`--serve`, come lo
+  lancia davvero l'utente) cade invece nel ramo che ignora i flag che quel motore non ha, con un avviso nel log e
+  nessun arresto — l'adapter non si applica e nessun messaggio arriva al server oltre quella riga. Resta un fatto
+  da dire all'utente (sezione sotto), non un modo per provare P2/P3: su quel pacchetto «uscite identiche» sarebbe
+  vera per forza, perché la fusione non gira affatto.
 
 Il pacchetto `Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt` nominato in `basalt_config.json` **non esiste più su
 questo disco** (cercato il 22 novembre 2026, solo in `E:\Modelli\basalt\`): se serve per un'altra prova, va
@@ -100,18 +103,18 @@ prompt pretokenizzati già nel repository. Etichetta ogni numero col limite di p
 | # | Cosa si fa | Comando | Cosa si confronta | Esito atteso |
 |---|---|---|---|---|
 | P1 | Binario di prima contro questo, senza `--lora` | `bin\basalt.exe --model MODEL.basalt --tokens-file data/bench/conv.ids --greedy --max-new 64 <i tuoi flag reali>` coi due binari | le due uscite greedy | identiche: il collegamento non cambia nulla quando `--lora` non c'è |
-| P2 | Adapter nullo su un pacchetto con tutti i densi già in Q8_0: `Qwen3.6-35B-A3B-NVFP4.basalt` esiste già su questa macchina (`E:\Modelli\basalt\v2\`), nessun pacchetto da costruire apposta | come P1 ma con `--lora ADAPTER_NULL_NVFP4.gguf` (forme di questo pacchetto, non quelle dell'IQ4_XS) su `Qwen3.6-35B-A3B-NVFP4.basalt` | contro lo stesso comando senza `--lora` sullo stesso pacchetto | identiche (un delta nullo su un blocco già Q8_0 è una copia di byte, non un nuovo arrotondamento) |
-| P2b | Sul pacchetto reale dell'utente: adapter nullo sui tensori per nome esatto trovati Q8_0 sopra (nessuno sull'IQ4_XS: salta; uno solo sul GSQ-RCO-IQ3_S) | come P1 ma con `--lora ADAPTER_NULL_Q8TENSOR.gguf` sul pacchetto che ha almeno un tensore Q8_0 | contro P1 sullo stesso pacchetto; e la riga di log deve dire `+0.0 MiB` | identiche, stesso motivo di P2 ma su un pacchetto che l'utente userebbe davvero; nessun tensore Q8_0 trovato su un dato pacchetto = **si salta e si scrive il perché** |
-| P3 | Lo stesso adapter a scala +1 e -1 insieme, sul pacchetto Q8_0 (`Qwen3.6-35B-A3B-NVFP4.basalt`) | `--lora-scaled ADAPTER_NVFP4.gguf:1.0,ADAPTER_NVFP4.gguf:-1.0` su quel pacchetto | contro lo stesso comando senza `--lora` | identiche (la cancellazione è esatta, come nel test CPU) |
+| P2 | *Non eseguibile su questa macchina*: serve un pacchetto `qwen4exp` con tutti i densi già Q8_0, e non ce n'è uno (il `.basalt` Q8_0 presente, NVFP4, è un altro modello e non passa dal collegamento LoRA: vedi sopra) | — | — | **si salta e si scrive il perché**; P2b è il confronto reale che resta |
+| **P2b** | **Prova principale di questo gruppo** (non facoltativa): sul pacchetto `qwen4exp` reale che ha un tensore Q8_0 (`GSQ-RCO-IQ3_S`, il layer di `ffn_down_shexp` trovato sopra), un adapter nullo che copre solo quel tensore per nome | come P1 ma con `--lora ADAPTER_NULL_Q8TENSOR.gguf` su `Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S.basalt` | contro lo stesso comando senza `--lora`, sullo stesso pacchetto; e la riga di log deve dire `+0.0 MiB` | identiche: è l'unica prova disponibile oggi che dimostra, contro il modello senza adapter, che un tensore passato dal ramo nuovo (fusione sull'host, caricamento da RAM invece che DMA) arriva ai kernel con i byte giusti. Limite: copre un solo tensore su 640 colonne, quindi il percorso `native_mmvq`, non `dense_tc` |
+| P3 | *Non eseguibile*, stesso motivo di P2 | — | — | si salta |
 | P3b | Sul pacchetto reale, qualunque esso sia | `--lora-scaled ADAPTER.gguf:1.0,ADAPTER.gguf:-1.0` su `MODEL.basalt` | **non contro P1** — contro `--lora ADAPTER_NULL.gguf` sullo stesso `MODEL.basalt` | identiche: i byte fusi sono gli stessi nei due casi (lettura, segno della scala e somma fino ai kernel), e questo confronto vale su qualunque pacchetto, non solo uno Q8_0 |
 | P4 | Adapter non nullo, due avvii dello stesso comando | `--lora ADAPTER.gguf` su `MODEL.basalt` (due volte) | le due uscite tra loro, poi contro P1 | le due uscite di questo punto sono identiche tra loro; diverse da P1 (l'adapter arriva davvero ai kernel) |
+| **P9** | Prova di tenuta sul pacchetto reale dell'utente (senza P2/P3/P5, nulla provava finora "fusione giusta" contro "fusione sbagliata ma deterministica" su un pacchetto non Q8_0): adapter nullo su tutte le dieci famiglie (ogni denso coperto passa a Q8_0) | i quattro prompt pretokenizzati di `data/bench` (`conv`, `prefill`, `prose`, `struct`), uscita greedy, con e senza `--lora ADAPTER_NULL.gguf` | le due uscite per ciascuno dei quattro prompt | non è una misura di qualità, ma un segnale di guasto netto: se una o più uscite sono testo senza senso, o divergono dal primo token su tutti e quattro, un tensore fuso (per esempio una base IQ4_NL o Q5_K decodificata male nel ramo nuovo) arriva sbagliato — da fermarsi e capire perché, non da proseguire verso P6/P7 |
 | P5 | Qualità con/senza adapter nullo sul pacchetto reale | **ritirata (decisione dell'utente, 22 novembre 2026)** | — | nessun numero: `docs/precision/features.md` resta com'è (parità sui tensori più adapter nullo, nessuna misura di qualità promessa). Generare il file `--kld-base` costerebbe llama.cpp compilato, il GGUF BF16 intero e una corsa lunga, per un numero che non serve alla decisione |
 | P6 | Dalla riga di log `lora: N tensori fusi, +X MiB, Y s` | avviare con `--lora ADAPTER.gguf` e senza, leggere la riga e `nvidia-smi` prima/dopo il caricamento | MiB di VRAM dei densi, posti della cache esperti persi, token al secondo (con e senza `--lora`) | i numeri che servono per la decisione D3 dell'utente (quanta VRAM in meno è accettabile) |
 | P7 | Tipi misti nello stesso livello: un adapter che copre solo `attn_q`/`attn_v`, un altro solo `attn_qkv`, su prefill lungo e su un turno di verifica (`--spec` acceso) | `--lora ADAPTER_PARTIAL_QV.gguf --tokens-file data/bench/prefill.ids` su `MODEL.basalt`, poi lo stesso con `ADAPTER_PARTIAL_QKV.gguf`, poi con `--spec 8` | che il motore parta e risponda; **leggere il log per righe di ripiego** (per esempio `GDN qkv + z without dense_tc_pair`) e i token al secondo con e senza l'adapter | nessun arresto; ogni ripiego trovato nel log va registrato col suo costo in token/s — un ripiego è un costo di velocità che l'utente deve vedere, non solo un «ha funzionato» |
 | P8a | Adapter con un tensore esperto e uno router, rifiuto esplicito | `bin\basalt.exe --model MODEL.basalt --lora ADAPTER_MIXED.gguf --no-lora-partial` | il messaggio d'errore | **FATTO (22 novembre 2026, senza GPU):** si ferma prima di aprire il modello, con `touches 1 router, 1 expert and 0 other tensor(s)...`; confermato anche passando dalla traduzione vera del file di configurazione (`serve.config.engine_words('no-lora-partial', True)` → `--no-lora-partial`) |
 | P8b | Lo stesso adapter, fusione parziale di default | `bin\basalt.exe --model MODEL.basalt --lora ADAPTER_MIXED.gguf` (senza `--no-lora-partial`) | la riga `basalt lora: warning: ...` | **FATTO (22 novembre 2026, senza GPU):** avviso nel log (non un arresto), l'esecuzione continua oltre il caricamento dell'adapter. Resta da fare con la GPU: la riga `lora: N tensors fused` e l'uscita, contro lo stesso adapter privato dei tensori fuori famiglia |
 
-Nota: P2 e P3 girano per davvero su `Qwen3.6-35B-A3B-NVFP4.basalt` (già su disco, verificato sopra), non sono più
-condizionate a un pacchetto da costruire. P2b si salta sul pacchetto IQ4_XS dell'utente (nessun tensore Q8_0) ma
-girerebbe sul GSQ-RCO-IQ3_S (un solo tensore). P3b resta la prova che vale su qualunque pacchetto, compreso quello
-che l'utente usa oggi.
+Nota: P2 e P3 restano scritte per il giorno in cui esistesse un pacchetto `qwen4exp` di prova con i densi già
+Q8_0; su questa macchina non girano. P2b (sul `GSQ-RCO-IQ3_S`) e P9 (sul pacchetto reale dell'utente) sono insieme
+la prova di tenuta che oggi sostituisce P2/P3/P5 sul pacchetto che l'utente usa davvero.
