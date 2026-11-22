@@ -47,7 +47,9 @@ An address can be:
 
 The address is read first (`plan`): the skills found, their size, whether each is already installed, what the model wrote. Nothing is installed by reading. For an address that is not a
 folder, the chosen skill's folder is kept in `skills/sources/<name>/` so that `update` can read it again; `update` re-reads the program's folder, the folder it came from, or the address
-(a skill the model wrote is installed again from the address instead, not updated). A copy edited here is replaced only on request.
+(a skill the model wrote is installed again from the address instead, not updated). The **Update** button of the tab (and `/install-skill update NAME`) opens the update that keeps what
+was changed in the copy: the three versions of each file, a choice for each conflict, instructions to the assistant (`docs/update-merge.md`). The plain `update` replaces the copy,
+and refuses one edited here unless `overwrite_local`.
 
 ## HTTP
 

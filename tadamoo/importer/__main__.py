@@ -4,6 +4,8 @@
     python -m tadamoo.importer verify KIND PATH [--server NAME]
     python -m tadamoo.importer import KIND PATH [--server NAME] [--with-dependencies] [--adopt]
     python -m tadamoo.importer reimport KIND NAME [--yes] [--overwrite-local] [--with-dependencies]
+    python -m tadamoo.importer update-plan KIND NAME [--source PATH] [--instruction TEXT]
+    python -m tadamoo.importer update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged] [--remember]
     python -m tadamoo.importer delete KIND NAME
     python -m tadamoo.importer enable|disable NAME
     python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run] [--update]
@@ -43,6 +45,16 @@ def main(argv=None) -> int:
     re.add_argument("--yes", action="store_true")
     re.add_argument("--overwrite-local", action="store_true")
     re.add_argument("--with-dependencies", action="store_true")
+    up = sub.add_parser("update-plan")
+    up.add_argument("kind", choices=("skill", "plugin", "mcp"))
+    up.add_argument("name")
+    up.add_argument("--source", default="", help="read this source instead of the recorded one")
+    up.add_argument("--instruction", action="append", default=[], help="how to change the merge (needs a model; the server's, so use the app for it)")
+    ua = sub.add_parser("update-apply")
+    ua.add_argument("token")
+    ua.add_argument("--choice", choices=("merge", "overwrite", "cancel"), default="merge")
+    ua.add_argument("--resolve", action="append", default=[], metavar="FILE=ours|theirs|merged", help="what to do with a file both sides changed in the same place")
+    ua.add_argument("--remember", action="store_true", help="keep the instructions for the next updates")
     de = sub.add_parser("delete")
     de.add_argument("kind", choices=KINDS)
     de.add_argument("name")
@@ -67,6 +79,10 @@ def main(argv=None) -> int:
             out = imp.verify(a.kind, a.path, **opts) if a.cmd == "verify" else imp.import_(a.kind, a.path, **opts)
         elif a.cmd == "reimport":
             out = imp.reimport(a.kind, a.name, confirm=a.yes, overwrite_local=a.overwrite_local, with_dependencies=a.with_dependencies)
+        elif a.cmd == "update-plan":
+            out = imp.update_plan(a.kind, a.name, source=a.source or None, instructions=a.instruction)
+        elif a.cmd == "update-apply":
+            out = imp.update_apply(a.token, a.choice, resolutions=dict(r.rsplit("=", 1) for r in a.resolve), remember=a.remember)
         elif a.cmd == "delete":
             out = imp.delete(a.kind, a.name)
         elif a.cmd in ("enable", "disable"):

@@ -10,9 +10,19 @@ from typing import Any, Dict, List
 from tadamoo.personal_skills.store import MAX_FILE as PSKILL_FILE, PersonalSkills, SkillError, digest, slugify, spec_without
 from tadamoo.skills import parse_frontmatter
 
-from .common import NAME, Problem, Snapshot, Tree, check_name, copy_tree, diff_trees, line_delta, now_iso, scan_tree
+from .common import NAME, Problem, Snapshot, Tree, Unit, check_name, copy_tree, diff_trees, line_delta, now_iso, scan_tree
 
 KIND = "skill"
+PERSONAL_KEYS = ("name", "description", "params", "tools", "timeout")        # what a personal skill's skill.json defines; the rest of what is saved there is bookkeeping
+
+
+def canon_definition(spec: Dict[str, Any]) -> bytes:
+    """A skill's definition as the one text that is compared and merged: the same for the source and for the saved skill, whatever else the store writes beside it."""
+    return (json.dumps({k: spec[k] for k in PERSONAL_KEYS if k in spec}, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _lf(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n")
 
 
 def _read(path: Path, what: str) -> str:
@@ -126,6 +136,7 @@ class SkillKind:
                  "imported_at": now_iso(), "updated_at": now_iso(), "files": len(snap.tree.files), "bytes": snap.tree.total, "parent": parent,
                  "forms": snap.extra["forms"]}
         self._put_copy(txn, snap, entry)
+        self.imp.keep_original(txn, snap)
         items[f"skill:{snap.name}"] = entry
         return entry
 
@@ -134,6 +145,7 @@ class SkillKind:
                      files=len(snap.tree.files), bytes=snap.tree.total, forms=snap.extra["forms"])
         old_slug = (entry.get("personal") or {}).get("slug")
         self._put_copy(txn, snap, entry)
+        self.imp.keep_original(txn, snap)
         if old_slug and old_slug != (entry.get("personal") or {}).get("slug"):
             txn.remove_dir(self.imp.spaces.personal_dir / old_slug)
         if not snap.payload["md"]:
@@ -144,7 +156,69 @@ class SkillKind:
         slug = (entry.get("personal") or {}).get("slug")
         if slug:
             txn.remove_dir(self.imp.spaces.personal_dir / slug)
+        self.imp.drop_original(txn, KIND, entry["name"])
         items.pop(f"skill:{entry['name']}", None)
+
+    # -- an update that keeps what the person changed ------------------------------------------------------
+
+    def keep_original(self, snap: Snapshot, dest: Path) -> None:
+        for rel in snap.tree.files:
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(snap.tree.root / rel, target)
+
+    @staticmethod
+    def _canonical_personal(folder: Path) -> None:
+        """Makes the skill.json of a folder of a source (or of its original) the canonical definition, and its skill.py end its lines the same way as the saved one."""
+        spec_file, script_file = folder / "skill.json", folder / "skill.py"
+        if not (spec_file.is_file() and script_file.is_file()):
+            return
+        script = _lf(script_file.read_bytes())
+        script_file.write_bytes(script)
+        try:
+            spec_file.write_bytes(canon_definition(PersonalSkills.validate(json.loads(spec_file.read_text(encoding="utf-8")), script.decode("utf-8"))))
+        except (SkillError, ValueError, UnicodeDecodeError):
+            pass                                                     # an original that no longer passes the checks stays as it was written
+
+    def merge_units(self, snap: Snapshot, entry: Dict[str, Any], work: Path) -> List[Unit]:
+        """The installed skill as it is now (the folder, and the personal skill as it is saved: that is where it is edited), the new source and the original."""
+        name = entry["name"]
+        ours, theirs = work / "ours", work / "theirs"
+        ours.mkdir(parents=True)
+        theirs.mkdir(parents=True)
+        folder = self.folder(name)
+        if entry.get("copy_hash") and folder.is_dir():
+            shutil.copytree(folder, ours, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git", ".versions"))
+        personal = entry.get("personal")
+        if personal:
+            try:
+                have = self.store().get(personal["slug"])
+                (ours / "skill.json").write_bytes(canon_definition(have))
+                (ours / "skill.py").write_bytes(_lf(have["script"].encode("utf-8")))
+            except SkillError:
+                pass
+        self.keep_original(snap, theirs)
+        if snap.payload["py"]:
+            self._canonical_personal(theirs)
+        base, base_from = work / "base", ""
+        original = self.imp.originals(KIND, name)
+        if original.is_dir():
+            shutil.copytree(original, base)
+            base_from = "original"
+        elif entry.get("copy_hash") and folder.is_dir() and "files" not in self.local_changes({**entry, "personal": None}):
+            shutil.copytree(folder, base, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git", ".versions"))      # the imported copy was never edited: it is the original
+            base_from = "copy"
+        if base_from and personal:
+            self._canonical_personal(base)
+        return [Unit(f"skill:{name}", name, ours, theirs, base if base_from else None, base_from, Path(snap.source).name)]
+
+    def merged_snapshot(self, snap: Snapshot, finals: Dict[str, Path]) -> Snapshot:
+        """The snapshot to write for a merge: what the merged folder holds, recorded under the source's own hash and address, with the source kept as the original."""
+        merged = self.snapshot(finals[f"skill:{snap.name}"])
+        if merged.name != snap.name:
+            raise Problem("renamed", f"The merged skill is called '{merged.name}', not '{snap.name}'.")
+        merged.hash, merged.source, merged.original = snap.hash, snap.source, snap
+        return merged
 
     # -- what the copy is now ------------------------------------------------------------------------------
 

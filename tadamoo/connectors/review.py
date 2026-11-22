@@ -61,7 +61,7 @@ def review(client: Any, facts: Dict[str, Any], excerpts: str = "") -> Dict[str, 
 
 
 def review_update(client: Any, name: str, changed: Dict[str, str]) -> Dict[str, Any]:
-    """The advisory review of what an update would actually add or change (tadamoo/connectors/merge3.py's `changed_text`): the same verdict, summary
+    """The advisory review of what an update would actually add or change (the new content of the files the update merge changes, tadamoo/merge/): the same verdict, summary
     and risks as `review()`, judged from the new files' own content, never saved. Without anything changed, or without a model, there is nothing to
     say and the verdict stays `unknown` with the reason."""
     if client is None or not changed:

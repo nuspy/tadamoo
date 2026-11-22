@@ -19,7 +19,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+from tadamoo.merge.session import Unit  # noqa: F401  (what an update merges: the kinds make them)
+
+NAME =re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".work"})
 SKIP_FILES = frozenset({".DS_Store", "Thumbs.db"})
 MAX_FILES = 2000
@@ -349,6 +351,7 @@ class Snapshot:
     parts: List["Snapshot"] = field(default_factory=list)
     dependencies: List[Dict[str, Any]] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
+    original: Optional["Snapshot"] = None            # for a snapshot made from a merge: the source as it was read, which is what is kept as the original
 
     def public(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"kind": self.kind, "name": self.name, "version": self.version, "description": self.description[:400], "source": self.source,

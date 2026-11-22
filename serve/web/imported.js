@@ -127,6 +127,14 @@
     ...(diff.changed || []).map(c => h("li", "im-chg", "~ " + c.file + (c.plus != null ? ` (+${c.plus} -${c.minus})` : "")))];
 
   async function reimportDialog(kind, it, done) {
+    if (kind !== "plan") {                                           // a skill, plugin or server: the update keeps what the person changed (updatemerge.js)
+      UpdateMerge.open({ title: it.name, errText: why,
+        load: instructions => call("POST", `api/import/${kind}/update-plan`, { name: it.name, instructions, language: LANG }),
+        apply: body => call("POST", `api/import/${kind}/update-apply`, body),
+        notes: { set: notes => call("POST", `api/import/${kind}/update-notes`, { name: it.name, notes }) },
+        done: async text => { tell(text); if (done) await done(); } });
+      return;
+    }
     const d = dialog(T("im.re.title", it.name));
     d.content.append(h("p", "setnote", T("im.re.looking", it.source)));
     d.actions.append(cancelBtn(d));

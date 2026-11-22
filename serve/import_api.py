@@ -5,6 +5,9 @@
     POST /api/import/<kind>/verify         {path, server?}          what importing that source would copy; nothing is written
     POST /api/import/<kind>/import         {path, server?, with_dependencies?}
     POST /api/import/<kind>/reimport       {name, confirm?, overwrite_local?, with_dependencies?}   without `confirm`: what would change
+    POST /api/import/<kind>/update-plan    {name, instructions?, language?}   the update merged with what the person changed (skill, plugin, mcp): three versions of each file. Answers a `token`
+    POST /api/import/<kind>/update-apply   {token, choice?, resolutions?, remember?}   choice: merge (default), overwrite or cancel
+    POST /api/import/<kind>/update-notes   {name, notes?}           the instructions kept for the merges of this one; with `notes` it replaces them
     POST /api/import/<kind>/delete         {name}
     POST /api/import/mcp/enable            {name, enabled}          an imported server starts turned off
 
@@ -15,8 +18,10 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from tadamoo.importer import KINDS, Importer, Problem
 
-CONFLICT = frozenset({"exists", "blocked", "local_edits", "part", "source_missing", "renamed", "personal_exists", "plan_exists", "plan_archived", "part_exists"})
-NOT_FOUND = frozenset({"not_imported", "not_found"})
+CONFLICT = frozenset({"exists", "blocked", "local_edits", "part", "source_missing", "renamed", "personal_exists", "plan_exists", "plan_archived", "part_exists", "stale", "conflicts",
+                      "not_mergeable"})
+NOT_FOUND = frozenset({"not_imported", "not_found", "no_plan"})
+STATUS = {"no_model": 503}
 
 
 class ImportApi:
@@ -45,7 +50,7 @@ class ImportApi:
                 return 200, self._act(parts[0], parts[1], req)
             return 404, {"error": {"message": "not found"}}
         except Problem as exc:
-            code = 404 if exc.code in NOT_FOUND else 409 if exc.code in CONFLICT else 400
+            code = 404 if exc.code in NOT_FOUND else 409 if exc.code in CONFLICT else STATUS.get(exc.code, 400)
             return code, {"error": {"type": "import", "code": exc.code, "message": str(exc), **exc.data}}
 
     @staticmethod
@@ -72,4 +77,29 @@ class ImportApi:
             return self._changed(kind, out) if out["status"] == "replaced" else out
         if action == "delete":
             return self._changed(kind, self.imp.delete(kind, self._text(req, "name")))
+        if action == "update-plan":
+            return self.imp.update_plan(kind, self._text(req, "name"), instructions=self._strings(req, "instructions"), language=self._language(req))
+        if action == "update-apply":
+            out = self.imp.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", resolutions=req.get("resolutions"),
+                                        remember=flag("remember"))
+            return self._changed(kind, out) if out.get("status") in ("merged", "replaced") else out
+        if action == "update-notes":
+            name = self._text(req, "name")
+            if "notes" in req:
+                return {"notes": self.imp.set_merge_notes(kind, name, self._strings(req, "notes"))}
+            return {"notes": self.imp.merge_notes(kind, name)}
         raise Problem("not_found", "not found")
+
+    @staticmethod
+    def _strings(req: Dict[str, Any], key: str) -> list:
+        value = req.get(key)
+        if value is None:
+            return []
+        if not isinstance(value, list) or len(value) > 20 or not all(isinstance(x, str) for x in value):
+            raise Problem("bad_request", f"Send `{key}` as a list of texts.")
+        return value
+
+    @staticmethod
+    def _language(req: Dict[str, Any]) -> str:
+        value = req.get("language")
+        return value if isinstance(value, str) and value in ("it", "en", "hu") else "en"

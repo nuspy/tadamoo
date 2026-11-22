@@ -1,0 +1,42 @@
+/* The update that keeps what the person changed (serve/web/updatemerge.js). Phone first: one column, one version of a file at a time, 44 px targets, nothing that needs hover.
+   From 900 px the three versions sit side by side. It borrows the dialog of Imported (imported.css). */
+.um-dlg { width: min(1100px, calc(100vw - 24px)); }
+.um-body { min-width: 0; }
+.um-sum { display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.um-words { margin: 0; font: 400 16px/1.55 var(--font-sans); }
+.um-counts { margin: 0; }
+.um-unit { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.um-unith { margin: 4px 0 0; font: 600 15px/1.4 var(--font-sans); }
+.um-file { min-width: 0; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); padding: 0 10px 10px; }
+.um-file > summary { min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; cursor: pointer; list-style: none; }
+.um-file > summary::-webkit-details-marker { display: none; }
+.um-file > summary::before { content: "\25B8"; }
+.um-file[open] > summary::before { content: "\25BE"; }
+.um-file > summary:focus-visible, .um-tab:focus-visible, .um-pick .btn:focus-visible, .um-ta:focus-visible, .um-dlg .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.um-path { font: 400 14px/1.4 var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.um-tag { margin-left: auto; font-size: 12px; color: var(--fg-2); }
+.um-conflict { border-color: var(--accent); }
+.um-tabs { display: flex; gap: 6px; margin: 4px 0 8px; }
+.um-tab { flex: 1 1 0; min-height: 44px; font: 600 14px/1.2 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.um-tab.on { border-color: var(--accent); background: var(--bg); }
+.um-panes { display: block; min-width: 0; }
+.um-pane { min-width: 0; display: none; }
+.um-file[data-tab="installed"] .um-pane[data-version="installed"], .um-file[data-tab="new"] .um-pane[data-version="new"], .um-file[data-tab="merged"] .um-pane[data-version="merged"] { display: block; }
+.um-vname { display: none; margin: 0 0 4px; font-weight: 600; }
+.um-text { margin: 0; max-height: 320px; overflow: auto; padding: 8px; font: 400 13px/1.5 var(--font-mono); background: var(--panel); border: 1px solid var(--line-soft); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.um-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.um-pick .btn { min-height: 44px; flex: 1 1 140px; }
+.um-instr { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.um-ta { width: 100%; max-width: 100%; box-sizing: border-box; min-height: 88px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; }
+.um-instr .btn { align-self: flex-start; min-height: 44px; }
+.um-notes, .um-res { margin: 0; padding-left: 18px; }
+.um-dlg .im-actions .btn, .um-dlg .im-check { min-height: 44px; }
+@media (min-width: 900px) {
+  .um-tabs { display: none; }
+  .um-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .um-pane, .um-file[data-tab] .um-pane { display: block; }
+  .um-vname { display: block; }
+}
+@media (max-width: 520px) {
+  .um-dlg .im-actions .btn { flex: 1 1 100%; }
+}

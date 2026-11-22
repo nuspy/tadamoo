@@ -21,6 +21,9 @@ from tadamoo.discovery.finder import Finder, resolve_bases
 from tadamoo.discovery.installed import InstalledStore, github_token
 from tadamoo.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
 from tadamoo.discovery.settings import DiscoverySettings
+from tadamoo.merge import tree
+from tadamoo.merge.errors import MergeProblem
+from tadamoo.merge.session import Session, Unit, hash_folder
 
 MB = 1 << 20
 SETTINGS = "settings.json"
@@ -102,6 +105,7 @@ class ConnectorInstaller:
         """`caps` is the CapabilityApi (its index reads what is installed); `directory` is the Connectors folder of the user data. `runner` and `which` are the ones tests give
         an Installer to avoid a real npm/pip; left out, the Installer runs the real ones."""
         self.caps, self.vault_dir = caps, vault_dir
+        self.dir = Path(directory)
         self.settings = ConnectorSettings(directory)
         self.http = http or src.Http()
         self.runner, self.which = runner, which
@@ -210,18 +214,18 @@ class ConnectorInstaller:
         self.caps.index.refresh()
         return record
 
-    def _keep_original(self, record: Dict[str, Any], source: Dict[str, Any]) -> None:
-        """A copy of what was downloaded, as it was, in the originals folder: kept apart from the installed copy, which is the one that may be changed."""
-        base = self.settings.read()["originals_dir"]
+    def _keep_original(self, record: Dict[str, Any], source: Dict[str, Any], download: Optional[Path] = None) -> None:
+        """A copy of what was downloaded, as it was, in the originals folder: kept apart from the installed copy, which is the one that may be changed. After a merge `download` is
+        the new version as it came from GitHub, because the installed copy then holds the person's changes too."""
         folder = str(record.get("folder") or "")
-        if not base or not folder:
+        if not folder:
             return
-        installed = Path(self.caps.index.dir) / folder
+        installed = download or Path(self.caps.index.dir) / folder
         name = f"{source['repo'].replace('/', '__')}@{str(record.get('commit') or 'unknown')[:12]}__{source['path'].replace('/', '_')}"
-        target = Path(base) / "github" / name
+        target = self._originals_base() / "github" / name
         try:
             if installed.is_dir() and not target.exists():
-                shutil.copytree(installed, target)
+                shutil.copytree(installed, target, ignore=shutil.ignore_patterns(".tadamoo-source.json"))
         except OSError:
             pass                                             # the originals are a convenience for the updates: a folder that cannot be written does not undo the install
 
@@ -433,13 +437,17 @@ class ConnectorInstaller:
 
     # -- three-way merge of an update -------------------------------------------------------------------
 
+    def _originals_base(self) -> Path:
+        """Where the downloaded originals are kept: the folder the person chose, else one of our own beside the Connectors settings (an original is what a merge needs, so it is always kept)."""
+        chosen = self.settings.read()["originals_dir"]
+        return Path(chosen) if chosen else self.dir / "originals"
+
     def _original_dir(self, rec: Dict[str, Any]) -> Optional[Path]:
-        """Where `_keep_original` put the download this skill was installed at, if the originals folder was set at the time: the common base for a merge."""
-        base = self.settings.read()["originals_dir"]
-        if not base or not rec.get("repo") or not rec.get("commit"):
+        """Where `_keep_original` put the download this skill was installed at: the common base for a merge."""
+        if not rec.get("repo") or not rec.get("commit"):
             return None
         name = f"{rec['repo'].replace('/', '__')}@{str(rec['commit'])[:12]}__{str(rec.get('source_path') or '').replace('/', '_')}"
-        return Path(base) / "github" / name
+        return self._originals_base() / "github" / name
 
     def _new_commit(self, rec: Dict[str, Any]) -> tuple:
         """The repository, the current ref and the commit it resolves to now, for a skill's own record."""
@@ -449,73 +457,128 @@ class ConnectorInstaller:
         ref = pin or str(github.repo(owner, project).get("default_branch") or "HEAD")
         return repo, path, github.head_commit(owner, project, ref)
 
-    def update_plan(self, entry_id: str) -> Dict[str, Any]:
-        """What updating this GitHub skill to its current commit would do, file by file (tadamoo/connectors/merge3.py): `same`, `upstream`, `kept` or
-        `conflict`. Nothing on disk changes; a conflict needs a choice before `apply_update` can run. `has_base` says whether a real three-way merge was
-        possible (the original download was kept) or every difference had to be called a conflict for lack of one to compare against."""
-        from tadamoo.connectors import merge3
+    def _session(self) -> Session:
+        return Session(self.dir / ".merge")
+
+    @staticmethod
+    def merge_notes(rec: Dict[str, Any]) -> List[str]:
+        return [str(n.get("text") if isinstance(n, dict) else n) for n in rec.get("merge_notes", []) if n]
+
+    def set_merge_notes(self, entry_id: str, notes: List[str]) -> List[str]:
+        """What the person told the merges of this skill to do, kept with its record; an empty list clears it."""
+        with self._lock:
+            rec = self._record(entry_id)
+            clean = [" ".join(str(n).split())[:600] for n in notes if str(n).strip()][:20]
+            if clean:
+                rec["merge_notes"] = [{"text": t, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")} for t in clean]
+            else:
+                rec.pop("merge_notes", None)
+            InstalledStore(self.caps.index.dir).put(rec)
+            return clean
+
+    def update_plan(self, entry_id: str, instructions: Optional[List[str]] = None, language: str = "en", client: Any = None) -> Dict[str, Any]:
+        """What updating this GitHub skill to its current commit would do, merged with what the person changed (tadamoo/merge/): the three versions of every file that
+        differs (installed, new, merged) with a description in words when a model is there. Nothing on disk changes; the proposal is kept under a `token`, and a file both
+        sides changed in the same place needs a choice before `apply_update` can run. `has_base` says whether the original download was kept, so that a real three-way merge
+        was possible, or every difference had to be called a conflict for lack of one to compare against."""
         rec = self._record(entry_id)
         if rec.get("route") != "skill" or not rec.get("repo"):
             raise ConnectorInstallError("Only a skill from GitHub can be merged from here.", "kind")
+        session = self._session()
+        token, work = session.new_work()
         try:
             repo, path, to_commit = self._new_commit(rec)
             installed = Path(self.caps.index.dir) / str(rec.get("folder") or "")
-            base_dir = self._original_dir(rec)
-            with tempfile.TemporaryDirectory(prefix="tadamoo-merge-") as tmp:
-                theirs = self.fetch_skill(repo, path, to_commit, Path(tmp))
-                got = merge3.plan(base_dir if base_dir and base_dir.is_dir() else None, installed, theirs)
-                changed = merge3.changed_text(got, theirs)
+            ours, theirs, base = work / "in" / "ours", work / "in" / "theirs", work / "in" / "base"
+            ours.mkdir(parents=True)
+            theirs.mkdir(parents=True)
+            if installed.is_dir():
+                shutil.copytree(installed, ours, dirs_exist_ok=True)
+            self.fetch_skill(repo, path, to_commit, theirs, files_max=1000, file_bytes=2 * MB)
+            original = self._original_dir(rec)
+            has_base = bool(original and original.is_dir())
+            if has_base:
+                shutil.copytree(original, base)
+            name = str(rec.get("name") or "")
+            unit = Unit(f"skill:{name}", name, ours, theirs, base if has_base else None, "original" if has_base else "", Path(path).name)
+            meta = {"entry_id": entry_id, "name": name, "repo": repo, "path": path, "from_commit": str(rec.get("commit") or ""), "to_commit": to_commit}
+            out = session.propose(token, work, meta, [unit], self.merge_notes(rec), instructions or [], client, language)
+        except MergeProblem as e:
+            shutil.rmtree(work, ignore_errors=True)
+            raise ConnectorInstallError(str(e), e.code) from None
         except ConnectorInstallError:
+            shutil.rmtree(work, ignore_errors=True)
             raise
         except (ValueError, OSError) as e:
+            shutil.rmtree(work, ignore_errors=True)
             raise ConnectorInstallError(str(e)[:300] or type(e).__name__, "merge") from None
-        return {"id": entry_id, "from_commit": str(rec.get("commit") or ""), "to_commit": to_commit, "has_base": bool(base_dir and base_dir.is_dir()),
-                "files": got, "changed_text": changed, "counts": {o: sum(1 for v in got.values() if v == o) for o in merge3.OUTCOMES}}
+        return {"id": entry_id, "from_commit": str(rec.get("commit") or ""), "to_commit": to_commit, **out}
 
-    def apply_update(self, entry_id: str, resolutions: Dict[str, Any]) -> Dict[str, Any]:
-        """Applies the plan `update_plan` would compute now: `upstream` and `same` files resolve themselves, `kept` ones are left exactly as they are,
-        and every `conflict` needs `resolutions[path]` to be `"upstream"` or `"kept"` (checked before anything on disk is touched). The installed folder
-        is backed up first and put back if anything fails partway; the new commit is recorded and its own original kept, same as `update()`."""
-        from tadamoo.connectors import merge3
-        if not isinstance(resolutions, dict):
-            raise ConnectorInstallError("resolutions: an object of path to \"upstream\" or \"kept\"", "bad_resolution")
+    @staticmethod
+    def _sync_folder(source: Path, target: Path) -> None:
+        """Makes the files of `target` the files of `source`: what `source` lacks is removed, the rest written; a tool folder in `target` (cache, packages) is left alone."""
+        want = tree.read_tree(source)
+        for rel in set(tree.read_tree(target)) - set(want):
+            (target / rel).unlink(missing_ok=True)
+        for rel, data in want.items():
+            (target / rel).parent.mkdir(parents=True, exist_ok=True)
+            (target / rel).write_bytes(data)
+
+    def apply_update(self, token: str, choice: str = "merge", resolutions: Any = None, remember: bool = False) -> Dict[str, Any]:
+        """Does what the person chose for a proposed update. `merge`: writes the merge, a conflict resolved as `resolutions` says (`ours`, `theirs`, or `merged` once the
+        proposal holds no marker), the installed folder backed up first and put back if anything fails partway. `overwrite`: installs the new version whole, as `update` does.
+        `cancel`: nothing. The new commit is recorded and its own download kept as the original, never what was merged."""
+        session = self._session()
+        try:
+            meta, work, rows = session.load(token)
+        except MergeProblem as e:
+            raise ConnectorInstallError(str(e), e.code) from None
+        entry_id = meta["entry_id"]
+        if choice == "cancel":
+            session.discard(token)
+            return {"id": entry_id, "status": "cancelled"}
+        if choice == "overwrite":
+            out = self.update(entry_id, {})
+            session.discard(token)
+            return {"id": entry_id, "status": "replaced", "installed": out}
+        if choice != "merge":
+            raise ConnectorInstallError("choice: merge, overwrite or cancel", "bad_choice")
         with self._lock:
             rec = self._record(entry_id)
-            if rec.get("route") != "skill" or not rec.get("repo"):
-                raise ConnectorInstallError("Only a skill from GitHub can be merged from here.", "kind")
+            installed = Path(self.caps.index.dir) / str(rec.get("folder") or "")
+            if str(rec.get("commit") or "") != meta["from_commit"] or hash_folder(installed) != rows[0]["ours_hash"]:
+                raise ConnectorInstallError("The installed copy changed after this update was read: read it again.", "stale")
             try:
-                repo, path, to_commit = self._new_commit(rec)
-                installed = Path(self.caps.index.dir) / str(rec.get("folder") or "")
-                base_dir = self._original_dir(rec)
-                backup = Path(tempfile.mkdtemp(prefix="tadamoo-mergebak-"))
-                try:
-                    if installed.is_dir():
-                        shutil.copytree(installed, backup / "ours")
-                    with tempfile.TemporaryDirectory(prefix="tadamoo-merge-") as tmp:
-                        theirs = self.fetch_skill(repo, path, to_commit, Path(tmp))
-                        got = merge3.plan(base_dir if base_dir and base_dir.is_dir() else None, installed, theirs)
-                        unresolved = [p for p, o in got.items() if o == merge3.CONFLICT and resolutions.get(p) not in ("upstream", "kept")]
-                        if unresolved:
-                            raise ConnectorInstallError("some files need a choice (\"upstream\" or \"kept\"): " + ", ".join(sorted(unresolved)[:5]), "conflicts")
-                        merge3.apply(got, installed, theirs, resolutions)
-                    (installed / ".tadamoo-source.json").write_text(f'{{"repo": "{repo}", "path": "{path}", "commit": "{to_commit}"}}', encoding="utf-8")
-                    rec["commit"], rec["version"] = to_commit, to_commit[:10]
-                    InstalledStore(self.caps.index.dir).put(rec)
-                    self._keep_original(rec, {"repo": repo, "path": path})
-                except BaseException:
-                    if installed.is_dir():
-                        shutil.rmtree(installed, ignore_errors=True)
-                    if (backup / "ours").is_dir():
-                        shutil.copytree(backup / "ours", installed)
-                    raise
-                finally:
-                    shutil.rmtree(backup, ignore_errors=True)
-            except ConnectorInstallError:
+                chosen = session.resolutions(rows, resolutions)
+            except MergeProblem as e:
+                raise ConnectorInstallError(str(e), e.code) from None
+            open_ = session.open_files(rows, chosen)
+            if open_:
+                raise ConnectorInstallError("some files need a choice (\"ours\", \"theirs\", or \"merged\" once it holds no conflict): " + ", ".join(sorted(open_)[:5]), "conflicts")
+            final = session.write_finals(work, rows, chosen)[rows[0]["unit"].key]
+            backup = Path(tempfile.mkdtemp(prefix="tadamoo-mergebak-"))
+            try:
+                shutil.copytree(installed, backup / "ours")
+                self._sync_folder(final, installed)
+                (installed / ".tadamoo-source.json").write_text(json.dumps({"repo": meta["repo"], "path": meta["path"], "commit": meta["to_commit"]}), encoding="utf-8")
+                rec["commit"], rec["version"] = meta["to_commit"], meta["to_commit"][:10]
+                found = _read_skill(installed / "SKILL.md", "tadamoo")
+                if found is not None:
+                    rec["sha"] = found.sha
+                if remember:
+                    rec["merge_notes"] = [{"text": t, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")} for t in meta["notes"]] or None
+                    if not meta["notes"]:
+                        rec.pop("merge_notes", None)
+                InstalledStore(self.caps.index.dir).put(rec)
+                self._keep_original(rec, {"repo": meta["repo"], "path": meta["path"]}, rows[0]["unit"].theirs)
+            except BaseException:
+                self._sync_folder(backup / "ours", installed)
                 raise
-            except (ValueError, OSError) as e:
-                raise ConnectorInstallError(str(e)[:300] or type(e).__name__, "merge") from None
-            self.caps.index.refresh()
-        return {"id": entry_id, "to_commit": to_commit, "applied": {p: resolutions.get(p, o) for p, o in got.items()}}
+            finally:
+                shutil.rmtree(backup, ignore_errors=True)
+        self.caps.index.refresh()
+        session.discard(token)
+        return {"id": entry_id, "status": "merged", "to_commit": meta["to_commit"], "counts": tree.counts(rows[0]["files"]), "kept_notes": meta["notes"] if remember else []}
 
     # -- remove -----------------------------------------------------------------------------------------
 

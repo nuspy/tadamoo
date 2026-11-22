@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .common import Problem, Snapshot, Tree, check_name, copy_tree, diff_trees, now_iso, safe_join, scan_tree
+from .common import Problem, Snapshot, Tree, Unit, check_name, copy_tree, diff_trees, now_iso, safe_join, scan_tree
 
 KIND = "plugin"
 MANIFESTS = ("plugin.json", ".claude-plugin/plugin.json")
@@ -169,7 +169,8 @@ class PluginKind:
         copy_tree(snap.tree, staged)
         txn.on_undo(lambda: shutil.rmtree(staged, ignore_errors=True))
         txn.install_dir(staged, self.folder(snap.name))
-        entry = {"kind": KIND, "name": snap.name, "version": snap.version, "description": snap.description, "source": snap.source, "hash": snap.hash, "copy_hash": snap.hash,
+        self.imp.keep_original(txn, snap)
+        entry = {"kind": KIND, "name": snap.name, "version": snap.version, "description": snap.description, "source": snap.source, "hash": snap.hash, "copy_hash": snap.tree.hash,
                  "imported_at": now_iso(), "updated_at": now_iso(), "files": len(snap.tree.files), "bytes": snap.tree.total, "parent": "", "parts": claimed,
                  "reused": reused, "dependencies": brought}
         items[own] = entry
@@ -201,7 +202,8 @@ class PluginKind:
         copy_tree(snap.tree, staged)
         txn.on_undo(lambda: shutil.rmtree(staged, ignore_errors=True))
         txn.install_dir(staged, self.folder(snap.name))
-        entry.update(version=snap.version, description=snap.description, source=snap.source, hash=snap.hash, copy_hash=snap.hash, updated_at=now_iso(),
+        self.imp.keep_original(txn, snap)
+        entry.update(version=snap.version, description=snap.description, source=snap.source, hash=snap.hash, copy_hash=snap.tree.hash, updated_at=now_iso(),
                      files=len(snap.tree.files), bytes=snap.tree.total, parts=claimed, reused=reused, dependencies=sorted({*entry.get("dependencies", []), *brought}))
 
     def drop(self, txn: Any, items: Dict[str, Any], entry: Dict[str, Any]) -> None:
@@ -209,7 +211,62 @@ class PluginKind:
             if key in items:
                 self.imp.kinds[items[key]["kind"]].drop(txn, items, items[key])
         txn.remove_dir(self.folder(entry["name"]))
+        self.imp.drop_original(txn, KIND, entry["name"])
         items.pop(f"plugin:{entry['name']}", None)
+
+    # -- an update that keeps what the person changed ------------------------------------------------------
+
+    def keep_original(self, snap: Snapshot, dest: Path) -> None:
+        for rel in snap.tree.files:
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(snap.tree.root / rel, target)
+
+    def merge_units(self, snap: Snapshot, entry: Dict[str, Any], work: Path) -> List[Unit]:
+        """The plugin folder, and each skill or server it brings that is already part of it (their own copies are where they are edited). Plans are not merged here."""
+        name = entry["name"]
+        ours, theirs = work / "ours", work / "theirs"
+        ours.mkdir(parents=True)
+        theirs.mkdir(parents=True)
+        folder = self.folder(name)
+        if folder.is_dir():
+            shutil.copytree(folder, ours, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
+        for rel in snap.tree.files:
+            target = theirs / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(snap.tree.root / rel, target)
+        base, base_from = work / "base", ""
+        original = self.imp.originals(KIND, name)
+        if original.is_dir():
+            shutil.copytree(original, base)
+            base_from = "original"
+        elif folder.is_dir() and not self.local_changes_of_folder(entry):
+            shutil.copytree(ours, base)                                  # the imported folder was never edited: it is the original
+            base_from = "copy"
+        units = [Unit(f"plugin:{name}", name, ours, theirs, base if base_from else None, base_from, Path(snap.source).name)]
+        items = self.imp.manifest.load()
+        for n, row in enumerate(self.plan_parts(snap, items, own=f"plugin:{name}")):
+            if row["state"] == "own" and row["snap"].kind in ("skill", "mcp"):
+                units += self.imp.kinds[row["snap"].kind].merge_units(row["snap"], items[row["key"]], work / f"part{n}")
+        return units
+
+    def local_changes_of_folder(self, entry: Dict[str, Any]) -> bool:
+        try:
+            return scan_tree(self.folder(entry["name"])).hash != entry.get("copy_hash")
+        except Problem:
+            return True
+
+    def merged_snapshot(self, snap: Snapshot, finals: Dict[str, Path]) -> Snapshot:
+        """The plugin as its merged folder holds it, with each part that was merged taken from its own merge and every other part as the source has it."""
+        merged = self.snapshot(finals[f"plugin:{snap.name}"])
+        for i, part in enumerate(merged.parts):
+            source_part = next((p for p in snap.parts if (p.kind, p.name) == (part.kind, part.name)), None)
+            if source_part is None:
+                continue
+            k = self.imp.kinds[part.kind]
+            merged.parts[i] = k.merged_snapshot(source_part, finals) if f"{part.kind}:{part.name}" in finals and hasattr(k, "merged_snapshot") else source_part
+        merged.hash, merged.source, merged.original = snap.hash, snap.source, snap
+        return merged
 
     # -- what the copy is now ------------------------------------------------------------------------------
 
