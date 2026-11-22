@@ -12,6 +12,8 @@ import 'event_blocks.dart';
 import 'files.dart';
 import 'i18n.dart';
 import 'inference_settings_screen.dart';
+import 'long_answer_sheet.dart';
+import 'md_save.dart';
 import 'network_screen.dart';
 import 'place.dart';
 import 'server_prefs.dart';
@@ -170,15 +172,68 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// The buttons beside the message box are touch targets of at least 48 dp.
+  static final ButtonStyle _bar = IconButton.styleFrom(minimumSize: const Size(48, 48));
+
+  // ---- long answer ----
+  /// '' (off), 'once' (the next message only) or 'on' (kept for the conversation, in `settings` once it exists).
+  String _longArmed = '';
+
+  bool get _longActive => _longArmed.isNotEmpty || (ctl.ready && widget.settings.longOn(ctl.sid));
+
+  Future<void> _longAnswer() async {
+    final how = await showLongAnswerSheet(context, widget.settings, armed: _longActive);
+    if (how == null || !mounted) return;
+    if (how == 'off') {
+      _longArmed = '';
+      await widget.settings.setLongOn(ctl.sid, false);
+    } else {
+      _longArmed = how;
+      if (how == 'on' && ctl.ready) await widget.settings.setLongOn(ctl.sid, true);
+      if (how == 'once' && ctl.ready) await widget.settings.setLongOn(ctl.sid, false);
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// An action on a waiting request: the server's error, if any, is told in the snack bar.
+  Future<void> _tell(Future<void> Function() action) async {
+    try {
+      await action();
+    } on ApiError catch (e) {
+      _say(e.message);
+    }
+  }
+
+  /// Taking a request out of the queue is asked first: there is no undo.
+  Future<void> _confirmDrop(ChatItem note) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(Texts.t('chat.drop.title')),
+        content: Text(Texts.t('chat.drop.help')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(Texts.t('chat.drop.cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(Texts.t('chat.drop'))),
+        ],
+      ),
+    );
+    if (ok == true && mounted) await _tell(() => ctl.drop(note));
+  }
+
   Future<void> _send() async {
     final text = input.text.trim();
     if (text.isEmpty && attached.isEmpty) return;
     if (!await _ensure()) return;
     final ids = attached.map((a) => a.id).toList();
+    final long = _longActive;
     try {
-      await ctl.send(text, attachments: ids, place: await PlaceFinder.of(widget.settings).current());
+      await ctl.send(long ? widget.settings.longAnswer.decorate(text) : text, attachments: ids, place: await PlaceFinder.of(widget.settings).current());
+      if (long && _longArmed == 'on') await widget.settings.setLongOn(ctl.sid, true);
       input.clear();
-      setState(() => attached.clear());
+      setState(() {
+        attached.clear();
+        if (_longArmed == 'once') _longArmed = '';
+      });
       stickToEnd = true;
     } on ApiError catch (e) {
       _say(e.message);
@@ -194,10 +249,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ListTile(leading: const Icon(Icons.image_outlined), title: Text(Texts.t('plus.image')), onTap: () => Navigator.pop(c, 'image')),
           ListTile(leading: const Icon(Icons.photo_camera_outlined), title: Text(Texts.t('plus.photo')), onTap: () => Navigator.pop(c, 'photo')),
           ListTile(leading: const Icon(Icons.folder_open), title: Text(Texts.t('plus.files')), trailing: const Icon(Icons.chevron_right), onTap: () => Navigator.pop(c, 'files')),
+          ListTile(key: const ValueKey('long-answer'), leading: Icon(Icons.article_outlined, color: _longActive ? Theme.of(c).colorScheme.primary : null), title: Text(Texts.t(_longActive ? 'la.open.on' : 'la.open')), subtitle: Text(Texts.t('la.open.tip')), onTap: () => Navigator.pop(c, 'long')),
         ]),
       ),
     );
     if (choice == null || !mounted) return;
+    if (choice == 'long') return _longAnswer();
     if (choice == 'image') return _attach(Pickers.images);
     if (choice == 'photo') return _attach(Pickers.photo);
     final where = await showModalBottomSheet<String>(
@@ -265,9 +322,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // ---- files named in an answer ----
   Future<void> _saveFile(String kind, String ref, String name) async {
     try {
-      final got = kind == 'file'
-          ? await widget.api.download('/api/outputs/${Uri.encodeComponent(ctl.sid)}/$ref')
-          : await widget.api.download('/api/agent/sessions/${Uri.encodeComponent(ctl.sid)}/file', {'path': ref});
+      // A Markdown file: only it, only the converted one, or both in a zip.
+      var choice = MdSaveChoice.md;
+      if (isMarkdownName(name)) {
+        final asked = await askMdSave(context, widget.api, widget.settings, name);
+        if (asked == null) return;
+        choice = asked;
+      }
+      final Download got;
+      if (choice.mode == 'md') {
+        got = kind == 'file'
+            ? await widget.api.download('/api/outputs/${Uri.encodeComponent(ctl.sid)}/$ref')
+            : await widget.api.download('/api/agent/sessions/${Uri.encodeComponent(ctl.sid)}/file', {'path': ref});
+      } else {
+        final (route, query) = mdConvertRequest(kind, ctl.sid, ref, choice.mode, choice.format, Texts.language);
+        got = await widget.api.download(route, query);
+      }
       final fileName = name.contains('.') || got.name == 'file' ? name : got.name;
       final saved = await Pickers.save(got.name.contains('.') ? got.name : fileName, got.bytes);
       if (saved) _say(Texts.t('chat.saved', [got.name]));
@@ -362,7 +432,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null, council: _council, onCouncil: _setCouncil);
+  String get _images => ctl.ready ? (ctl.info?.images ?? '') : (pending?.images ?? widget.settings.images);
+  String get _charts => ctl.ready ? (ctl.info?.charts ?? '') : (pending?.charts ?? widget.settings.charts);
+
+  /// Pictures and charts: before the conversation exists the choice waits in `pending`; after, the server keeps it with the conversation.
+  Future<String?> _setVisuals(String images, String charts) async {
+    widget.settings.setVisuals(images, charts);
+    if (!ctl.ready) {
+      pending = (pending ?? NewChat(mode: widget.settings.mode)).copy(images: images, charts: charts);
+      if (mounted) setState(() {});
+      return null;
+    }
+    try {
+      await ctl.setVisuals(images, charts);
+      return null;
+    } on ApiError catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<void> _options() => showChatOptions(context,
+      prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null, council: _council, onCouncil: _setCouncil, images: _images, charts: _charts, onVisuals: _setVisuals);
   void _inferenceSettings() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => InferenceSettingsScreen(settings: widget.settings)));
 
   // ---- drawing ----
@@ -414,7 +504,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _item(ChatItem it) {
     final theme = Theme.of(context);
     if (it.kind == 'note') {
-      return Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Center(child: Text(it.text, style: theme.textTheme.bodySmall, textAlign: TextAlign.center)));
+      final waiting = it.how == 'queue' && !it.over;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(children: [
+          Center(child: Text(it.text, style: theme.textTheme.bodySmall, textAlign: TextAlign.center)),
+          if (waiting)
+            Wrap(alignment: WrapAlignment.center, spacing: 8, children: [
+              TextButton(style: TextButton.styleFrom(minimumSize: const Size(48, 48)), onPressed: () => _tell(() => ctl.promote(it)), child: Text(Texts.t('chat.promote'))),
+              TextButton(style: TextButton.styleFrom(minimumSize: const Size(48, 48)), onPressed: () => _confirmDrop(it), child: Text(Texts.t('chat.drop'))),
+            ]),
+        ]),
+      );
     }
     if (it.kind == 'user') {
       return Align(
@@ -599,6 +700,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 if (uploading.isNotEmpty) Padding(padding: const EdgeInsets.only(right: 6), child: Chip(label: Text(Texts.t('plus.uploading', [uploading])))),
               ]),
             ),
+          if (_longActive)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                key: const ValueKey('long-chip'),
+                avatar: const Icon(Icons.article_outlined, size: 18),
+                label: Text(Texts.t('la.open.on')),
+                onPressed: _longAnswer,
+                onDeleted: () async {
+                  _longArmed = '';
+                  await widget.settings.setLongOn(ctl.sid, false);
+                  if (mounted) setState(() {});
+                },
+              ),
+            ),
           SuggestionChips(
             items: ctl.suggestions,
             onPick: (p) {
@@ -608,7 +724,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             },
           ),
           Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            IconButton(tooltip: '+', icon: const Icon(Icons.add_circle_outline), onPressed: _plus),
+            IconButton(style: _bar, tooltip: '+', icon: const Icon(Icons.add_circle_outline), onPressed: _plus),
             Expanded(
               child: TextField(
                 controller: input,
@@ -616,13 +732,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 minLines: 1,
                 maxLines: 6,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(hintText: voice.listening ? Texts.t('chat.hint.listen') : Texts.t('chat.hint'), border: const OutlineInputBorder(), isDense: true),
+                decoration: InputDecoration(hintText: voice.listening ? Texts.t('chat.hint.listen') : Texts.t(ctl.busy ? 'chat.hint.busy' : 'chat.hint'), border: const OutlineInputBorder(), isDense: true),
               ),
             ),
-            IconButton(tooltip: 'mic', icon: Icon(voice.listening ? Icons.mic : Icons.mic_none, color: voice.listening ? Colors.redAccent : null), onPressed: _mic),
-            ctl.busy
-                ? IconButton(tooltip: Texts.t('chat.stop'), icon: const Icon(Icons.stop_circle_outlined), onPressed: ctl.stop)
-                : IconButton(tooltip: Texts.t('chat.send'), icon: const Icon(Icons.send), onPressed: _send),
+            IconButton(style: _bar, tooltip: 'mic', icon: Icon(voice.listening ? Icons.mic : Icons.mic_none, color: voice.listening ? Colors.redAccent : null), onPressed: _mic),
+            // While the agent works the person can both stop it and write to it: the harness decides whether the
+            // message steers the task, waits or is urgent (tadamoo/router.py).
+            if (ctl.busy) IconButton(style: _bar, tooltip: Texts.t('chat.stop'), icon: const Icon(Icons.stop_circle_outlined), onPressed: ctl.stop),
+            IconButton(style: _bar, tooltip: Texts.t('chat.send'), icon: const Icon(Icons.send), onPressed: _send),
           ]),
         ]),
       ),

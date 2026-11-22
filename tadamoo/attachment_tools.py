@@ -147,6 +147,23 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         except (OSError, PermissionError) as exc:
             return f"Could not read {path}: {exc}"
 
+    def convert_to_markdown(path: str, start: int = 1, end: int = 0) -> str:
+        from tadamoo import markitdown_tool
+        try:
+            src = read_workspace_file(path)
+            if not src.is_file():
+                return f"{path} is not a file."
+        except (OSError, PermissionError) as exc:
+            return f"Could not read {path}: {exc}"
+        if not markitdown_tool.available():
+            return "The document converter (MarkItDown) is not installed here; use the file tools that read this kind of file."
+        text, note = markitdown_tool.convert(src, src.name)
+        if text is None:
+            return {"unsupported": f"{src.name} is not a kind of file the converter reads (Word, PowerPoint, Excel, PDF, web page, e-book, CSV, JSON, XML)."}.get(note, f"The converter could not read {src.name} ({note}).")
+        outline = markitdown_tool.outline(text) or "(none)"
+        head = f"{src.name} as Markdown, {len(text.splitlines())} lines. Headings:\n{outline}\n\n"
+        return head + read_range(text, start, end or None, read_chars)
+
     obj = lambda props, req: {"type": "object", "properties": props, "required": req}
     registry.register("list_attachments", "Lists the files the person attached to this conversation, with what each is and how to read it.",
                       obj({}, []), EffectClass.PURE, list_attachments, untrusted=True)
@@ -154,6 +171,8 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
                       obj({"id": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"}}, ["id"]), EffectClass.PURE, read_attachment, untrusted=True)
     registry.register("search_attachment", "Finds the passages of an attached file that match a question or words (five at most, with their line numbers).",
                       obj({"id": {"type": "string"}, "query": {"type": "string"}}, ["id", "query"]), EffectClass.PURE, search_attachment, untrusted=True)
+    registry.register("convert_to_markdown", "Reads a Word, PowerPoint, Excel, PDF, web page, e-book, CSV, JSON or XML file of the workspace as Markdown (headings, lists, tables kept), made by program with no model. Use start and end to go on.",
+                      obj({"path": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"}}, ["path"]), EffectClass.PURE, convert_to_markdown, untrusted=True)
     registry.register("transcribe_attachment", "Writes down what is said in an attached audio or video file, with the local callAPIcall service. It can take minutes.",
                       obj({"id": {"type": "string"}}, ["id"]), EffectClass.REVERSIBLE, transcribe_attachment, untrusted=True)
     registry.register("write_output_file", "Makes a text file (txt, md, csv, json, html, code) for the person and offers it to them to save. It is opened again and checked.",

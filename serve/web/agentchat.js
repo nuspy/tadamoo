@@ -1343,9 +1343,31 @@
   box.addEventListener("click", e => {
     const b = e.target.closest && e.target.closest("button.afile");
     if (!b || !sid) return;
-    if (b.dataset.kind === "file") saveOutput(b.dataset.id, b.dataset.name, b);
-    else saveWorkspace(b.dataset.path, b.dataset.name, b);
+    const save = () => (b.dataset.kind === "file" ? saveOutput(b.dataset.id, b.dataset.name, b) : saveWorkspace(b.dataset.path, b.dataset.name, b));
+    const name = b.dataset.name || (b.dataset.path || "").split(/[\/]/).pop();
+    if (window.mdExport && window.mdExport.isMarkdown(name)) {                // a Markdown file: only it, only the converted one, or both
+      window.mdExport.ask({ name, original: save, converted: (mode, format) => saveConverted(b, name, mode, format), fail: () => status(T("ch.out.fail", name)) });
+      return;
+    }
+    save();
   });
+  /* the Markdown file as Word, PDF ... (and with it, in a zip), made by the server with no model */
+  async function saveConverted(b, name, mode, format) {
+    const q = `format=${encodeURIComponent(format)}&mode=${encodeURIComponent(mode)}&lang=${encodeURIComponent(LANG)}`;
+    const url = b.dataset.kind === "file" ? `api/outputs/${encodeURIComponent(sid)}/${encodeURIComponent(b.dataset.id)}/convert?${q}`
+      : `api/agent/sessions/${encodeURIComponent(sid)}/file-convert?path=${encodeURIComponent(b.dataset.path)}&${q}`;
+    b.disabled = true;
+    try {
+      const r = await fetch(url, { headers: authHeaders() });
+      if (!r.ok) {
+        let why = ""; try { why = ((await r.json()).error || {}).message || ""; } catch (e) { /* no body */ }
+        throw new Error(why || `HTTP ${r.status}`);
+      }
+      const given = r.headers.get("X-Tadamoo-Filename");
+      await saveBlob(await r.blob(), given ? decodeURIComponent(given) : name);
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name) + (e && e.message ? ` (${e.message})` : "")); }
+    b.disabled = false;
+  }
   async function saveBlob(blob, name) {
     try {
       const app = window.chrome && window.chrome.webview;
