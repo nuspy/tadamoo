@@ -1091,7 +1091,7 @@ def make_handler(svc: Service, remote: bool = False):
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
                         "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install",
                         "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default", "/api/connectors/configure/ask",
-                        "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/github-token"):
+                        "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/update/notes", "/api/connectors/github-token"):
                 self._connectors_post(path)
                 return
             if path in ("/api/contacts/categories", "/api/contacts/types", "/api/contacts/groups", "/api/contacts/items",
@@ -2569,9 +2569,11 @@ def make_handler(svc: Service, remote: bool = False):
                 if path == "/api/connectors/configure/ask":
                     return self._json(200, self._connectors_api().configure_ask(str(req.get("id") or "")[:300], req.get("question"), req.get("history"), str(req.get("account") or "")[:80]))
                 if path == "/api/connectors/update/plan":
-                    return self._json(200, self._connectors_api().update_plan(str(req.get("id") or "")[:300]))
+                    return self._json(200, self._connectors_api().update_plan(str(req.get("id") or "")[:300], req.get("instructions"), req.get("language")))
                 if path == "/api/connectors/update/apply":
-                    return self._json(200, self._connectors_api().apply_update(str(req.get("id") or "")[:300], req.get("resolutions")))
+                    return self._json(200, self._connectors_api().apply_update(req.get("token"), req.get("choice", "merge"), req.get("resolutions"), req.get("remember")))
+                if path == "/api/connectors/update/notes":
+                    return self._json(200, self._connectors_api().update_notes(str(req.get("id") or "")[:300], req.get("notes")))
                 if path == "/api/connectors/updates":
                     return self._json(200, self._connectors_api().updates())
                 if path == "/api/connectors/update":
@@ -2749,7 +2751,8 @@ def make_handler(svc: Service, remote: bool = False):
             if _IMPORT is not None:
                 return _IMPORT
             spaces = Spaces(userdata.path("capabilities"), userdata.path("planner") / "plans", userdata.path("personal-skills"))
-            return import_api.ImportApi(Importer(spaces, plan_store=lambda: self._plan_service().store, on_plan_changed=lambda pid: self._plan_service().plan_changed(pid)),
+            return import_api.ImportApi(Importer(spaces, plan_store=lambda: self._plan_service().store, on_plan_changed=lambda pid: self._plan_service().plan_changed(pid),
+                                                 model=lambda: self._agent_sessions().model_client()),
                                         after=lambda kind: _CAPS.rescan() if _CAPS is not None else None)
 
         def _import(self, path, post):

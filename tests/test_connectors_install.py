@@ -381,60 +381,142 @@ def test_configure_ask_gives_the_model_only_field_names_through_the_api(tmp_path
         api.configure_ask("mcp:demo", "q", history="not a list")
 
 
-def test_the_update_plan_merges_the_persons_edit_with_upstreams_change_and_flags_the_real_conflict(tmp_path, stub, monkeypatch):
-    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
-    installer.settings.write(str(tmp_path / "originals"))
-    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))
-    api.install(item["id"], {})
-    installed_dir = tmp_path / "capabilities" / "skills" / "pdf-tools"
-    (installed_dir / "run.py").write_text("print('mine')\n", encoding="utf-8")            # the person's own edit, upstream touches this file too: conflict
-    (installed_dir / "SKILL.md").write_text((SKILL + b"\nmore.\n").decode(), encoding="utf-8")   # the person's own edit, upstream leaves this one alone: kept
-
+def _two_commits(installer, monkeypatch, files):
+    """The installer reads a newer commit whose files are `files` (path to bytes)."""
     new_commit = "c" * 40
-
-    def fake_new_commit(rec):
-        return rec["repo"], rec.get("source_path") or "", new_commit
-    monkeypatch.setattr(installer, "_new_commit", fake_new_commit)
+    monkeypatch.setattr(installer, "_new_commit", lambda rec: (rec["repo"], rec.get("source_path") or "", new_commit))
 
     def fake_fetch(repo, path, pin, into, files_max=30, file_bytes=200_000):
-        (into / "SKILL.md").write_bytes(SKILL)                                            # unchanged from the base: upstream did not touch it
-        (into / "run.py").write_text("print('upstream')\n", encoding="utf-8")             # changed from the base: the real conflict
-        (into / "new.txt").write_text("from upstream", encoding="utf-8")                  # a file only the new version has
+        for name, data in files.items():
+            (into / name).write_bytes(data)
         return into
     monkeypatch.setattr(installer, "fetch_skill", fake_fetch)
+    return new_commit
+
+
+def _installed_pdf_tools(tmp_path, stub):
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
+    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))
+    api.install(item["id"], {})
+    return api, caps, installer, tmp_path / "capabilities" / "skills" / "pdf-tools"
+
+
+def test_the_update_plan_merges_the_persons_edit_with_upstreams_change_and_flags_the_real_conflict(tmp_path, stub, monkeypatch):
+    api, caps, installer, installed_dir = _installed_pdf_tools(tmp_path, stub)
+    (installed_dir / "run.py").write_text("print('mine')\n", encoding="utf-8")            # the person's own edit, upstream touches this file too: conflict
+    (installed_dir / "SKILL.md").write_text((SKILL + b"\nmore.\n").decode(), encoding="utf-8")   # the person's own edit, upstream leaves this one alone: kept
+    new_commit = _two_commits(installer, monkeypatch, {"SKILL.md": SKILL, "run.py": b"print('upstream')\n", "new.txt": b"from upstream"})
 
     plan = api.update_plan("skill:pdf-tools")
-    assert plan["from_commit"] == COMMIT and plan["to_commit"] == new_commit and plan["has_base"] is True
-    assert plan["files"] == {"SKILL.md": "kept", "run.py": "conflict", "new.txt": "upstream"}
-    assert plan["counts"] == {"same": 0, "upstream": 1, "kept": 1, "conflict": 1}
+    assert plan["from_commit"] == COMMIT and plan["to_commit"] == new_commit and plan["has_base"] is True and plan["token"]
+    unit = plan["units"][0]
+    assert {f["path"]: f["outcome"] for f in unit["files"]} == {"SKILL.md": "kept", "run.py": "conflict", "new.txt": "upstream"}
+    assert unit["counts"] == {"same": 0, "upstream": 1, "kept": 1, "merged": 0, "conflict": 1} and plan["needs_choice"] == 1
+    run = next(f for f in unit["files"] if f["path"] == "run.py")
+    assert "mine" in run["installed"] and "upstream" in run["new"] and "<<<<<<< installed" in run["merged"]        # the three versions of the file both sides changed
     assert plan["review"]["verdict"] == "unknown" and "no model" in plan["review"]["note"]      # no reviewer client here: advisory only, never blocking
+    assert plan["description"]["text"] == "" and plan["description"]["note"]
 
     with pytest.raises(ConnectorError) as e:
-        api.apply_update("skill:pdf-tools", {})
+        api.apply_update(plan["token"])
     assert e.value.code == "conflicts"
+    with pytest.raises(ConnectorError):
+        api.apply_update(plan["token"], "merge", {"run.py": "merged"})                          # the proposal still holds markers: not a choice
 
-    out = api.apply_update("skill:pdf-tools", {"run.py": "upstream"})
-    assert out["to_commit"] == new_commit and out["applied"] == {"SKILL.md": "kept", "run.py": "upstream", "new.txt": "upstream"}
-    assert (installed_dir / "run.py").read_text() == "print('upstream')\n"                # the conflict, resolved "upstream"
+    out = api.apply_update(plan["token"], "merge", {"run.py": "theirs"})
+    assert out["status"] == "merged" and out["to_commit"] == new_commit
+    assert (installed_dir / "run.py").read_text() == "print('upstream')\n"                # the conflict, resolved with the new one
     assert "more." in (installed_dir / "SKILL.md").read_text()                            # kept: the person's edit stands
     assert (installed_dir / "new.txt").read_text() == "from upstream"                     # a plain upstream addition
     from tadamoo.discovery.installed import InstalledStore
     assert InstalledStore(tmp_path / "capabilities").get("skill:pdf-tools")["commit"] == new_commit
     assert json.loads((installed_dir / ".tadamoo-source.json").read_text())["commit"] == new_commit      # the provenance marker is rewritten, not merged away
+    original = next(p for p in (tmp_path / "connectors" / "originals" / "github").iterdir() if "c" * 12 in p.name)
+    assert (original / "run.py").read_bytes() == b"print('upstream')\n" and (original / "SKILL.md").read_bytes() == SKILL      # the original is the new download, not what was merged
 
     with pytest.raises(ConnectorError):
         api.update_plan("skill:not-ours")
 
 
-def test_without_an_originals_folder_any_real_difference_from_upstream_is_a_conflict(tmp_path, stub, monkeypatch):
-    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
-    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))         # no originals_dir set: there is no base
-    api.install(item["id"], {})
-    monkeypatch.setattr(installer, "_new_commit", lambda rec: (rec["repo"], rec.get("source_path") or "", "d" * 40))
-    monkeypatch.setattr(installer, "fetch_skill", lambda repo, path, pin, into, files_max=30, file_bytes=200_000: (into / "run.py").write_bytes(SCRIPT) and into)
+def test_both_sides_changing_different_lines_of_a_file_is_merged_inside_the_file(tmp_path, stub, monkeypatch):
+    api, caps, installer, installed_dir = _installed_pdf_tools(tmp_path, stub)
+    body = b"one\ntwo\nthree\nfour\nfive\nsix\nseven\n"
+    (installed_dir / "notes.md").write_bytes(body)
+    base = next((tmp_path / "connectors" / "originals" / "github").iterdir())
+    (base / "notes.md").write_bytes(body)                                                   # the download had the same notes
+    (installed_dir / "notes.md").write_bytes(body.replace(b"two", b"two, mine"))
+    _two_commits(installer, monkeypatch, {"SKILL.md": SKILL, "run.py": SCRIPT, "notes.md": body.replace(b"six", b"six, theirs")})
     plan = api.update_plan("skill:pdf-tools")
-    assert plan["has_base"] is False and plan["files"] == {"run.py": "same", "SKILL.md": "conflict"}      # run.py untouched: same; SKILL.md absent upstream: conflict, not a guess
+    notes = next(f for f in plan["units"][0]["files"] if f["path"] == "notes.md")
+    assert notes["outcome"] == "merged" and "two, mine" in notes["merged"] and "six, theirs" in notes["merged"] and plan["needs_choice"] == 0
+    api.apply_update(plan["token"])
+    text = (installed_dir / "notes.md").read_text()
+    assert "two, mine" in text and "six, theirs" in text
 
+
+def test_cancel_and_overwrite_and_a_copy_changed_after_the_proposal(tmp_path, stub, monkeypatch):
+    api, caps, installer, installed_dir = _installed_pdf_tools(tmp_path, stub)
+    (installed_dir / "run.py").write_text("print('mine')\n", encoding="utf-8")
+    _two_commits(installer, monkeypatch, {"SKILL.md": SKILL, "run.py": b"print('upstream')\n"})
+    plan = api.update_plan("skill:pdf-tools")
+    assert api.apply_update(plan["token"], "cancel")["status"] == "cancelled" and "mine" in (installed_dir / "run.py").read_text()
+    with pytest.raises(ConnectorError) as e:
+        api.apply_update(plan["token"])
+    assert e.value.code == "no_plan"
+    plan = api.update_plan("skill:pdf-tools")
+    (installed_dir / "run.py").write_text("print('edited meanwhile')\n", encoding="utf-8")
+    with pytest.raises(ConnectorError) as e:
+        api.apply_update(plan["token"], "merge", {"run.py": "ours"})
+    assert e.value.code == "stale"
+    plan = api.update_plan("skill:pdf-tools")
+    monkeypatch.setattr(installer, "update", lambda entry_id, flags: {"id": entry_id, "version": "x"})
+    assert api.apply_update(plan["token"], "overwrite")["status"] == "replaced"
+    with pytest.raises(ConnectorError):
+        api.apply_update(plan["token"], "bogus")
+
+
+def test_the_originals_are_kept_by_default_so_a_merge_has_something_to_compare_against(tmp_path, stub, monkeypatch):
+    api, caps, installer, installed_dir = _installed_pdf_tools(tmp_path, stub)                  # no originals folder was chosen
+    assert installer.settings.read()["originals_dir"] == "" and any((tmp_path / "connectors" / "originals" / "github").iterdir())
+    _two_commits(installer, monkeypatch, {"SKILL.md": SKILL, "run.py": SCRIPT})
+    assert api.update_plan("skill:pdf-tools")["has_base"] is True
+    import shutil
+    shutil.rmtree(tmp_path / "connectors" / "originals")                                        # an install of before: any real difference is a choice, not a guess
+    plan = api.update_plan("skill:pdf-tools")
+    assert plan["has_base"] is False
+
+
+def test_instructions_are_carried_out_on_the_merge_and_kept_with_the_skill(tmp_path, stub, monkeypatch):
+    api, caps, installer, installed_dir = _installed_pdf_tools(tmp_path, stub)
+    (installed_dir / "run.py").write_text("print('mine')\n", encoding="utf-8")
+
+    class Model:
+        def __init__(self):
+            self.asked = []
+
+        def side_context(self):
+            return 60000
+
+        def chat_completion(self, messages, **kw):
+            user = messages[1]["content"]
+            self.asked.append(user)
+            if user.startswith("File: "):
+                return {"choices": [{"message": {"content": "print('upstream, with my tone')\n"}}]}
+            if "An update to the connector" in user:
+                return {"choices": [{"message": {"content": json.dumps({"verdict": "ok", "summary": "fine", "risks": []})}}]}
+            return {"choices": [{"message": {"content": "The new version rewrites run.py."}}]}
+    model = Model()
+    api.reviewer = lambda: model
+    _two_commits(installer, monkeypatch, {"SKILL.md": SKILL, "run.py": b"print('upstream')\n"})
+    plan = api.update_plan("skill:pdf-tools", ["keep my tone"], "it")
+    assert plan["notes"] == ["keep my tone"] and plan["notes_result"]["skill:pdf-tools"]["run.py"] == "revised" and plan["needs_choice"] == 0
+    assert plan["description"]["text"] == "The new version rewrites run.py." and plan["review"]["verdict"] == "ok"
+    api.apply_update(plan["token"], "merge", {}, True)
+    assert (installed_dir / "run.py").read_text() == "print('upstream, with my tone')\n"
+    assert api.update_notes("skill:pdf-tools") == {"notes": ["keep my tone"]}
+    assert api.update_notes("skill:pdf-tools", []) == {"notes": []}
+    with pytest.raises(ConnectorError):
+        api.update_notes("skill:pdf-tools", "x")
 
 def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
     api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
