@@ -18,22 +18,25 @@ namespace fixture {
 
 struct Kv {
     std::string key;
-    uint32_t type = 8;         ///< GGUF value type: 8 string, 2 u16, 4 u32, 5 i32, 9 string array
+    uint32_t type = 8;         ///< GGUF value type: 6 f32, 8 string, 2 u16, 4 u32, 5 i32, 9 string array
     std::string s;
     uint64_t u = 0;
     std::vector<std::string> items;   ///< type 9: an array of strings
+    float f = 0;                      ///< type 6: f32
 };
 inline Kv str_array(const std::string& k, const std::vector<std::string>& v) { return Kv{k, 9, {}, 0, v}; }
 inline Kv str(const std::string& k, const std::string& v) { return Kv{k, 8, v, 0}; }
 inline Kv u16(const std::string& k, uint64_t v) { return Kv{k, 2, {}, v}; }
 inline Kv i32(const std::string& k, uint64_t v) { return Kv{k, 5, {}, v}; }
 inline Kv u32(const std::string& k, uint64_t v) { return Kv{k, 4, {}, v}; }
+inline Kv f32(const std::string& k, float v) { Kv r; r.key = k; r.type = 6; r.f = v; return r; }
 
 struct Tensor {
     std::string name;
     std::vector<uint64_t> shape;   ///< GGUF order: dim 0 varies fastest
     uint32_t type = 0;
-    uint8_t seed = 1;              ///< payload byte i is (seed * 131 + i * 7 + i / 4093) & 0xff
+    uint8_t seed = 1;              ///< payload byte i is (seed * 131 + i * 7 + i / 4093) & 0xff, when `data` is empty
+    std::vector<uint8_t> data;      ///< explicit payload bytes, overriding `seed`, for a test that needs exact values
 };
 
 inline uint8_t pattern(uint8_t seed, uint64_t i) { return (uint8_t) ((seed * 131u + i * 7u + i / 4093u) & 0xffu); }
@@ -72,6 +75,7 @@ inline Written write(const std::filesystem::path& path, const std::vector<Kv>& k
         }
         else if (k.type == 2) { const uint16_t v = (uint16_t) k.u; put(&v, 2); }
         else if (k.type == 4 || k.type == 5) { const uint32_t v = (uint32_t) k.u; put(&v, 4); }
+        else if (k.type == 6) { put(&k.f, 4); }
         else throw std::runtime_error("fixture: unsupported metadata type");
     }
     Written w;
@@ -96,7 +100,12 @@ inline Written write(const std::filesystem::path& path, const std::vector<Kv>& k
     b.resize((size_t) w.data_start, 0);
     for (size_t i = 0; i < ts.size(); ++i) {
         b.resize((size_t) (w.data_start + w.offsets[i]), 0);
-        for (uint64_t j = 0; j < bytes[i]; ++j) b.push_back(pattern(ts[i].seed, j));
+        if (!ts[i].data.empty()) {
+            if (ts[i].data.size() != bytes[i]) throw std::runtime_error("fixture: " + ts[i].name + " data size mismatch");
+            b.insert(b.end(), ts[i].data.begin(), ts[i].data.end());
+        } else {
+            for (uint64_t j = 0; j < bytes[i]; ++j) b.push_back(pattern(ts[i].seed, j));
+        }
     }
     if (cut > b.size()) cut = b.size();
     b.resize(b.size() - (size_t) cut);

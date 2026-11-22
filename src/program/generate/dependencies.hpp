@@ -8,6 +8,7 @@
 #include "../cli/gpu.hpp"
 #include "../cli/report.hpp"
 #include "../cli/control_vectors.hpp"
+#include "../cli/lora.hpp"
 #include "../measure/dump_set.hpp"
 #include "../measure/gpu_modes.hpp"
 #include "../serve/loans.hpp"

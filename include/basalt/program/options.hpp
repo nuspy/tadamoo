@@ -266,6 +266,13 @@ struct Options {
     int cvec_first = -1, cvec_last = -1;   ///< llama.cpp's defaults: 1 .. the last layer
     int cvec_mode = 1;                     ///< 0 = project, 1 = add (llama.cpp's default)
     int cvec_single = -1;                  ///< --cvec-dir single:L (project mode): layer L's direction everywhere
+    /// A LoRA adapter fused into the dense native matrices at load (tools/convert/lora.py's output), with
+    /// llama.cpp's flags: `--lora FILE` (scale 1) or `--lora-scaled FILE:SCALE[,FILE:SCALE...]`. None by default.
+    std::vector<std::pair<std::string, float>> lora_files;
+    /// An adapter that touches a tensor outside the ten fused families (the router, the routed experts, or
+    /// anything else): fuse the ten families it does cover and warn about the rest. --no-lora-partial refuses
+    /// the adapter instead, as if none of it could be applied.
+    bool lora_partial = true;
 };
 
 }  // namespace basalt::program

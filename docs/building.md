@@ -11,6 +11,24 @@ Clone, requirements and the build commands are in [the original Basalt README](r
   check and the tokenizer.
 - `tests/`: parity and unit tests.
 
+## Windows: the MSVC toolset
+
+CUDA 13.1's `nvcc` does not work with the newest MSVC toolset (VS 2026, 14.5x): `-allow-unsupported-compiler` gets
+past the version check, but `cudafe++` itself then crashes (access violation) on code generated for it. Build with
+an older toolset instead, selected for just that shell with `vcvars_ver` (no change to the Visual Studio
+installation or to this repository):
+
+```
+"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
+```
+
+14.44 (VS 2022-era) is officially supported by CUDA 13.1 and, as of this writing, installed side by side with the
+newer one under the same Visual Studio instance (`VC\Tools\MSVC\`); adjust the path and the version to what `dir
+"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC"` actually lists. If the `_CL_` environment variable is
+set (some setups add flags such as `/std:c++20` to every MSVC invocation through it), clear it first in the same
+shell (`$env:_CL_ = $null` in PowerShell) -- it reaches the compiler-detection probe too, which fails `cmake`'s
+configure step with a message naming `_CL_` specifically.
+
 ## Warnings
 
 `-DWERROR=ON` turns warnings in the project's own C++ and CUDA sources into errors (CI sets it on Linux); it is off by default so a newer compiler's new warning cannot break a user build.

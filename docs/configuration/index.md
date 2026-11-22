@@ -15,6 +15,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 - [Conversation cache](#conversation-cache)
 - [Vision](#vision)
 - [Control vectors](#control-vectors)
+- [LoRA adapters](lora.md)
 - [Sampling and thinking](sampling.md)
 - [The adaptive tier](adaptive.md)
 - [Web search](web-search.md)

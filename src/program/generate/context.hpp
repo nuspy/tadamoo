@@ -53,6 +53,8 @@ struct Context {
     int32_t ** d_mrope = nullptr;
     std::vector<int32_t>* mrope_host = nullptr;
     std::string* cvec_summary = nullptr;
+    std::string* lora_summary = nullptr;
+    size_t* lora_skipped = nullptr;
     basalt::core::SessionState* ss = nullptr;
     void ** sbuf = nullptr;
     cudaStream_t* main_stream = nullptr;

@@ -308,7 +308,7 @@ set_source_files_properties(src/kernels/cuda/native_mmvq.cu src/kernels/cuda/nat
 # about arithmetic, and this one knows the ORDER the arithmetic happens in.
 add_library(engine STATIC src/core/layer.cpp src/core/session.cpp src/core/expert_source.cpp src/core/remote_experts.cpp
   src/core/remote_expert_opt.cu
-  src/core/expert_cache.cpp src/core/segment_plan.cpp src/core/vmm.cpp src/core/kv_arena.cpp src/core/native_head.cpp src/core/native_dense.cpp
+  src/core/expert_cache.cpp src/core/segment_plan.cpp src/core/vmm.cpp src/core/kv_arena.cpp src/core/native_head.cpp src/core/native_dense.cpp src/core/lora.cpp
   src/core/verify/batch_capture.cpp
   src/core/verify/batch_execution.cpp
   src/core/verify/batch_sessions.cpp
@@ -552,7 +552,7 @@ add_executable(basalt src/program/generate.cpp src/program/engine_local.cpp src/
                        src/program/serve/vision.cpp
                        src/program/measure/gpu_modes.cpp src/program/measure/dump_set.cpp
                        src/program/cli/arguments.cpp src/program/cli/help.cpp src/program/cli/serve.cpp
-                       src/program/cli/options.cpp src/program/cli/control_vectors.cpp
+                       src/program/cli/options.cpp src/program/cli/control_vectors.cpp src/program/cli/lora.cpp
                        src/program/cli/startup.cpp src/program/cli/gpu.cpp src/program/cli/tokens.cpp
                        src/program/cli/report.cpp)
 set_target_properties(basalt PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
@@ -1414,6 +1414,12 @@ if(BUILD_TESTING)
   target_link_libraries(nvfp4_format_test PRIVATE artifact ggml_quants)
   basalt_cpu_test(NAME nvfp4_format_test COMMAND nvfp4_format_test)
   set_tests_properties(nvfp4_format_test PROPERTIES TIMEOUT 60)
+  # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks; host-only, NativeDense does not call it yet
+  add_executable(lora_merge_test tests/core/lora_merge_test.cpp src/core/lora.cpp)
+  target_link_libraries(lora_merge_test PRIVATE artifact ggml_quants)
+  basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tools/convert/testdata/lora_sample_expected.gguf)
+  set_tests_properties(lora_merge_test PROPERTIES TIMEOUT 120)
 endif()
 if(BUILD_TESTING)
   # the hc up product fused with the mix against cuBLAS + gr_mix_r (bitwise) and a double-precision reference
