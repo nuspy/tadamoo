@@ -68,26 +68,21 @@ def module_path(layer: int, gguf_suffix: str) -> str:
 
 
 def lora_pair(n_out: int, n_in: int, r: int, null: bool, scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
-    """A always has sigma 0.05; `scale` multiplies only B's sigma (0.02 at scale 1), since the delta B@A already
-    scales with B alone -- squaring it by scaling both, as an earlier version of this function did, makes
-    scale=0.01 a ~1e-4 delta, not ~1e-2 (found against real dequantized weights: 0% to 0.14% of Q8_0 codes
-    changed, effectively a null adapter). scale 1.0 (one tensor, or a few) was close to a real tensor's own
-    spectral norm; for full coverage (every layer of a family, each with its own independent delta) basalt-3d's
-    own measurement against six real dequantized tensors puts scale 0.03 at about 1% of the weights' RMS, half
-    a Q8_0 step -- the order of a real LoRA, not a null adapter in disguise."""
+    """A always has sigma 0.05; `scale` multiplies only B's sigma (0.02 at scale 1) -- the delta B@A already
+    scales with B alone, so scaling both would square it."""
     A = RNG.standard_normal((r, n_in)).astype(np.float32) * 0.05
     B = (np.zeros((n_out, r), dtype=np.float32) if null
          else RNG.standard_normal((n_out, r)).astype(np.float32) * (0.02 * scale))
     return A, B
 
 
-def delta_rms(pairs: dict[str, tuple[np.ndarray, np.ndarray]]) -> float:
-    """The RMS of every covered tensor's own delta (B @ A), pooled over all of them -- an absolute number
-    (not relative to the base weights, which this script does not read), printed so the adapter's real
-    magnitude is on record instead of asserted."""
+def delta_rms(pairs: dict[str, tuple[np.ndarray, np.ndarray]], alpha_over_r: float) -> float:
+    """The RMS of every covered tensor's own fused delta (alpha/r * B @ A, the engine's own scale applied),
+    pooled over all of them -- an absolute number (not relative to the base weights, which this script does
+    not read), printed so the adapter's real magnitude is on record instead of asserted."""
     total_sq, total_n = 0.0, 0
     for A, B in pairs.values():
-        d = B.astype(np.float64) @ A.astype(np.float64)
+        d = alpha_over_r * (B.astype(np.float64) @ A.astype(np.float64))
         total_sq += float(np.sum(d * d))
         total_n += d.size
     return (total_sq / total_n) ** 0.5 if total_n else 0.0
@@ -133,7 +128,8 @@ def main(argv=None) -> int:
     print(f"full coverage: {len(full_null)} tensors")
     build(tmp, a.out_dir / "ADAPTER_NULL_FULL.gguf", full_null)
     full_pairs = all_layers(null=False, scale=0.03)
-    print(f"ADAPTER_FULL.gguf delta RMS (pooled over all tensors): {delta_rms(full_pairs):.6g}")
+    alpha_over_r = 16 / 8  # test_lora.write_adapter's and build()'s own defaults (lora_alpha, r)
+    print(f"ADAPTER_FULL.gguf fused delta RMS (pooled over all tensors): {delta_rms(full_pairs, alpha_over_r):.6g}")
     build(tmp, a.out_dir / "ADAPTER_FULL.gguf", full_pairs)
 
     # ADAPTER_PARTIAL_QV / _QKV: P7's mixed-types-in-one-layer prove -- one layer, not full coverage
