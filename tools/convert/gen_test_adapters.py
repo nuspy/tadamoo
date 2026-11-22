@@ -68,13 +68,29 @@ def module_path(layer: int, gguf_suffix: str) -> str:
 
 
 def lora_pair(n_out: int, n_in: int, r: int, null: bool, scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
-    """scale 1.0: the delta this script used before it covered every layer (A sigma 0.05, B sigma 0.02, alpha/r
-    2 -- per-rank-component norm close to a real tensor's spectral norm, fine for one or two tensors, too strong
-    once every layer of a family carries its own independent one: use a smaller scale for full coverage."""
-    A = RNG.standard_normal((r, n_in)).astype(np.float32) * (0.05 * scale)
+    """A always has sigma 0.05; `scale` multiplies only B's sigma (0.02 at scale 1), since the delta B@A already
+    scales with B alone -- squaring it by scaling both, as an earlier version of this function did, makes
+    scale=0.01 a ~1e-4 delta, not ~1e-2 (found against real dequantized weights: 0% to 0.14% of Q8_0 codes
+    changed, effectively a null adapter). scale 1.0 (one tensor, or a few) was close to a real tensor's own
+    spectral norm; for full coverage (every layer of a family, each with its own independent delta) basalt-3d's
+    own measurement against six real dequantized tensors puts scale 0.03 at about 1% of the weights' RMS, half
+    a Q8_0 step -- the order of a real LoRA, not a null adapter in disguise."""
+    A = RNG.standard_normal((r, n_in)).astype(np.float32) * 0.05
     B = (np.zeros((n_out, r), dtype=np.float32) if null
          else RNG.standard_normal((n_out, r)).astype(np.float32) * (0.02 * scale))
     return A, B
+
+
+def delta_rms(pairs: dict[str, tuple[np.ndarray, np.ndarray]]) -> float:
+    """The RMS of every covered tensor's own delta (B @ A), pooled over all of them -- an absolute number
+    (not relative to the base weights, which this script does not read), printed so the adapter's real
+    magnitude is on record instead of asserted."""
+    total_sq, total_n = 0.0, 0
+    for A, B in pairs.values():
+        d = B.astype(np.float64) @ A.astype(np.float64)
+        total_sq += float(np.sum(d * d))
+        total_n += d.size
+    return (total_sq / total_n) ** 0.5 if total_n else 0.0
 
 
 def build(tmp: pathlib.Path, out: pathlib.Path, tensors: dict[str, tuple[np.ndarray, np.ndarray]], r: int = 8) -> dict:
@@ -105,28 +121,20 @@ def main(argv=None) -> int:
     for suf, (name, n_in, n_out, type_name) in shapes.items():
         print(f"{suf}: {name} ne=[{n_in},{n_out}] {type_name}")
 
-    def one_per_family(null: bool) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-        """One tensor per family (the first layer found), not full coverage -- for P7's mixed-types prove, where
-        the point is one covered tensor beside uncovered ones in the same layer, not every layer."""
-        out = {}
-        for suf, (name, n_in, n_out, _) in shapes.items():
-            out[module_path(layer_of(name), suf)] = lora_pair(n_out, n_in, 8, null)
-        return out
-
     def all_layers(null: bool, scale: float) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-        """Every tensor of every one of the ten families, every layer -- full coverage, for P6/P9/P4."""
+        """Every tensor of every one of the ten families, every layer -- full coverage, for P6/P9/P4/P3b."""
         out = {}
         for suf in ten:
             for name, n_in, n_out, _ in family_shapes_all(a.iq4xs_pack, suf + ".weight"):
                 out[module_path(layer_of(name), suf)] = lora_pair(n_out, n_in, 8, null, scale)
         return out
 
-    full = all_layers(null=True, scale=1.0)
-    print(f"full coverage: {len(full)} tensors")
-    build(tmp, a.out_dir / "ADAPTER_NULL_FULL.gguf", full)
-    # a delta two orders of magnitude smaller than the single-tensor adapters below: every layer of every family
-    # now carries its own independent delta, so the single-tensor scale would be far too strong summed over all of them
-    build(tmp, a.out_dir / "ADAPTER_FULL.gguf", all_layers(null=False, scale=0.01))
+    full_null = all_layers(null=True, scale=1.0)
+    print(f"full coverage: {len(full_null)} tensors")
+    build(tmp, a.out_dir / "ADAPTER_NULL_FULL.gguf", full_null)
+    full_pairs = all_layers(null=False, scale=0.03)
+    print(f"ADAPTER_FULL.gguf delta RMS (pooled over all tensors): {delta_rms(full_pairs):.6g}")
+    build(tmp, a.out_dir / "ADAPTER_FULL.gguf", full_pairs)
 
     # ADAPTER_PARTIAL_QV / _QKV: P7's mixed-types-in-one-layer prove -- one layer, not full coverage
     qv = {suf: shapes[suf] for suf in ("attn_q", "attn_v")}
