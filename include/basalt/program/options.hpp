@@ -269,8 +269,8 @@ struct Options {
     /// A LoRA adapter fused into the dense native matrices at load (tools/convert/lora.py's output), with
     /// llama.cpp's flags: `--lora FILE` (scale 1) or `--lora-scaled FILE:SCALE[,FILE:SCALE...]`. None by default.
     std::vector<std::pair<std::string, float>> lora_files;
-    /// An adapter that touches a tensor outside the ten fused families (the router, the routed experts, or
-    /// anything else): fuse the ten families it does cover and warn about the rest. --no-lora-partial refuses
+    /// An adapter that touches a tensor outside the ten fused families and the routed experts (the router, or
+    /// anything else): fuse what it does cover and warn about the rest. --no-lora-partial refuses
     /// the adapter instead, as if none of it could be applied.
     bool lora_partial = true;
 };

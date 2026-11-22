@@ -308,7 +308,7 @@ set_source_files_properties(src/kernels/cuda/native_mmvq.cu src/kernels/cuda/nat
 # about arithmetic, and this one knows the ORDER the arithmetic happens in.
 add_library(engine STATIC src/core/layer.cpp src/core/session.cpp src/core/expert_source.cpp src/core/remote_experts.cpp
   src/core/remote_expert_opt.cu
-  src/core/expert_cache.cpp src/core/segment_plan.cpp src/core/vmm.cpp src/core/kv_arena.cpp src/core/native_head.cpp src/core/native_dense.cpp src/core/lora.cpp
+  src/core/expert_cache.cpp src/core/segment_plan.cpp src/core/vmm.cpp src/core/kv_arena.cpp src/core/native_head.cpp src/core/native_dense.cpp src/core/lora.cpp src/core/lora_experts.cpp
   src/core/verify/batch_capture.cpp
   src/core/verify/batch_execution.cpp
   src/core/verify/batch_sessions.cpp
@@ -1285,7 +1285,7 @@ target_link_libraries(kernels_cpu PUBLIC Threads::Threads platform)
 # The parts of ggml (MIT, llama.cpp commit 3cf03257f219afbe7334045ff7c6a06ac68c627d) the engine uses, in
 # src/kernels/cpu/ggml and src/prefill/mmq: the reference quantizers and the format table, the CPU row dot
 # products, and the prompt path's MMQ kernels.  Nothing is fetched at build time.
-add_library(ggml_quants STATIC src/kernels/cpu/ggml/ggml_quants.c)
+add_library(ggml_quants STATIC src/kernels/cpu/ggml/ggml_quants.c src/kernels/cpu/ggml/ggml_quants_iq.c)
 target_include_directories(ggml_quants PUBLIC include PRIVATE src/kernels/cpu/ggml)
 set_target_properties(ggml_quants PROPERTIES C_STANDARD 11 C_EXTENSIONS ON POSITION_INDEPENDENT_CODE ON)
 # The CPU dot products are built for AVX2 and for AVX-512, each with its own name for the table lookup;
@@ -1420,6 +1420,13 @@ if(BUILD_TESTING)
   basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test
                    ${CMAKE_CURRENT_SOURCE_DIR}/tools/convert/testdata/lora_sample_expected.gguf)
   set_tests_properties(lora_merge_test PROPERTIES TIMEOUT 120)
+  # the routed-expert deltas fused into an experts section (IQ4_XS gate/up, IQ4_NL down), the IQ4 quantizers against
+  # llama.cpp's bytes, and an adapter written by llama.cpp's trainer; host-only
+  add_executable(lora_experts_test tests/core/lora_experts_test.cpp src/core/lora.cpp src/core/lora_experts.cpp)
+  target_link_libraries(lora_experts_test PRIVATE artifact ggml_quants)
+  basalt_cpu_test(NAME lora_experts_test COMMAND lora_experts_test
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tools/lora_training/testdata)
+  set_tests_properties(lora_experts_test PROPERTIES TIMEOUT 300)
 endif()
 if(BUILD_TESTING)
   # the hc up product fused with the mix against cuBLAS + gr_mix_r (bitwise) and a double-precision reference
