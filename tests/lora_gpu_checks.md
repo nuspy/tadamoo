@@ -71,21 +71,19 @@ Il pacchetto `Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt` nominato in `basalt_
 questo disco** (cercato il 22 novembre 2026, solo in `E:\Modelli\basalt\`): se serve per un'altra prova, va
 rigenerato o il percorso in `basalt_config.json` va corretto — non è stato ricostruito qui.
 
-### Trovare o generare il file base per P5 (`--kld-base`)
+### P5, ritirata: perché, e cosa farci se un giorno si vuole il numero
 
-`basalt-bench --quality` si ferma con `the quality gate needs --kld-base FILE` senza un file `.kld` di llama.cpp.
-Cercato su questo PC il 22 novembre 2026 (unità C ed E, e le cartelle dei modelli): **nessun file `.kld` esiste**.
-Va generato con la ricetta di `docs/precision/builds.md` (richiede llama.cpp compilato e il GGUF BF16 di Unsloth,
-non solo il pacchetto `.basalt`):
+`basalt-bench --quality` si ferma con `the quality gate needs --kld-base FILE` senza un file `.kld` di llama.cpp,
+che richiede llama.cpp compilato e il GGUF BF16 intero di Unsloth (molto disco, una corsa lunga) — cercato su
+questo PC il 22 novembre 2026 (unità C ed E, cartelle dei modelli): **nessun file `.kld` esiste**. L'utente ha
+deciso (22 novembre 2026) di fare il merge senza quel numero: coerente con la sua decisione D6 (parità sui tensori
+più adapter nullo, nessuna misura di qualità promessa in `docs/precision/features.md`). Se un giorno servirà
+davvero, la ricetta è in `docs/precision/builds.md`:
 
 ```sh
 llama-perplexity -m Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf -f wikitext-2-raw/wiki.test.raw \
     --kl-divergence-base flashnext-bf16-base.kld -c 512 -b 8192 -ub 8192 --chunks 100 -ngl 99 --n-cpu-moe 99 -t 16
 ```
-
-**P5 è oggi non eseguibile**: va detto all'utente prima della sessione con la GPU, non scoperto a metà prova — a
-meno che il file non venga generato prima (richiede llama.cpp compilato e ore di CPU/GPU per il BF16, non è un
-controllo rapido).
 
 ## Le prove sul modello vero (serve GPU + l'utente al PC)
 
@@ -107,7 +105,7 @@ prompt pretokenizzati già nel repository. Etichetta ogni numero col limite di p
 | P3 | Lo stesso adapter a scala +1 e -1 insieme, sul pacchetto Q8_0 (`Qwen3.6-35B-A3B-NVFP4.basalt`) | `--lora-scaled ADAPTER_NVFP4.gguf:1.0,ADAPTER_NVFP4.gguf:-1.0` su quel pacchetto | contro lo stesso comando senza `--lora` | identiche (la cancellazione è esatta, come nel test CPU) |
 | P3b | Sul pacchetto reale, qualunque esso sia | `--lora-scaled ADAPTER.gguf:1.0,ADAPTER.gguf:-1.0` su `MODEL.basalt` | **non contro P1** — contro `--lora ADAPTER_NULL.gguf` sullo stesso `MODEL.basalt` | identiche: i byte fusi sono gli stessi nei due casi (lettura, segno della scala e somma fino ai kernel), e questo confronto vale su qualunque pacchetto, non solo uno Q8_0 |
 | P4 | Adapter non nullo, due avvii dello stesso comando | `--lora ADAPTER.gguf` su `MODEL.basalt` (due volte) | le due uscite tra loro, poi contro P1 | le due uscite di questo punto sono identiche tra loro; diverse da P1 (l'adapter arriva davvero ai kernel) |
-| P5 | Qualità con/senza adapter nullo sul pacchetto reale | **non eseguibile oggi**: manca il file `--kld-base` (vedi sopra) | — | segnata non eseguibile; da riprovare quando il file `.kld` esiste |
+| P5 | Qualità con/senza adapter nullo sul pacchetto reale | **ritirata (decisione dell'utente, 22 novembre 2026)** | — | nessun numero: `docs/precision/features.md` resta com'è (parità sui tensori più adapter nullo, nessuna misura di qualità promessa). Generare il file `--kld-base` costerebbe llama.cpp compilato, il GGUF BF16 intero e una corsa lunga, per un numero che non serve alla decisione |
 | P6 | Dalla riga di log `lora: N tensori fusi, +X MiB, Y s` | avviare con `--lora ADAPTER.gguf` e senza, leggere la riga e `nvidia-smi` prima/dopo il caricamento | MiB di VRAM dei densi, posti della cache esperti persi, token al secondo (con e senza `--lora`) | i numeri che servono per la decisione D3 dell'utente (quanta VRAM in meno è accettabile) |
 | P7 | Tipi misti nello stesso livello: un adapter che copre solo `attn_q`/`attn_v`, un altro solo `attn_qkv`, su prefill lungo e su un turno di verifica (`--spec` acceso) | `--lora ADAPTER_PARTIAL_QV.gguf --tokens-file data/bench/prefill.ids` su `MODEL.basalt`, poi lo stesso con `ADAPTER_PARTIAL_QKV.gguf`, poi con `--spec 8` | che il motore parta e risponda; **leggere il log per righe di ripiego** (per esempio `GDN qkv + z without dense_tc_pair`) e i token al secondo con e senza l'adapter | nessun arresto; ogni ripiego trovato nel log va registrato col suo costo in token/s — un ripiego è un costo di velocità che l'utente deve vedere, non solo un «ha funzionato» |
 | P8a | Adapter con un tensore esperto e uno router, rifiuto esplicito | `bin\basalt.exe --model MODEL.basalt --lora ADAPTER_MIXED.gguf --no-lora-partial` | il messaggio d'errore | **FATTO (22 novembre 2026, senza GPU):** si ferma prima di aprire il modello, con `touches 1 router, 1 expert and 0 other tensor(s)...`; confermato anche passando dalla traduzione vera del file di configurazione (`serve.config.engine_words('no-lora-partial', True)` → `--no-lora-partial`) |
