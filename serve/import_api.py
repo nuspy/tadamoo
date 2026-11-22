@@ -6,8 +6,7 @@
     POST /api/import/<kind>/import         {path, server?, with_dependencies?}
     POST /api/import/<kind>/reimport       {name, confirm?, overwrite_local?, with_dependencies?}   without `confirm`: what would change
     POST /api/import/<kind>/update-plan    {name, instructions?, language?}   the update merged with what the person changed (skill, plugin, mcp): three versions of each file. Answers a `token`
-    POST /api/import/<kind>/update-apply   {token, choice?, resolutions?, remember?}   choice: merge (default), overwrite or cancel
-    POST /api/import/<kind>/update-notes   {name, notes?}           the instructions kept for the merges of this one; with `notes` it replaces them
+    POST /api/import/<kind>/update-apply   {token, choice?, resolutions?}   choice: merge (default), overwrite or cancel
     POST /api/import/<kind>/delete         {name}
     POST /api/import/mcp/enable            {name, enabled}          an imported server starts turned off
 
@@ -80,14 +79,8 @@ class ImportApi:
         if action == "update-plan":
             return self.imp.update_plan(kind, self._text(req, "name"), instructions=self._strings(req, "instructions"), language=self._language(req))
         if action == "update-apply":
-            out = self.imp.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", resolutions=req.get("resolutions"),
-                                        remember=flag("remember"))
+            out = self.imp.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", resolutions=req.get("resolutions"))
             return self._changed(kind, out) if out.get("status") in ("merged", "replaced") else out
-        if action == "update-notes":
-            name = self._text(req, "name")
-            if "notes" in req:
-                return {"notes": self.imp.set_merge_notes(kind, name, self._strings(req, "notes"))}
-            return {"notes": self.imp.merge_notes(kind, name)}
         raise Problem("not_found", "not found")
 
     @staticmethod

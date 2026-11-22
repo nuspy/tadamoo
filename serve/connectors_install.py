@@ -460,22 +460,6 @@ class ConnectorInstaller:
     def _session(self) -> Session:
         return Session(self.dir / ".merge")
 
-    @staticmethod
-    def merge_notes(rec: Dict[str, Any]) -> List[str]:
-        return [str(n.get("text") if isinstance(n, dict) else n) for n in rec.get("merge_notes", []) if n]
-
-    def set_merge_notes(self, entry_id: str, notes: List[str]) -> List[str]:
-        """What the person told the merges of this skill to do, kept with its record; an empty list clears it."""
-        with self._lock:
-            rec = self._record(entry_id)
-            clean = [" ".join(str(n).split())[:600] for n in notes if str(n).strip()][:20]
-            if clean:
-                rec["merge_notes"] = [{"text": t, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")} for t in clean]
-            else:
-                rec.pop("merge_notes", None)
-            InstalledStore(self.caps.index.dir).put(rec)
-            return clean
-
     def update_plan(self, entry_id: str, instructions: Optional[List[str]] = None, language: str = "en", client: Any = None) -> Dict[str, Any]:
         """What updating this GitHub skill to its current commit would do, merged with what the person changed (tadamoo/merge/): the three versions of every file that
         differs (installed, new, merged) with a description in words when a model is there. Nothing on disk changes; the proposal is kept under a `token`, and a file both
@@ -502,7 +486,7 @@ class ConnectorInstaller:
             name = str(rec.get("name") or "")
             unit = Unit(f"skill:{name}", name, ours, theirs, base if has_base else None, "original" if has_base else "", Path(path).name)
             meta = {"entry_id": entry_id, "name": name, "repo": repo, "path": path, "from_commit": str(rec.get("commit") or ""), "to_commit": to_commit}
-            out = session.propose(token, work, meta, [unit], self.merge_notes(rec), instructions or [], client, language)
+            out = session.propose(token, work, meta, [unit], instructions or [], client, language)
         except MergeProblem as e:
             shutil.rmtree(work, ignore_errors=True)
             raise ConnectorInstallError(str(e), e.code) from None
@@ -524,7 +508,7 @@ class ConnectorInstaller:
             (target / rel).parent.mkdir(parents=True, exist_ok=True)
             (target / rel).write_bytes(data)
 
-    def apply_update(self, token: str, choice: str = "merge", resolutions: Any = None, remember: bool = False) -> Dict[str, Any]:
+    def apply_update(self, token: str, choice: str = "merge", resolutions: Any = None) -> Dict[str, Any]:
         """Does what the person chose for a proposed update. `merge`: writes the merge, a conflict resolved as `resolutions` says (`ours`, `theirs`, or `merged` once the
         proposal holds no marker), the installed folder backed up first and put back if anything fails partway. `overwrite`: installs the new version whole, as `update` does.
         `cancel`: nothing. The new commit is recorded and its own download kept as the original, never what was merged."""
@@ -565,10 +549,6 @@ class ConnectorInstaller:
                 found = _read_skill(installed / "SKILL.md", "tadamoo")
                 if found is not None:
                     rec["sha"] = found.sha
-                if remember:
-                    rec["merge_notes"] = [{"text": t, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")} for t in meta["notes"]] or None
-                    if not meta["notes"]:
-                        rec.pop("merge_notes", None)
                 InstalledStore(self.caps.index.dir).put(rec)
                 self._keep_original(rec, {"repo": meta["repo"], "path": meta["path"]}, rows[0]["unit"].theirs)
             except BaseException:
@@ -578,7 +558,7 @@ class ConnectorInstaller:
                 shutil.rmtree(backup, ignore_errors=True)
         self.caps.index.refresh()
         session.discard(token)
-        return {"id": entry_id, "status": "merged", "to_commit": meta["to_commit"], "counts": tree.counts(rows[0]["files"]), "kept_notes": meta["notes"] if remember else []}
+        return {"id": entry_id, "status": "merged", "to_commit": meta["to_commit"], "counts": tree.counts(rows[0]["files"])}
 
     # -- remove -----------------------------------------------------------------------------------------
 

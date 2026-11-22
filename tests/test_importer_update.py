@@ -239,7 +239,7 @@ def test_an_mcp_record_is_merged_and_a_server_that_now_starts_something_else_is_
     assert imp.list("mcp")[0]["local_edited"] is False
 
 
-def test_instructions_are_carried_out_on_the_merge_kept_with_the_item_and_carried_out_again_next_time(make, src):
+def test_instructions_are_carried_out_on_this_merge_only_and_the_next_update_starts_without_them(make, src):
     model = Model(files={"SKILL.md": lambda user: user.split("===== proposed merge =====\n", 1)[1].rsplit("\n=====", 1)[0].replace("Line two.", "Line two, in Hungarian.")})
     imp = make(model)
     folder = make_skill(src, "news-research", body=BODY)
@@ -250,14 +250,17 @@ def test_instructions_are_carried_out_on_the_merge_kept_with_the_item_and_carrie
     assert plan["description"]["text"] == "The new version adds a line." and any("Answer in Italian" in a for a in model.asked)
     row = plan["units"][0]["files"][0]
     assert "in Hungarian" in row["merged"] and "in Hungarian" not in row["new"]                     # the three versions differ: installed, new, merged
-    imp.update_apply(plan["token"], remember=True)
+    applied = imp.update_apply(plan["token"])
     assert "in Hungarian" in (copy_of(imp) / "SKILL.md").read_text()
-    assert imp.merge_notes("skill", "news-research") == ["answer in Hungarian"]
-    assert imp.list("skill")[0]["merge_notes"][0]["text"] == "answer in Hungarian"
+    assert "kept_notes" not in applied and "merge_notes" not in imp.list("skill")[0]                  # nothing about the instructions stays with the item
+    assert not hasattr(imp, "merge_notes") and not hasattr(imp, "set_merge_notes")
     write(folder / "SKILL.md", skill_md(BODY.replace("Line six.", "Line six, updated again.")))
-    again = imp.update_plan("skill", "news-research")                                                # no instruction this time: the kept one is carried out
-    assert again["saved_notes"] == ["answer in Hungarian"] and any("answer in Hungarian" in a for a in model.asked[2:])
-    assert imp.set_merge_notes("skill", "news-research", []) == [] and imp.merge_notes("skill", "news-research") == []
+    asked = len(model.asked)
+    again = imp.update_plan("skill", "news-research")                                                # every update is independent: no instruction, none carried out
+    assert again["notes"] == [] and "saved_notes" not in again and again["notes_result"] == {}
+    assert not any("answer in Hungarian" in a for a in model.asked[asked:])
+    twice = imp.update_plan("skill", "news-research", instructions=["answer in Hungarian", "  ", "answer in Hungarian"])
+    assert twice["notes"] == ["answer in Hungarian", "answer in Hungarian"]                         # this update's own instructions, as written
 
 
 def test_instructions_without_a_model_are_told_and_nothing_is_proposed(imp, src):

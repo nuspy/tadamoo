@@ -37,7 +37,7 @@
     document.body.append(dlg);
     dlg.showModal();
     const say = (t, bad) => { status.textContent = t || ""; status.dataset.bad = bad ? "1" : ""; };
-    let plan = null, resolutions = {}, tab = "merged", overwriteArmed = false, remember = false, notesDraft = [];
+    let plan = null, resolutions = {}, tab = "merged", overwriteArmed = false, notesDraft = [];
 
     async function give(choice) {
       if (plan && plan.token && choice === "cancel") await o.apply({ token: plan.token, choice: "cancel" });
@@ -51,7 +51,7 @@
       if (!r.ok) { content.replaceChildren(h("p", "setnote warnnote", o.errText(r))); return; }
       if (r.data.status === "unchanged") { content.replaceChildren(h("p", "", T("um.same"))); return; }
       plan = r.data; resolutions = {}; overwriteArmed = false;
-      notesDraft = (plan.saved_notes || []).slice();
+      notesDraft = (plan.notes || []).slice();
       paint();
     }
 
@@ -117,12 +117,9 @@
       const ins = h("section", "um-instr");
       const ta = h("textarea", "um-ta"); ta.id = "um-instr"; ta.rows = 3; ta.placeholder = T("um.instr.ph"); ta.setAttribute("aria-label", T("um.instr.title"));
       ins.append(h("h3", "um-unith", T("um.instr.title")), h("p", "setnote", T("um.instr.help")), ta,
-        btn(T("um.instr.go"), "", async () => { const t = ta.value.trim(); if (!t) return; await read([t]); }));
+        btn(T("um.instr.go"), "", async () => { const t = ta.value.trim(); if (!t) return; await read([...notesDraft, t]); }));
       if ((plan.notes || []).length) {
         ins.append(h("p", "setnote", h("b", "", T("um.notes.title") + ": ")), h("ul", "um-notes", plan.notes.map(n => h("li", "", n))));
-        const keep = h("input"); keep.type = "checkbox"; keep.id = "um-remember"; keep.checked = remember; keep.onchange = () => { remember = keep.checked; };
-        ins.append(h("label", "im-check", keep, h("span", "", T("um.remember"))));
-        if ((plan.saved_notes || []).length && o.notes) ins.append(btn(T("um.notes.clear"), "ghost", async () => { const r = await o.notes.set([]); if (r.ok) { await read([]); } else say(o.errText(r), true); }));
       }
       const res = Object.values(plan.notes_result || {}).flatMap(x => Object.entries(x));
       if (res.length) ins.append(h("ul", "um-res setnote", res.map(([p, s]) => h("li", "", `${p}: ${/^(revised|unchanged)$/.test(s) ? T("um.res." + s) : T("um.res.left")}`))));
@@ -131,7 +128,7 @@
 
       const go = btn(T("um.apply"), "primary", async () => {
         go.disabled = true; say(T("im.working"));
-        const body = { token: plan.token, choice: "merge", resolutions, remember };
+        const body = { token: plan.token, choice: "merge", resolutions };
         const r = await o.apply(body);
         if (r.ok) { say(""); close(); if (o.done) await o.done(T("um.done", o.title), r.data); } else { say(o.errText(r), true); go.disabled = false; }
       });
