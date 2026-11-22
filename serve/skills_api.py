@@ -9,7 +9,10 @@
     POST /api/skills/remove           {name}
     POST /api/skills/enable           {name}
     POST /api/skills/disable          {name}
-    POST /api/skills/update           {name, overwrite_local?, check?}
+    POST /api/skills/update           {name, overwrite_local?, check?}   the old way: the copy is replaced (refused when it was edited here, unless overwrite_local)
+    POST /api/skills/update/plan      {name, instructions?, language?}   the update merged with what the person changed: three versions of each file, told in words. Answers a `token`
+    POST /api/skills/update/apply     {token, choice?, resolutions?, remember?}   choice: merge (default), overwrite or cancel
+    POST /api/skills/update/notes     {name, notes?}              the instructions kept for this skill's merges; with `notes` it replaces them
     POST /api/skills/discard          {token}                     forgets what an address held
     POST /api/skills/job/cancel
 
@@ -20,7 +23,8 @@ from typing import Any, Dict, Tuple
 
 from tadamoo.skillmanager import Problem, SkillManager
 
-CONFLICT = frozenset({"busy", "blocked", "local_edits", "exists", "part", "source_missing", "renamed", "personal_exists", "part_exists", "not_updatable"})
+CONFLICT = frozenset({"busy", "blocked", "local_edits", "exists", "part", "source_missing", "renamed", "personal_exists", "part_exists", "not_updatable", "stale", "conflicts",
+                      "not_mergeable"})
 NOT_FOUND = frozenset({"not_imported", "not_found", "unknown_skill", "not_installed", "no_plan"})
 STATUS = {"fetch_failed": 502, "no_model": 503}
 MAX_NAMES = 60
@@ -64,6 +68,20 @@ class SkillsApi:
             raise Problem("bad_request", f"Send `{key}` as a list of names.")
         return value
 
+    @staticmethod
+    def _strings(req: Dict[str, Any], key: str) -> list:
+        value = req.get(key)
+        if value is None:
+            return []
+        if not isinstance(value, list) or len(value) > 20 or not all(isinstance(x, str) for x in value):
+            raise Problem("bad_request", f"Send `{key}` as a list of texts.")
+        return value
+
+    @staticmethod
+    def _language(req: Dict[str, Any]) -> str:
+        value = req.get("language")
+        return value if isinstance(value, str) and value in ("it", "en", "hu") else "en"
+
     def _post(self, parts: list, req: Dict[str, Any]) -> Dict[str, Any]:
         m = self.mgr
         flag = lambda key: req.get(key) is True            # noqa: E731
@@ -92,6 +110,16 @@ class SkillsApi:
             return m.check_models(name)
         if parts == ["job", "cancel"]:
             return {"cancelled": m.jobs.cancel(), "job": m.jobs.view()}
+        if parts == ["update", "plan"]:
+            return m.update_plan(self._text(req, "name"), self._strings(req, "instructions"), self._language(req))
+        if parts == ["update", "apply"]:
+            return m.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", req.get("resolutions"), flag("remember"))
+        if parts == ["update", "notes"]:
+            name = self._text(req, "name")
+            entry = m._entry(name)
+            if "notes" in req:
+                return {"notes": m.imp.set_merge_notes(entry["kind"], name, self._strings(req, "notes"))}
+            return {"notes": m.imp.merge_notes(entry["kind"], name)}
         if parts in (["remove"], ["enable"], ["disable"], ["update"]):
             name = self._text(req, "name")
             if parts[0] == "remove":

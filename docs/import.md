@@ -44,6 +44,9 @@ changed here since it was imported (a file edited, a personal skill saved again,
 (`local_edits`) unless the person also confirms that those changes may be discarded. A source that is gone is reported
 (`source_missing`) and the copy stays.
 
+**Update** (skills, plugins and MCP servers) is a re-import that keeps what was changed in the copy: it merges the copy, the source and the original it was made from, inside the
+files, and shows the three versions before writing anything. See `docs/update-merge.md`. The plain re-import above replaces the copy; it is what a plan gets.
+
 **Delete** removes the copy and its manifest entry. The source is never touched. A part of a plugin cannot be deleted alone: delete
 the plugin, and its parts go with it.
 

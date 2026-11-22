@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
 from tadamoo.capabilities import LONG_TOKEN, SECRET_FLAG, redact_args
 from tadamoo.discovery.installed import env_spec
 
-from .common import Problem, Snapshot, canonical, check_name, now_iso, sha_text
+from .common import Problem, Snapshot, Unit, canonical, check_name, now_iso, sha_text
 
 KIND = "mcp"
 SERVER_NAME = re.compile(r"^[A-Za-z0-9_\-.]{1,64}$")
@@ -127,7 +128,8 @@ class McpKind:
         record = snap.payload["record"]
         txn.write_file(self.file(snap.name), record)
         self._set_off(txn, snap.name, True)
-        entry = {"kind": KIND, "name": snap.name, "version": "", "description": snap.description, "source": snap.source, "hash": snap.hash, "copy_hash": snap.hash,
+        self.imp.keep_original(txn, snap)
+        entry = {"kind": KIND, "name": snap.name, "version": "", "description": snap.description, "source": snap.source, "hash": snap.hash, "copy_hash": sha_text(canonical(record)),
                  "imported_at": now_iso(), "updated_at": now_iso(), "parent": parent, "runs": snap.extra["runs"], "needs_keys": snap.extra["needs_keys"]}
         items[f"mcp:{snap.name}"] = entry
         return entry
@@ -139,13 +141,56 @@ class McpKind:
         txn.write_file(self.file(snap.name), record)
         if old is None or (old["command"], old["url"]) != (record["command"], record["url"]):
             self._set_off(txn, snap.name, True)
-        entry.update(description=snap.description, source=snap.source, hash=snap.hash, copy_hash=snap.hash, updated_at=now_iso(), runs=snap.extra["runs"],
+        self.imp.keep_original(txn, snap)
+        entry.update(description=snap.description, source=snap.source, hash=snap.hash, copy_hash=sha_text(canonical(record)), updated_at=now_iso(), runs=snap.extra["runs"],
                      needs_keys=snap.extra["needs_keys"])
 
     def drop(self, txn: Any, items: Dict[str, Any], entry: Dict[str, Any]) -> None:
         txn.remove_file(self.file(entry["name"]))
         self._set_off(txn, entry["name"], False)
+        self.imp.drop_original(txn, KIND, entry["name"])
         items.pop(f"mcp:{entry['name']}", None)
+
+    # -- an update that keeps what the person changed ------------------------------------------------------
+
+    @staticmethod
+    def _text(record: Any) -> bytes:
+        return (json.dumps(record, indent=1, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+    def keep_original(self, snap: Snapshot, dest: Path) -> None:
+        (dest / "record.json").write_bytes(self._text(snap.payload["record"]))
+
+    def merge_units(self, snap: Snapshot, entry: Dict[str, Any], work: Path) -> List[Unit]:
+        """The record of the server as it is now, the new source's record, and the record that was imported."""
+        ours, theirs = work / "ours", work / "theirs"
+        ours.mkdir(parents=True)
+        theirs.mkdir(parents=True)
+        record = self.read(entry["name"])
+        if record is not None:
+            (ours / "record.json").write_bytes(self._text(record))
+        self.keep_original(snap, theirs)
+        base, base_from = work / "base", ""
+        original = self.imp.originals(KIND, entry["name"])
+        if (original / "record.json").is_file():
+            base.mkdir()
+            shutil.copyfile(original / "record.json", base / "record.json")
+            base_from = "original"
+        elif record is not None and sha_text(canonical(record)) == entry.get("copy_hash"):
+            shutil.copytree(ours, base)                                  # the record was never edited: it is the original
+            base_from = "copy"
+        return [Unit(f"mcp:{entry['name']}", entry["name"], ours, theirs, base if base_from else None, base_from)]
+
+    def merged_snapshot(self, snap: Snapshot, finals: Dict[str, Path]) -> Snapshot:
+        try:
+            record = json.loads((finals[f"mcp:{snap.name}"] / "record.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise Problem("bad_merge", f"The merged record of the server '{snap.name}' is not valid JSON.") from None
+        if not (isinstance(record, dict) and record.get("name") == snap.name and isinstance(record.get("command"), list) and isinstance(record.get("url"), str)
+                and isinstance(record.get("env"), list) and all(isinstance(e, dict) and isinstance(e.get("name"), str) for e in record["env"])):
+            raise Problem("bad_merge", f"The merged record of the server '{snap.name}' is not a server record (name, command, url, env).")
+        shown = _shown(record)
+        return Snapshot(KIND, snap.name, snap.source, snap.hash, description=f"MCP server: {shown}", payload={"record": record}, warnings=snap.warnings,
+                        extra={"runs": shown, "remote": not record["command"], "needs_keys": _keys(record), "servers": snap.extra.get("servers", [])}, original=snap)
 
     def set_enabled(self, txn: Any, name: str, enabled: bool) -> None:
         self._set_off(txn, name, not enabled)

@@ -9,6 +9,8 @@
     python -m tadamoo.skillmanager remove NAME
     python -m tadamoo.skillmanager enable NAME | disable NAME
     python -m tadamoo.skillmanager update NAME [--check] [--overwrite-local]
+    python -m tadamoo.skillmanager update-plan NAME [--instruction TEXT ...]    the update merged with what you changed; prints the three versions, changes nothing
+    python -m tadamoo.skillmanager update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged ...] [--remember]
     python -m tadamoo.skillmanager models NAME [--check]                        download (or only check) the models of an installed skill
 
 Only what is named is installed: no command installs, imports or downloads a skill that was not asked for. The state is in the user data folder (TADAMOO_DATA, else the
@@ -98,6 +100,14 @@ def run(args: argparse.Namespace, out=print) -> int:
         res = mgr.update(args.name, overwrite_local=args.overwrite_local, check_only=args.check)
         out(json.dumps(res, ensure_ascii=False) if args.json else f"{args.name}: {res['status']}")
         return 0
+    if cmd == "update-plan":
+        res = mgr.update_plan(args.name, args.instruction, args.language)
+        out(json.dumps(res, ensure_ascii=False, indent=1))
+        return 0
+    if cmd == "update-apply":
+        res = mgr.update_apply(args.token, args.choice, dict(r.rsplit("=", 1) for r in args.resolve), args.remember)
+        out(json.dumps(res, ensure_ascii=False, indent=1))
+        return 0
     if cmd == "models":
         if args.check:
             res = mgr.check_models(args.name)
@@ -172,6 +182,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     up.add_argument("name")
     up.add_argument("--check", action="store_true", help="only say what would change")
     up.add_argument("--overwrite-local", action="store_true")
+    mp = sub.add_parser("update-plan", help="the update merged with what you changed: three versions of each file; nothing is changed")
+    mp.add_argument("name")
+    mp.add_argument("--instruction", action="append", default=[], help="how to change the merge (repeat)")
+    mp.add_argument("--language", default="en", choices=("en", "it", "hu"))
+    ma = sub.add_parser("update-apply", help="do what you chose for a proposed update")
+    ma.add_argument("token")
+    ma.add_argument("--choice", choices=("merge", "overwrite", "cancel"), default="merge")
+    ma.add_argument("--resolve", action="append", default=[], metavar="FILE=ours|theirs|merged")
+    ma.add_argument("--remember", action="store_true", help="keep the instructions for the next updates")
     mo = sub.add_parser("models")
     mo.add_argument("name")
     mo.add_argument("--check", action="store_true", help="only check what is there")

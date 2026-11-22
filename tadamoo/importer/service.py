@@ -8,17 +8,18 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .common import Lock, Manifest, Problem, Snapshot, Txn
+from .common import Lock, Manifest, Problem, Snapshot, Txn, check_name, now_iso
 from .mcp import McpKind
 from .plans import PlanKind
 from .plugins import PluginKind
 from .skills import SkillKind
+from .updates import Updater
 
 KINDS = ("skill", "plugin", "mcp", "plan")
 ROW_FIELDS = ("kind", "name", "version", "description", "source", "imported_at", "updated_at", "hash", "files", "bytes", "parent", "parts", "reused", "dependencies",
-              "forms", "runs", "needs_keys", "steps", "last_reimport", "adopted")
+              "forms", "runs", "needs_keys", "steps", "last_reimport", "adopted", "merge_notes")
 
 
 @dataclass
@@ -39,13 +40,15 @@ class Spaces:
 
 
 class Importer:
-    def __init__(self, spaces: Spaces, plan_store: Any = None, on_plan_changed: Optional[Callable[[str], None]] = None) -> None:
+    def __init__(self, spaces: Spaces, plan_store: Any = None, on_plan_changed: Optional[Callable[[str], None]] = None, model: Optional[Callable[[], Any]] = None) -> None:
         """`plan_store` is the PlanStore plans are kept in (or a function giving it); the one the running app uses, so that it sees the change.
-        `on_plan_changed(plan_id)` is called after a plan is made or replaced."""
+        `on_plan_changed(plan_id)` is called after a plan is made or replaced. `model()` gives the model client that describes an update and carries out the person's
+        instructions for its merge (None, or a function that gives None: the merge works without it)."""
         self.spaces = spaces
         self.root = spaces.root
         self._plan_store = plan_store
         self.on_plan_changed = on_plan_changed
+        self.model = model
         self.manifest = Manifest(self.root / "manifest.json")
         self.kinds: Dict[str, Any] = {"skill": SkillKind(self), "plugin": PluginKind(self), "mcp": McpKind(self), "plan": PlanKind(self)}
 
@@ -59,6 +62,63 @@ class Importer:
     def plan_changed(self, plan_id: str) -> None:
         if self.on_plan_changed is not None:
             self.on_plan_changed(plan_id)
+
+    # -- the original of what was imported: the common ground of a merge ----------------------------------------
+
+    def originals(self, kind: str, name: str) -> Path:
+        """Where the source is kept as it was when `kind:name` was imported or last brought up to date (the copy is the one that is edited, this one never is)."""
+        return self.root / ".originals" / kind / check_name(name)
+
+    def keep_original(self, txn: Txn, snap: Snapshot) -> None:
+        """Keeps the source of `snap` (the one it was read from, when `snap` came out of a merge) as the original of its kind and name."""
+        snap = snap.original or snap
+        keep = getattr(self.kinds[snap.kind], "keep_original", None)
+        if keep is None:
+            return
+        staged = txn.temp("orig")
+        staged.mkdir(parents=True)
+        txn.on_undo(lambda: shutil.rmtree(staged, ignore_errors=True))
+        keep(snap, staged)
+        txn.install_dir(staged, self.originals(snap.kind, snap.name))
+
+    def drop_original(self, txn: Txn, kind: str, name: str) -> None:
+        txn.remove_dir(self.originals(kind, name))
+
+    def merge_notes(self, kind: str, name: str) -> List[str]:
+        """What the person told the merge to do on every update of this one, as they wrote it."""
+        entry = self.manifest.load().get(f"{kind}:{name}") or {}
+        return [str(n.get("text") if isinstance(n, dict) else n) for n in entry.get("merge_notes", []) if n]
+
+    def set_merge_notes(self, kind: str, name: str, notes: List[str]) -> List[str]:
+        with Lock():
+            items = self.manifest.load()
+            entry = items.get(f"{kind}:{name}")
+            if entry is None:
+                raise Problem("not_imported", f"'{str(name)[:60]}' is not imported.")
+            clean = [" ".join(str(n).split())[:600] for n in notes if str(n).strip()][:20]
+            if clean:
+                entry["merge_notes"] = [{"text": t, "at": now_iso()} for t in clean]
+            else:
+                entry.pop("merge_notes", None)
+            self.manifest.save(items)
+            return clean
+
+    # -- an update that keeps what the person changed ---------------------------------------------------------
+
+    def update_plan(self, kind: str, name: str, **opts: Any) -> Dict[str, Any]:
+        """What updating `kind:name` to its source would do, merged: see tadamoo/importer/updates.py."""
+        return Updater(self).plan(kind, name, **opts)
+
+    def update_apply(self, token: str, choice: str = "merge", **opts: Any) -> Dict[str, Any]:
+        return Updater(self).apply(token, choice, **opts)
+
+    def update_discard(self, token: str) -> None:
+        Updater(self).discard(token)
+
+    def update_target(self, token: str) -> Tuple[str, str]:
+        """The kind and the name a proposed update is for."""
+        meta = Updater(self).load(token)[0]
+        return meta["kind"], meta["name"]
 
     def _kind(self, kind: Any) -> Any:
         if kind not in self.kinds:

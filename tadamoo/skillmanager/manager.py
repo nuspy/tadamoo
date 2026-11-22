@@ -10,7 +10,7 @@ import secrets
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from tadamoo.importer import Importer, Problem, Spaces
 from tadamoo.importer.common import Lock, now_iso
@@ -36,7 +36,9 @@ class SkillManager:
         (default: tadamoo.media.components); `on_change()` is called after the installed or turned-on skills changed, so the harness reads them again; `jobs` is the runner to share between managers."""
         self.data = Path(data)
         self.dir = self.data / "skills"
-        self.imp = importer or Importer(Spaces.from_data(self.data))
+        self.imp = importer or Importer(Spaces.from_data(self.data), model=model)
+        if self.imp.model is None:
+            self.imp.model = model                                          # the same model describes an update and carries out the person's instructions for its merge
         self.program = Path(program) if program else catalogue.default_source()
         self.choices = Choices(self.dir / "choices.json")
         self.fetcher, self.model, self.on_change = fetcher, model, on_change
@@ -430,9 +432,8 @@ class SkillManager:
         self._changed()
         return {"removed": name, "models_kept": self._has_components(name), "needed_by": needed_by}
 
-    def update(self, name: str, overwrite_local: bool = False, check_only: bool = False) -> Dict[str, Any]:
-        """Brings an installed skill up to its source again: the program's folder, the folder it was installed from, or its address read again. A copy edited here is
-        replaced only with `overwrite_local`. `check_only` says what would change."""
+    def _source_of(self, name: str) -> Tuple[Dict[str, Any], Dict[str, Any], Path]:
+        """Where an installed skill is brought up to date from: the program's folder, the folder it was installed from, or its address read again (kept in `sources/`)."""
         with Lock():
             self.sync()
             entry = self._entry(name)
@@ -464,6 +465,34 @@ class SkillManager:
                 path = keep
             finally:
                 self.discard(plan["token"])
+        return entry, source, path
+
+    def update_plan(self, name: str, instructions: Optional[Sequence[str]] = None, language: str = "en") -> Dict[str, Any]:
+        """What updating an installed skill would do, with what the person changed kept: the three versions of every file that differs (installed, new, merged), told in
+        plain words when a model is there. Nothing is changed. The instructions are what the person tells the merge to do (tadamoo/importer/updates.py)."""
+        entry, source, path = self._source_of(name)
+        with Lock(), self._visible(name):
+            return self.imp.update_plan(entry["kind"], name, source=str(path), instructions=list(instructions or []), language=language,
+                                        **_plugin_opts(entry["kind"], source.get("type") == "builtin"))
+
+    def update_apply(self, token: str, choice: str = "merge", resolutions: Any = None, remember: bool = False) -> Dict[str, Any]:
+        """Does what the person chose for a proposed update: `merge` (with a choice for every conflict), `overwrite` or `cancel`."""
+        with Lock():
+            self.sync()
+            name = self.imp.update_target(token)[1]
+            entry = self._entry(name)
+            with self._visible(name):
+                out = self.imp.update_apply(token, choice, resolutions=resolutions, remember=remember)
+            if out.get("status") in ("merged", "replaced"):
+                self._record(name, entry["kind"], (self.choices.load().get(name) or {}).get("source") or {})
+        if out.get("status") in ("merged", "replaced"):
+            self._changed()
+        return out
+
+    def update(self, name: str, overwrite_local: bool = False, check_only: bool = False) -> Dict[str, Any]:
+        """Brings an installed skill up to its source again: the program's folder, the folder it was installed from, or its address read again. A copy edited here is
+        replaced only with `overwrite_local`. `check_only` says what would change."""
+        entry, source, path = self._source_of(name)
         with Lock():
             if check_only:
                 seen = self.imp.reimport(entry["kind"], name, source=str(path), **_plugin_opts(entry["kind"], source.get("type") == "builtin"))
