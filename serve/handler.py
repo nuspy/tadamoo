@@ -1280,6 +1280,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/chat/code-abstract":
                 self._chat_code_abstract()
                 return
+            if path == "/api/summarize":
+                self._summarize()
+                return
             if path == "/api/reqlog/clear":
                 self._reqlog_clear()
                 return
@@ -2076,6 +2079,30 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except ValueError as e:
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ModelBusy as e:
+                self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+
+        def _summarize(self):
+            """POST /api/summarize {"text", "level": integral|medium|high|executive, "language"?}: the text at that level of compression, written in the
+            technical session (serve/summarylevels.py)."""
+            from serve import summarylevels
+            from tadamoo import digest
+            try:
+                req = json.loads(self._body(summarylevels.MAX_TEXT_CHARS + 4096) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                language = req.get("language") or ""
+                if not isinstance(language, str) or len(language) > 40:
+                    raise ValueError("language: a language name")
+                self._json(200, summarylevels.run(svc, req.get("text") if isinstance(req.get("text"), str) else "", req.get("level"), language.strip()))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except digest.Stopped:
+                self._json(409, {"error": {"type": "stopped", "message": "the summary was stopped"}})
             except ModelBusy as e:
                 self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
             except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:

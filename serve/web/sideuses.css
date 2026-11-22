@@ -41,3 +41,10 @@
 .sud[data-off="1"] .sud-use { opacity: .55; }
 .sud[data-off="1"] .sud-use * { pointer-events: auto; }
 @media (max-width: 520px) { .sud-h { padding: 8px 12px; } .sud-body { padding: 10px 12px 14px; } }
+
+.slbox { display: flex; flex-direction: column; gap: 8px; }
+.slbox textarea { width: 100%; min-height: 120px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; box-sizing: border-box; }
+.slbox select, .slbox input[type=text] { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; box-sizing: border-box; }
+.slbox .btn { min-height: 44px; display: inline-flex; align-items: center; }
+.slrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+#sl-note[data-bad="1"] { color: var(--bad, #b3261e); }
