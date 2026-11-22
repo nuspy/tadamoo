@@ -1,9 +1,187 @@
 # Diario dei task
 
-Ultimo aggiornamento: 20 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti dalla lista del 17 novembre e da «Decisioni tue in attesa». Il 17 novembre sono state tolte 7 copie vecchie incollate in fondo al file (sezione «12 novembre» compresa): si leggono con `git show 183b0300:docs/task_diary.md`. Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
-## 20 novembre
+## 22 novembre
+
+**Dopo il merge del LoRA (stesso giorno): adapter veri e prova di addestramento.**
+- Fatto: il LoRA nel motore è in `master` (merge `540b3004`). Il binario dell'albero principale non è ancora
+  ricompilato: il file è in uso dal server TaDaMoo, che sta finendo un lavoro lungo. Si ricompila quando è libero.
+- Fatto: provati due adapter veri scaricati da HuggingFace. Quello di huihui (2,3 MB) si fonde tutto: 96 tensori.
+  Quello di loraforge faceva fermare il motore, perché i suoi tensori degli esperti sono a tre dimensioni.
+- Fatto: corretto il motore (commit `4e313ead`). Un tensore fuori dalle dieci famiglie ora si salta guardando il
+  nome, prima di controllarne la forma. Test nuovo aggiunto. Riprova sull'adapter vero: 96 fusi, avviso sul resto.
+- Deciso dall'utente: lo scopo è una LoRA che **aggiunge informazioni**, non una che toglie i rifiuti. Quindi serve
+  un addestramento vero. L'estrazione da un delta già esistente non serve a questo.
+- Deciso dall'utente: niente fine-tuning pieno, solo LoRA a 4 bit. I download grandi vanno sul NAS, cartella AI.
+- Fatto: provato l'addestramento LoRA con QVAC Fabric (fork di llama.cpp) su un modello finto piccolissimo con la
+  nostra architettura (qwen4exp). All'inizio si fermava. Trovate e corrette tre cause nel loro codice:
+  le hyper-connection «fuse» non hanno il passo all'indietro (ora in addestramento si usano quelle semplici);
+  nei livelli QSA le proiezioni K e V non ricevevano gradiente (leggevano dalla cache); al `CLAMP` mancava il
+  passo all'indietro (serve per il livello PLE). Esito: la perdita scende da 5,60 a 3,37 in 8 epoche, e con
+  l'adapter la perplessità in inferenza passa da 281 a 23.
+- Limiti di questa prova: modello finto (32 dimensioni, 4 livelli, pesi casuali), solo CPU, senza PLE e senza MTP.
+  Non è ancora provato sul modello vero né su GPU.
+- Fatto: la patch e lo script del modello finto sono in `tools/lora_training/` (non ancora in un commit).
+- Fatto: il GGUF vero è sul NAS, in `/home/nuspy/AI/Models/Qwen3.8-Flash-Next-GGUF/UD-Q4_K_XL`
+  (Unsloth UD-Q4_K_XL, 4 pezzi, 103,7 GiB). Sul NAS non c'era già. Tutti e quattro i pezzi verificati con
+  SHA-256; il registro è `dl.log` nella stessa cartella.
+- In coda: provare l'addestramento sul modello vero. Da misurare: memoria (il file è 103,7 GiB, la macchina ha
+  128 GiB di RAM), velocità su CPU, compilazione con CUDA.
+- Chiesto dall'utente: «ricongiungi tutti i worktree». Fatto solo in parte, di proposito:
+  il worktree `lora-convert` è stato riallineato a `master`; `feat/authenticator`, `exp/chat-display`,
+  `feat/connectors` ed `exp/smart-context` erano già dentro `master`.
+- Decisione in attesa: gli altri 28 worktree stanno sulla cronologia vecchia, quella di prima della riscrittura
+  senza il telegiornale. Non hanno nessun antenato in comune con `master`. Unirli riporterebbe il telegiornale nel
+  repository. Confrontando data e titolo dei commit, a `master` mancano solo i commit del telegiornale e 40 commit
+  di README e righe della comunità tolti dalla riscrittura. Da decidere: cancellarli, tenerli, o altro.
+
+Continuato il filone LoRA nel motore (worktree `worktree-lora-convert`), fase 2 (collegamento nel motore), dopo le
+revisioni di `basalt-3d`. Molti commit piccoli, tutti rivisti e in parte corretti di nuovo da `basalt-3d`:
+- Riga di log al caricamento (quanti tensori fusi, MiB in più, secondi), errore più chiaro per un tensore non
+  quantizzato coperto da un adapter, e la lista vera delle 7+ prove sul modello reale scritta in
+  `tests/lora_gpu_checks.md` (un commit precedente l'aveva solo promessa, non scritta: errore mio, corretto).
+- **Decisione dell'utente presa oggi**: un adapter che tocca router/esperti MoE/altro non viene più rifiutato per
+  default. Fonde comunque le dieci famiglie che sa fare e avvisa nel log quante ne restano fuori;
+  `--no-lora-partial` torna al rifiuto secco per chi lo vuole. Trovato e corretto nel giro: la prima versione della
+  chiave di configurazione (`lora-partial`) non funzionava davvero (il server la traduce in un flag che il motore
+  non conosce) — corretta in `no-lora-partial`.
+- Aggiunto `lora_skipped` alla riga di stato che il server legge, per quando la GUI vorrà mostrarlo (non c'è
+  ancora un pulsante, solo il numero disponibile).
+- Scoperto controllando per davvero i pacchetti reali presenti sul disco: nessuna delle dieci famiglie del
+  pacchetto IQ4_XS dell'utente è già in Q8_0 (quindi certe prove si saltano); un pacchetto diverso (modello
+  Qwen3.6-35B-A3B, non il nostro) gira su un pezzo di motore tutto suo e **non passa mai dal collegamento LoRA** —
+  un `--lora` su quel tipo di pacchetto, lanciato come lo fa davvero il server, oggi è solo un avviso nel log, non
+  un errore. Segnalato all'utente, che per ora non se ne occupa (non gli interessa quel modello).
+- La prova di qualità P5 (misurare l'effetto di un adapter nullo su un pacchetto non già Q8_0) è stata ritirata
+  dall'utente: manca il file di confronto di llama.cpp e costruirlo costerebbe troppo per un numero che non serve
+  alla sua decisione (D6).
+- **Fatto per davvero, senza GPU**: P8 (un adapter che tocca sia un tensore esperto sia il router, sia col rifiuto
+  che con la fusione parziale) e i due controlli sui metadati dei pacchetti e sul file `.kld` mancante.
+- Fatto (22 novembre, pomeriggio): lo script che genera gli adapter di prova veri dalle forme reali del
+  pacchetto (`tools/convert/gen_test_adapters.py`) e il file piccolo che chiude l'anello Python/C++ (un adapter
+  vero scritto da `lora.py`, letto per davvero dal lettore C++, commit `d9ebc1ae`).
+- **Fatto per davvero con la GPU (22 novembre, l'utente ha dato la GPU libera)** (commit `88327264`). Identità
+  senza `--lora`: uguale (dopo aver scoperto che il primo confronto era contro il binario sbagliato — l'albero
+  principale si è mosso di oltre 50 commit non miei nel frattempo, non una regressione). Adapter nullo sull'unico
+  tensore Q8_0 reale: uguale, log `+0.0 MiB`. Coppia di scale +1/-1: uguale all'adapter nullo. Tipi misti: nessun
+  arresto, nessun ripiego causato da LoRA.
+- **Errore mio trovato dalla rilettura di `basalt-3d` sullo stesso giro, corretto (commit `d8740f65`)**: lo
+  script che genera gli adapter di prova prendeva solo il primo tensore di ogni famiglia (10 su 300 veri) — il
+  log diceva «10 tensors fused» e non l'avevo notato io stesso. Corretto: ora copre tutti i 300. Conseguenze: il
+  numero di VRAM per la decisione D3 (+52,8 MiB) valeva solo per 10 tensori — con tutti i 300 l'extra calcolato
+  dai metadati è **+1328,9 MiB** (25 volte), non ancora misurato per davvero. Il numero di velocità (−12,5%)
+  **ritirato del tutto**: veniva da un adapter non nullo (cambia il testo generato) con `--spec 7` (vedi sotto),
+  una sola corsa per lato — tre motivi, ognuno già sufficiente a invalidarlo. La prova di tenuta sui 4 prompt e
+  quella dell'adapter vero deterministico restavano valide come proprietà ma coprivano solo 10 tensori su 300:
+  da rifare con la copertura intera. Prima cosa da controllare nel prossimo giro: se il caricamento tiene ancora
+  con la configurazione reale dell'utente quando la fusione chiede +1,3 GiB di VRAM in più per davvero.
+- **Trovato di passaggio, non un difetto di questo lavoro — fatto reale sul motore da verificare meglio**:
+  `--spec 7` (il valore che l'utente usa davvero) non sembra deterministico da solo: due avvii dello stesso
+  identico binario, stessi flag, stesso prompt, `--greedy`, hanno dato uscite diverse a partire da un certo
+  token, e anche la velocità varia molto da una corsa all'altra con lo stesso testo (26-40 token/s, visto di
+  nuovo nel secondo giro sotto). `--spec 2` invece è stabile, sia nel testo che nella velocità. Non ancora
+  provato sul motore senza le modifiche LoRA di oggi (solo dedotto, non osservato per davvero sul binario
+  pulito). Se vuoi, lo verifico a parte.
+- **Secondo giro con la copertura intera dei tensori, stesso pomeriggio, tutte le prove passano** (commit
+  `e5fbc115`). Tre riletture di `basalt-3d` hanno trovato tre errori reali, tutti nello script che genera gli
+  adapter di prova, **nessuno nel motore**: copriva solo 10 tensori su 300; la scala del delta era sbagliata e
+  rendeva l'adapter "vero" praticamente nullo; una prova confrontava contro il caso senza adapter invece che
+  contro l'adapter nullo (confronto che non dimostra nulla, perché anche l'adapter nullo da solo cambia già
+  l'uscita per il solo arrotondamento). Corretti tutti prima di fidarsi di un numero. Risultati finali: il
+  caricamento tiene con +1328,9 MiB di VRAM in più sulla configurazione reale; cache esperti -392 posti; fusione
+  15-18 secondi per 300 tensori; **a `--spec 2` nessuna differenza di velocità misurabile** con o senza
+  l'adapter — il −12,5% scritto nel primo giro era un errore di misura, non un costo vero. Tutte le prove sui
+  quattro prompt reali passano, testo sempre sensato.
+- **Rilettura finale di `basalt-3d`: E3 chiuso, il merge si può proporre.** Quattro ritocchi ai testi senza GPU
+  fatti (commit `df828c20`): il limite di potenza della GPU (600 W) sui numeri di P6; i costi misurati scritti
+  in `docs/configuration/lora.md`; corretta una frase vecchia che contraddiceva l'esito di P6; la velocità di
+  lettura del prompt (nessuna differenza nemmeno lì). Prima di fare il merge per davvero: l'albero principale
+  ha modifiche non salvate su `tests/QUEUE_daytime.md` e su questo stesso file — vanno in un commit prima,
+  altrimenti `git merge` si rifiuta.
+
+**Nuovo compito deciso oggi: la risposta corta di Qwen3.8-Flash-Next.** Il modello chiude da solo una risposta
+molto prima di quanto servirebbe (circa 3-4.000 parole secondo l'utente, osservazione diretta — non il numero
+della misura automatica del server, che si è rivelata scorretta: forza il pensiero spento e usa un compito
+artificiale, e i suoi numeri grandi sono già il risultato di più chiamate incollate, non di una risposta sola).
+L'utente vuole investigare due strade — una LoRA e un refining più pieno — e confrontarle per vedere quale va
+meglio. **In coda, senza data**: non ancora iniziato. Domanda aperta, non ancora decisa: se farlo prima della LoRA
+per gli strumenti dell'harness (sezione Pi/OpenCode sopra), perché altrimenti quella LoRA verrebbe addestrata su un
+modello con un comportamento diverso da quello che si vuole usare alla fine. Dettagli in memoria,
+`project_lora_harness_training_decisions.md`.
+
+**Due lacune trovate nell'app Android (segnalate dall'utente, verificate nel codice vero di `mobile/`), aggiunte
+alla coda come compiti di sviluppo (nessuna delle due è un collegamento rotto: mancano le funzioni stesse):**
+- [ ] **Risposta lunga sul telefono**: nessuna traccia di `long_answer` in tutto `mobile/lib` — il bottone e il
+  meccanismo a parti (`docs/longform.md`) esistono solo nel client web. Da costruire da zero per Flutter.
+- [ ] **"Immagini e grafici" sul telefono**: quell'impostazione (`vis.imgOn`/`vis.chartLevel` in
+  `serve/web/agentchat.js`) vive solo nella memoria locale del browser, non sul server né sull'account — il web
+  manda `images`/`charts` solo perché li legge da lì all'apertura di ogni conversazione. `NewChat.body()`
+  (`mobile/lib/src/chat_model.dart`) non ha quei due campi: l'app Android non ha mai avuto modo di chiederli o
+  mandarli. Da costruire: un'interfaccia propria sul telefono (non un collegamento a un default che non esiste).
+- [ ] **Modello di verifica linguistica per lingua, da fare per ultima (decisione esplicita dell'utente)**: una
+  lista configurabile lingua → modello di controllo; prima di mostrare una risposta o redigere un documento, se
+  attiva, quel modello rivede grammatica/sintassi/forma nella lingua coinvolta. L'harness deve conoscere
+  l'associazione da solo (una richiesta come "scrivi in ungherese e controlla col modello di controllo" basta,
+  senza nominare il modello). GUI: casella «Verifica lingua» + menu a tendina delle lingue impostate. Nata
+  dall'esperienza del telegiornale (16 novembre, OpenEuroLLM-Hungarian via Ollama, solo per quella pipeline, non
+  in git) — qui generalizzata a tutto l'harness. Vincolo da ricordare: il codice dentro una risposta o un
+  documento non va mai passato alla verifica linguistica (stesso mascheramento di `docs/longform.md`). Dettagli
+  in memoria, `project_language_verification_model.md`.
+- [ ] **Pagina Models > Providers: una voce esplicita sotto la lista Functions** — "richieste esterne tramite
+  interfacce Anthropic e OpenAI": chi risponde a un client esterno che chiama l'API del server (mai il provider
+  primario, sempre e solo il motore locale caricato) è già detto di striscio in `pv.functions.help`
+  (`serve/web/i18n.js`: "Other programs that use this server still see the loaded model and nothing else."), ma
+  l'utente la vuole come riga propria, più visibile, subito sotto la tabella delle funzioni
+  (`functionsTable()` in `serve/web/providers.js`, prima di `councilSection()`). Nata da una domanda vera
+  dell'utente il 22 novembre su chi risponde se lui interroga il server con l'interfaccia OpenAI mentre il
+  provider primario delle funzioni è su un cloud (Qwen 4 Max): verificato nel codice (`serve/llm_api.py`,
+  `serve/heavy_forward.py`) che un client esterno vede sempre il motore locale, mai il provider primario, a meno
+  che la richiesta non porti l'intestazione interna `X-Tadamoo-Function` da questo PC durante un cambio pesante.
+- [ ] **Messaggi mentre il modello/harness lavora, sul telefono (Chat e Agentic coding)**: confermato nel codice
+  vero, `mobile/lib/src/chat_screen.dart` riga 623 — mentre `ctl.busy` è vero il bottone «Invia» è sostituito dal
+  solo «Stop»: non c'è modo di mandare un messaggio in più, solo di fermare tutto il compito. Nessuna traccia in
+  `mobile/lib` della logica vera (`tadamoo/router.py`, costanti `STEER`/`QUEUE`/`URGENT`; documentata in
+  `docs/harness-manual.md`, sezione 6 «While it works») che web e desktop già usano: un messaggio scritto durante
+  un compito viene letto prima della prossima chiamata al modello e trattato come **guida** (cambia o aggiunge al
+  compito in corso, il predefinito), **in coda** (aspetta la fine, con i bottoni «Fai ora»/«Rimuovi»), o
+  **urgente** (il compito in corso viene messo da parte, il nuovo va avanti per conto suo, poi si riprende). Da
+  costruire sul telefono per entrambe le modalità, non da collegare: oggi semplicemente non c'è.
+
+## 21 novembre
+
+Filone «LoRA per harness su Qwen3.8-Flash-Next» (nato da due articoli HuggingFace su un gruppo che adatta Qwen3.8-27B con RL per Pi/OpenCode/Hermes Agent): diagnosticato che una LoRA del 27B non può girare sul nostro Flash-Next (hidden_size 5120 contro 2560, architetture diverse: qwen3_5 denso contro qwen4_exp MoE), che Basalt oggi non fa girare l'architettura del 27B (tre famiglie motore esistenti: qwen4exp/qwen35moe/deepseek41, nessuna è il 27B), e che il training path LoRA per Flash-Next stesso non è documentato (transformers/PEFT non lo caricano; solo NVIDIA NeMo AutoModel, solo SFT completo). L'ipotesi del giudice esterno (Qwen 4 Max come verificatore) è stata scartata dall'utente per costo. **Accettato invece**: misurare quanto vale davvero il nostro harness con `swe-bench-verified` (bracci `harness` contro `baseline` già pronti nell'adapter) prima di decidere se investire nel progetto RL/LoRA.
+- [ ] **In coda, serve GPU + server avviato dall'utente**: lanciare `swe-bench-verified`, sottoinsieme `smoke` (2 istanze) poi `dev` (20 istanze), bracci `harness` e la sua variante `-baseline`, per misurare il contributo reale del tooling di Tadamoo rispetto a un agente nudo con un solo strumento bash, sullo stesso Flash-Next. Preparazione fatta: Docker Desktop (era fermo) avviato e verificato pronto (29.3.1); spazio libero su E: 140 GB, sufficiente per smoke/dev; modello caricato sul motore (IQ4_XS). Manca: importare il dataset (passa dalla vera `BenchApi` del server, legata a `userdata.path("benchmarks")`, non riprodotta a parte).
+
+**Nuova sessione dedicata ai piani dei task difficili**: l'utente ha avviato una sessione separata con modello Fable 5.2 (nome `basalt-3d`, su questa stessa macchina), pensata per restare viva e farsi riassegnare altri piani in futuro via messaggio tra sessioni, invece di aprirne una nuova ogni volta (costo dei token per riavviare il contesto). Fa solo piani, non tocca il working tree né avvia altri agenti.
+
+- [ ] **Primo incarico a `basalt-3d`: piano per il supporto LoRA nel motore Basalt (qwen4exp)** — tua richiesta esplicita, obiettivo a sé indipendente dal filone RL/harness sopra. Piano pronto, letto il codice reale (`include/basalt/core/weights.hpp`, `native_dense.hpp/.cpp`, `cvec.hpp`/control vector come precedente, `tools/convert/checkpoint.py`, `docs/precision`). Due strade:
+  - **A (consigliata per partire): fusione al caricamento** — l'adapter si somma ai pesi densi quando il modello viene caricato, nessun kernel nuovo, stessa velocità. Costi: un po' di VRAM in più sui pack a 4 bit (stima +0,7/+1,5 GiB), i pesi coperti vengono arrotondati una seconda volta (piccolo effetto sulla qualità, da misurare), e cambiare adapter vuol dire ricaricare tutto il modello.
+  - **B: correzione a runtime** (come llama.cpp) — adapter intercambiabile al volo, pochissima VRAM, ma serve scrivere un kernel nuovo e modificarlo dentro ogni percorso veloce del motore: lavoro molto più grande e rischioso.
+  - Gli esperti del MoE (la parte instradata) non sono coperti bene da nessuna delle due per ora: restano fuori dalla prima fase in entrambi i casi.
+  - **6 decisioni restano tue** (non prese da nessuna sessione): quale strada partire (A prima, o serve subito B); più LoRA insieme o una sola; quanta VRAM in meno per la cache esperti è accettabile; cosa fare se un adapter copre anche gli esperti (rifiutarlo o applicare solo la parte densa avvisando); va bene un convertitore nostro da PEFT a GGUF-LoRA (formato llama.cpp); che riferimento usare per misurare la qualità con l'adapter (prova di parità + identità, o un riferimento vero e costoso in BF16).
+  - **Tutte le 6 decisioni risposte (21 novembre sera)**: D1 via A per prima. D2 multi-LoRA sì, e l'utente vuole sia LoRA fisse all'avvio (via A) sia la possibilità di caricarne una in più per una sessione o un singolo prompt — questo secondo pezzo richiede comunque un meccanismo tipo via B, prima di quanto pensato (due motivi distinti per servire B, non uno solo). D3 VRAM: nessun numero a priori, si misura dai dati veri quando il codice esiste. D4 (adapter che copre gli esperti MoE): **non risposto**, l'utente vuole prima un confronto scritto pro/contro delle due strade (rifiutare o applicare solo la parte densa avvisando) — chiesto a `basalt-3d` come prossimo lavoro di pianificazione. D5 convertitore nostro PEFT→GGUF-LoRA: approvato se funziona — via libera a iniziare il primo passo. D6 riferimento qualità: basta la prova di parità sui tensori + verifica con adapter nullo. Esperti MoE restano un punto importante da non perdere di vista. Girato tutto a `basalt-3d`, in attesa del suo studio su D4 prima che chiuda il lettore dell'adapter.
+  - **Risposta di `basalt-3d` (21 novembre, stessa serata)**: tre cose. (1) Studio D4: tre opzioni messe a confronto (rifiutare / applicare solo i densi avvisando / scelta esplicita per adapter con la quota di norma mostrata prima) — propone la terza, ma la decisione resta dell'utente, non ancora presa. (2) Per D2 (LoRA per sessione/prompt): una via più leggera della B — ri-fondere SOLO i tensori densi coperti a runtime (circa 3 GB), senza ricaricare tutto il modello; la via B vera serve solo se il tempo di cambio misurato risulta inaccettabile o se servono adapter diversi su richieste parallele insieme (oggi `parallel: 1`, quindi il limite non si vede). Tre domande per l'utente, ancora senza risposta: va bene questo meccanismo? servono adapter diversi su richieste insieme? sa che cambiare LoRA richiede comunque rileggere tutto il prompt (vale per qualunque strada)? (3) Specifica completa e pronta del convertitore D5.
+  - **Convertitore D5 implementato e testato (21 novembre, stessa serata)**: `tools/convert/lora.py` + `tools/convert/test_lora.py`, scritti in un worktree dedicato (`E:\Projects\basalt\.claude\worktrees\lora-convert`, branch `worktree-lora-convert`, commit `2a0fbc13`), nessun file esistente toccato. 11 test nuovi passano; l'intera suite di tools/convert (82 test) passa senza regressioni. Mandato a `basalt-3d` per revisione prima di proporre il merge all'utente.
+  - **Revisione di `basalt-3d` sul convertitore, tre correzioni bloccanti trovate**: la lettura di `alpha_pattern` usava il percorso esatto del modulo invece della regola reale di PEFT (corrispondenza per suffisso), quindi una chiave corta o parziale veniva ignorata in silenzio; i test non passavano davvero dal convertitore (alcuni ricalcolavano la stessa cosa dentro il test, uno confrontava numpy con se stesso), quindi un errore nella scelta del "come trasformare" per un modulo sarebbe passato inosservato; le quote di energia per capire cosa resta fuori da un adapter mettevano insieme tensori che il motore sa già applicare con tensori che non sa ancora applicare, e usavano una scala fissa sbagliata quando i rank differiscono tra moduli.
+  - **Tutte corrette (21 novembre, stessa serata), commit nuovo `87706acd` (non un amend)**: la corrispondenza di `alpha_pattern` ora segue la regola vera di PEFT; i test ora scrivono un adapter vero, lo convertono, rileggono i byte scritti nel file e li confrontano con la trasformazione reale di `checkpoint.py` — verificato con un sabotaggio temporaneo che il test vecchio non si accorgeva di un errore che il test nuovo invece cattura; le quote di energia ora hanno quattro gruppi (quello che il motore applica già, il router, gli esperti, e tutto il resto) invece di tre, con la scala giusta per ogni tensore. 83 test passano.
+  - **Terza revisione di `basalt-3d`: un ultimo blocco trovato**: il file di configurazione vero del modello tiene i campi che servono (indexer, geometria GDN) dentro una sezione annidata "text_config" (il modello ha anche una parte visiva) — il convertitore li leggeva al primo livello, funzionava solo perché il test usava un file finto senza quella struttura; con un config.json vero si sarebbe fermato con un errore brutto. Corretto (commit nuovo `d38c150e`): stesso sblocco di `checkpoint.py`, un campo mancante dà un errore leggibile col suo nome invece di un crash, aggiunti test per il config annidato, per un adapter scritto in F16/BF16 (deve dare lo stesso file di uno in F32), e un test che lega la tabella dei moduli di prova a quella vera di `checkpoint.py` così non possono scollarsi senza che un test lo dica. 87 test passano.
+  - **Quarta revisione di `basalt-3d`: APPROVATO**, nessuna osservazione rimasta sui tre commit del convertitore (`2a0fbc13`, `87706acd`, `d38c150e`).
+  - **Merge rimandato**: l'utente ha detto sì al merge ma "quando hai finito tutte le cose per lo sviluppo di queste funzioni" — ambiguo tra "dopo il motore funzionante" e "dopo anche il caricamento al volo". **Chiarito (21 novembre)**: il merge arriva **dopo E3** (motore che applica le LoRA fisse, provato con lui al PC), non dopo E4 (il caricamento al volo resta un lavoro successivo con un suo merge quando arriva).
+  - **D4 (cosa fare con un adapter che tocca tensori fuori dalle dieci famiglie)**: l'utente ha chiesto a me le alternative (fatto, R/P/S come aveva scritto `basalt-3d`), ma `basalt-3d` segnala che non serve deciderlo ora — il lettore si ferma comunque con un errore reale (quanti tensori, quale quota) quando serve, e qualunque scelta dell'utente si aggiunge sopra dopo senza rifare nulla. Conviene decidere quando c'è il messaggio vero da vedere. **Resta aperto, non blocca**.
+  - **Nomi PEFT/esperti**: l'utente aveva detto "decidi tu" — `basalt-3d` ha scelto di usare esattamente quello che il convertitore già scrive (nessuna modifica a `lora.py`): i percorsi checkpoint per i moduli, `blk.N.ffn_{gate,up,down}_exps.E.weight.lora_a/b` per gli esperti. Se il primo adapter vero avrà nomi diversi, si corregge in un punto solo per parte.
+  - **Specifica del lato motore pronta (`basalt-3d`), quattro tappe**: 1) libreria CPU (lettura GGUF adapter, fusione nei pesi densi in Q8_0, prova di parità, nessuna GPU); 2) collegamento nel motore (flag `--lora`/`--lora-scaled` come i control vector, `NativeDense::set_lora`, errore se l'adapter tocca tensori fuori dalle dieci famiglie, riga di log, identità di conversazione estesa); 3) prove sul modello vero (GPU, in coda in `tests/QUEUE_daytime.md`: identità senza `--lora`, adapter nullo, scala 1 e -1 insieme, VRAM/velocità con e senza, tipi misti nello stesso layer); 4) caricamento al volo per sessione/prompt — solo schema per ora, specifica completa dopo i numeri del passo 3, già deciso: blocco Q8_0 a indirizzi fissi, chiave di richiesta come i control vector, l'identità di conversazione va estesa all'insieme di adapter.
+  - **Merge chiarito**: arriva dopo il passo 3 (motore funzionante, provato con te al PC), non dopo il passo 4.
+  - **Passo 1 implementato e PROVATO per davvero (21 novembre notte)**: `include/basalt/core/lora.hpp`, `src/core/lora.cpp`, `tests/core/lora_merge_test.cpp`, commit `9273c38c` + `13688fea`, stesso branch del convertitore. Ho dovuto configurare un ambiente di build apposito (il toolset Visual Studio di default su questa macchina non è compatibile con CUDA 13.1; ne esiste un altro compatibile già installato in parallelo, usato per questo — **salvato in memoria, dimmi se lo vuoi anche in `docs/building.md`**). Compilando e facendo girare il test per davvero ho trovato e corretto un bug vero nella cancellazione "stesso adapter a scala +1 e -1".
+  - **Revisione di `basalt-3d` sul passo 1: il test "passava" senza controllare quasi nulla**. Riempiva ogni blocco di byte a caso, compreso il campo di scala: la maggior parte delle righe decodificava a infinito/non-un-numero, e il confronto con un valore non-un-numero risulta sempre "dentro tolleranza" senza che nessuno se ne accorga. Dove i valori erano finiti, la differenza aggiunta dalla LoRA era quasi sempre troppo piccola per notarsi rispetto alla grandezza casuale della base. Più due mancanze nel lettore: nessun controllo su un file troncato, e un conteggio solo invece di tre (router/esperti/altro) per il messaggio futuro su cosa resta fuori da un adapter.
+  - **Tutto corretto (21 novembre notte), commit nuovo `f75d3612`**: ora la base di prova fissa solo il campo di scala di ogni blocco (valori sempre finiti) e la differenza della LoRA si misura in proporzione alla grandezza osservata della base, non a un numero fisso — senza questo, tre formati reali passavano la prova senza accorgersi di uno scarto del 5% sulla scala. Il test ora si controlla da solo: confronta anche contro un riferimento sbagliato apposta e verifica che la differenza si veda in più di metà dei casi. Tolleranza nei numeri calcolata esatta, non arrotondata per eccesso. Nel lettore: un file troncato viene rifiutato con l'errore che nomina il tensore; router, esperti e "il resto" di un adapter sono ora contati separatamente; sapere se un adapter ha scritto le quote di energia è ora distinto da "le quote sono zero".
+  - **Passo 1 APPROVATO da `basalt-3d`** (dopo un ultimo piccolo ritocco, commit `f2dd1649`: la differenza della LoRA nel test cresce col quadrato, non in linea, rispetto alla grandezza scelta — corretto calcolandola dalla grandezza vera della base, aggiunta una terza prova sabotata sul termine della base).
+  - **Passo 2 fatto e PROVATO per davvero (21-22 novembre notte), commit `947c3eb8`**: flag `--lora`/`--lora-scaled` (nomi di llama.cpp), caricamento che fonde l'adapter nei pesi densi del motore, errore con i numeri reali per un adapter che tocca cose che il motore non sa ancora applicare, riga di log, identità di conversazione estesa agli adapter. Ho compilato per davvero il binario intero del motore (non solo i file nuovi) e l'ho fatto girare: i flag nuovi compaiono in `--help`, un adapter inesistente dà l'errore giusto prima di toccare la GPU. Tre documenti aggiornati (impostazioni, precisione), i numeri di qualità restano da fare dopo le prove sulla GPU vera. In attesa della revisione di `basalt-3d`.
+  - **Nota**: `docs/configuration/index.md` era già sopra il limite di 300 righe del progetto PRIMA di questo lavoro (304); la nuova sezione LoRA lo porta a 320. Non l'ho spezzato (sarebbe un lavoro a parte non chiesto) — **decisione tua se e quando dividerlo**.
+  - **Aggiunto a `docs/building.md`** (tua richiesta): come scegliere il toolset Visual Studio giusto per compilare su questa macchina (quello di default non regge CUDA 13.1).
+  - Non ancora iniziata nessuna implementazione.
+  - **Idea nuova dell'utente, stessa serata**: trasferire su Flash-Next le LoRA già esistenti per il fratello Qwen3.8-27B (filone Pi/OpenCode sopra), "rimappandole" invece di aspettare di poterne allenare una nostra da zero. Verificato che esiste davvero un filone di ricerca per questo — Cross-LoRA (arXiv 2508.05232), model stitching (NeurIPS 2025, arXiv 2506.06609), relative representations (arXiv 2605.30596) — ma il meccanismo descritto dall'utente ("due embedding") non è quello giusto: servirebbe un allineamento via SVD dei pesi base o una mappa imparata tra le attivazioni dei due modelli, non gli embedding dei token. La parte MoE instradata (assente nel 27B denso) resta comunque il pezzo non risolto. Idea di ricerca per una fase successiva, non ancora una decisione da eseguire. Decisione presa invece sui dati: usare sia Pi che OpenCode (non solo quello più simile al nostro tooling), e insegnare nella LoRA anche i nostri stessi strumenti TaDaMoo — quest'ultima è l'idea più solida delle due, tecnica comune ed efficace.
 
 Richiesta grande in 10 punti più una regola di stile (cartelle di sessioni, rinomina, Contatti per gruppo, bottoni). Pianificata tutta insieme (3 tue decisioni: cartella di progetto = contenitore sessioni anche in Agentic coding; solo le sessioni nuove usano le basi separate; il controllo sui bottoni è un giro completo).
 
@@ -34,6 +212,8 @@ Richiesta grande in 10 punti più una regola di stile (cartelle di sessioni, rin
   - **Quarto giro, con «agent desktop» installato** (il tuo sì esplicito: `tools/vendored` non ce l'aveva, scaricato e verificato via SHA-256 dal rilascio ufficiale, versione 1.3.1): usato per premere Ctrl+Shift+F1 da fuori (due volte, anche forzando l'invio fisico) — nessuna sessione partita, test non conclusivo sul tasto in sé. MA controllando i log per questo test ho trovato che **i tasti rapidi avevano già funzionato per davvero**, tre volte stanotte poco dopo il riavvio reale, con l'avatar (cosa che solo un tasto rapido può fare). Quindi il tasto scatta: il problema è dopo. L'ho verificato aprendo io stesso una sessione vera con l'avatar via API e guardando con agent-desktop l'elenco di TUTTE le finestre del desktop: **nessuna finestra overlay, nessuna finestra avatar**, in nessun punto. Causa trovata e corretta: `voice/brain_service.py` costruiva il gestore dei tasti rapidi SENZA mai passargli la finestra overlay che il servizio prepara separatamente — stesso errore già visto per l'avatar (corretto mesi fa con una lettura "pigra", qui mai fatta). Due nuovi test anti-regressione, 35 passano.
   - **Chiarito, non un bug**: in Models > Voice services la casella «Carica questa funzione» non è il bottone di avvio — è il «voluta accesa» (abilita/disabilita), il bottone «Applica» sotto è quello che carica/scarica per davvero. Etichetta cambiata in entrambe le lingue per dirlo esplicitamente.
   - Durante queste prove ho fermato per un istante una tua sessione vocale attiva (ho visto le tue parole trascritte in tempo reale mentre testavo) per liberare la sessione e farne partire una mia di prova — scusa, non ci avevo fatto caso subito.
+
+- [ ] **Stanotte, tua richiesta, FERMATO — decisione tua necessaria**: riordinare il disco E: e avvisare la sessione «LTX Studio» (`ltxstudio-35`) dei cambiamenti perché aggiorni lei le dipendenze verso i modelli spostati. Non ho toccato io i file: ho trovato in `E:\AI\_reorg_log\FINAL_REPORT.md` (17 maggio 2026) che un riordino profondo era già stato fatto (dedup, classificazione LoRA, cartelle unificate) e si era fermato apposta prima di `ComfyUI`/`SwarmUI`/`Comfy_Nexus` («parte 2», mai iniziata) — e che un bug in quel giro aveva già cancellato 16 LoRA (~11,6 GB), poi corretto con un controllo di sicurezza (`safety.py`). Ho girato il compito a `ltxstudio-35`, che ha **rifiutato correttamente**: non ha il contesto di maggio in questa sessione (nata su `E:\ai\ltxstudio`, mai toccato `E:\AI\Models`, non ha la skill `/ai-catalog`), la tua richiesta stanotte è arrivata a me non a lui (un mio messaggio non vale come tuo via libera), e le regole del progetto LTX vietano cancellare/sostituire pesi senza approvazione esplicita — oltre al precedente del bug di maggio. **Nessun file toccato, nessun inventario fatto, thread fermo.** Decisioni che restano tue: chi ha davvero il contesto/gli strumenti di maggio (una sessione diversa, forse non più attiva?); se confermi che è la "parte 2" di quel lavoro, dillo direttamente a quella sessione; il catalogo pesi di LTX Studio per aggiornare poi le dipendenze è in `E:\ai\ltxstudio\data\weights_catalog.json`. Disco oggi: 94% pieno, 227 GB liberi su 3,7 TB; le cartelle più grandi sotto `E:\AI`: Models 2,0T, Tools 239G, _avatar_trial 61G, speedlab 38G, ltxstudio 34G.
 
 ## 19 novembre
 

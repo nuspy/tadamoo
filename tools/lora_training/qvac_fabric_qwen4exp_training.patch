@@ -1,0 +1,94 @@
+LoRA training on qwen4exp with QVAC Fabric (github.com/tetherto/qvac-fabric-llm.cpp, commit 2ed826d).
+Apply from the fork's root with: git apply qvac_fabric_qwen4exp_training.patch
+Training disables the fused hyper-connection ops, the QSA layers read K and V of the ubatch, CLAMP gets a backward pass.
+
+diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
+index ffef696..699f008 100644
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -8092,6 +8092,21 @@ static void ggml_compute_backward(
+                 ggml_add_or_set(ctx, cgraph, isrc0, ggml_scale(ctx, ggml_div(ctx, grad, tensor), 0.5f));
+             }
+         } break;
++        case GGML_OP_CLAMP: {
++            if (src0_needs_grads) {
++                // the gradient passes inside (min, max) and is zero outside; an infinite bound never clips
++                float bounds[2];
++                memcpy(bounds, tensor->op_params, sizeof(bounds));
++                struct ggml_tensor * dx = grad;
++                if (isfinite(bounds[0])) {
++                    dx = ggml_mul(ctx, dx, ggml_step(ctx, ggml_scale_bias(ctx, src0, 1.0f, -bounds[0])));
++                }
++                if (isfinite(bounds[1])) {
++                    dx = ggml_mul(ctx, dx, ggml_step(ctx, ggml_scale_bias(ctx, src0, -1.0f, bounds[1])));
++                }
++                ggml_add_or_set(ctx, cgraph, isrc0, dx);
++            }
++        } break;
+         case GGML_OP_LOG: {
+             if (src0_needs_grads) {
+                 ggml_add_or_set(ctx, cgraph, isrc0, ggml_div(ctx, grad, src0));
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index d372791..a574e92 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -4130,6 +4130,15 @@ void llama_context::opt_init(struct llama_model * model, struct llama_opt_params
+         cparams.flash_attn = false;
+     }
+ 
++    // the fused hyper-connection ops have no backward pass, the plain ops they replace do
++    if (model->hparams.dsv4_hc_mult > 1) {
++        LLAMA_LOG_INFO("%s: disabling the fused hyper-connection ops for training\n", __func__);
++        cparams.fused_dsv4_hc_pre  = false;
++        cparams.fused_dsv4_hc_comb = false;
++        cparams.fused_dsv4_hc_post = false;
++        cparams.auto_fhc           = false;
++    }
++
+     if (model->split_mode() == LLAMA_SPLIT_MODE_TENSOR && !model->training()) {
+         GGML_ABORT("%s: training under SPLIT_MODE_TENSOR needs llama_model_params::training set when the model is loaded", __func__);
+     }
+@@ -4506,6 +4515,11 @@ void llama_context::opt_cleanup() {
+ 
+     // opt_init may have switched to the KV-bypass training graph, inference reads the KV cache again
+     cparams.training   = false;
++    // and to the plain hyper-connection ops, inference probes the fused ones again
++    cparams.fused_dsv4_hc_pre  = true;
++    cparams.fused_dsv4_hc_comb = true;
++    cparams.fused_dsv4_hc_post = true;
++    cparams.auto_fhc           = true;
+     sched_need_reserve = true;
+ 
+     ggml_backend_sched_reset(sched.get());
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 5eb5888..338b319 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -911,8 +911,15 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
+ 
+     const auto * mctx_cur = inp->mctx;
+ 
++    // gradients cannot flow through the KV cache: in training the whole sequence is the ubatch,
++    // so the attention reads its K and V directly, as build_attn does
++    const bool use_kv_cur = cparams.training;
++    if (use_kv_cur) {
++        GGML_ASSERT(mctx_cur->get_n_kv() == n_tokens);
++    }
++
+     // store to KV cache
+-    {
++    if (!use_kv_cur) {
+         const auto & k_idxs = inp->get_k_idxs();
+         const auto & v_idxs = inp->get_v_idxs();
+ 
+@@ -926,8 +933,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
+     cb(sel, "kq_mask_qsa", il);
+ 
+     ggml_tensor * q = q_cur;
+-    ggml_tensor * k = mctx_cur->get_k(ctx0, il);
+-    ggml_tensor * v = mctx_cur->get_v(ctx0, il);
++    ggml_tensor * k = use_kv_cur ? k_cur : mctx_cur->get_k(ctx0, il);
++    ggml_tensor * v = use_kv_cur ? v_cur : mctx_cur->get_v(ctx0, il);
+ 
+     ggml_tensor * cur = build_attn_mha(q, k, v, nullptr, sel, nullptr, nullptr, nullptr, n_sel, kq_scale, il);
+     cb(cur, "kqv_out", il);
