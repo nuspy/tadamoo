@@ -42,6 +42,7 @@ from serve.security import key_matches
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
 from serve.util.redact import LEVELS as MASK_LEVELS, ExportMask, clean_words
+from serve import mdexport
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
@@ -911,6 +912,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/attachments", "/api/outputs") or path.startswith(("/api/attachments/", "/api/outputs/")):
                 if self._authorized():
                     self._files_get(path)
+            elif path == "/api/export/formats":
+                if self._authorized():
+                    self._json(200, {"formats": mdexport.formats((parse_qs(urlsplit(self.path).query).get("lang") or ["en"])[0])})
             elif path == "/api/llm":
                 if self._authorized():
                     self._json(200, self._llm().overview())
@@ -2410,12 +2414,35 @@ def make_handler(svc: Service, remote: bool = False):
                     if shown is None:
                         raise KeyError(parts[3])
                     return self._send_file(file, shown, meta["name"], inline=True)
+                if kind == "outputs" and len(parts) == 5 and parts[4] == "convert":            # a Markdown file the agent made, as Word, PDF ...
+                    meta, file = outputs.get(parts[2], parts[3])
+                    return self._send_converted(file, meta["name"], query)
                 if kind == "outputs" and len(parts) == 4:
                     meta, file = outputs.get(parts[2], parts[3])
                     return self._send_file(file, "application/octet-stream", meta["name"], inline=False)
             except KeyError:
                 return self._json(404, {"error": {"message": "That file is not there any more."}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _send_converted(self, file, name, query):
+            """A Markdown file as the person asked: only the converted one, or the Markdown and the converted one together in a zip."""
+            if file.stat().st_size > mdexport.MAX_BYTES:
+                return self._json(400, {"error": {"type": "export", "message": "That file is too large to convert."}})
+            try:
+                data, ctype, out_name = mdexport.prepare(file.read_bytes(), name, (query.get("mode") or ["converted"])[0], (query.get("format") or [""])[0],
+                                                         (query.get("lang") or ["en"])[0])
+            except ExportError as e:
+                return self._json(400, {"error": {"type": "export", "message": str(e)}})
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", export_api.disposition(out_name))
+            self.send_header("X-Tadamoo-Filename", urllib.parse.quote(out_name, safe=""))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(data)
 
         def _send_file(self, file, ctype, name, inline):
             size = file.stat().st_size
@@ -4244,6 +4271,10 @@ def make_handler(svc: Service, remote: bool = False):
                         file, name = mgr.workspace_file(parts[1], (query.get("path") or [""])[0])
                         shown = PICTURE_TYPES.get(file.suffix.lower().lstrip(".")) if (query.get("inline") or [""])[0] == "1" else None
                         return self._send_file(file, shown or "application/octet-stream", name, inline=shown is not None)
+                    if len(parts) == 3 and parts[2] == "file-convert":
+                        query = parse_qs(urlsplit(self.path).query)
+                        file, name = mgr.workspace_file(parts[1], (query.get("path") or [""])[0])
+                        return self._send_converted(file, name, query)
                     if len(parts) == 3 and parts[2] == "checkpoints":
                         return self._json(200, checkpoints_api.listing(mgr.get(parts[1])))
                     if len(parts) == 3 and parts[2] == "snapshots":

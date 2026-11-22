@@ -289,6 +289,19 @@ class AttachmentStore:
 
     # -- reading ------------------------------------------------------------------------------------------------
 
+    @staticmethod
+    def _as_markdown(path: Path, meta: Dict[str, Any]) -> Optional[str]:
+        """The file as Markdown, made by MarkItDown with no model, for the kinds it reads better than the plain readers below: Word and PowerPoint (headings,
+        lists and tables kept), a web page (the tags gone), an e-book, and a PDF when the PDF reader is not installed. None: use the readers below."""
+        from tadamoo import markitdown_tool
+        kind, name = meta["kind"], str(meta.get("name", ""))
+        ext = Path(name).suffix.lower() or {"docx": ".docx", "pptx": ".pptx", "pdf": ".pdf"}.get(kind, "")
+        wanted = kind in ("docx", "pptx") or ext in (".html", ".htm", ".epub")
+        if not wanted:
+            return None
+        text, _ = markitdown_tool.convert(path, "x" + ext)
+        return text
+
     def text(self, session: str, att_id: str) -> Tuple[Optional[str], str]:
         """(text, note): the text read from the file, or None with the reason it cannot be read now."""
         meta = self.get(session, att_id)
@@ -298,7 +311,10 @@ class AttachmentStore:
             return cached.read_text(encoding="utf-8"), ""
         path, kind, family = folder / "file", meta["kind"], meta["family"]
         try:
-            if family in ("text", "data") and kind != "xlsx":
+            as_markdown = self._as_markdown(path, meta)
+            if as_markdown is not None:
+                text = as_markdown
+            elif family in ("text", "data") and kind != "xlsx":
                 text = path.read_bytes().decode("utf-8", errors="replace")
             elif kind == "docx":
                 text = docx_text(path)
@@ -308,6 +324,9 @@ class AttachmentStore:
                 text = _csv_text(xlsx_sheets(path))
             elif kind == "pdf":
                 got = pdf_text(path)
+                if got is None:                            # neither PDF reader is installed: MarkItDown has its own
+                    from tadamoo import markitdown_tool
+                    got, _ = markitdown_tool.convert(path, "x.pdf")
                 if got is None:
                     return None, "needs_pdf"
                 text = got
