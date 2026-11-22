@@ -166,6 +166,13 @@
     return sec;
   }
 
+  /* ---- other programs calling this server with the OpenAI or the Anthropic interface: always the loaded local model, never a provider chosen above ---- */
+  function externalRequests() {
+    const sec = h("section", "sec pv-external");
+    sec.append(h("div", "sh", h("b", "", T("pv.external"))), h("p", "pv-external-who", T("pv.external.who")), h("p", "setnote", T("pv.external.help")));
+    return sec;
+  }
+
   /* ---- the council: the roles with their route, rounds, the cap on calls and when the model may convene it ---- */
   let draft = null, dirty = false, personas = [];
   const touch = () => { dirty = true; };
@@ -363,7 +370,7 @@
     if (!state) return;
     const top = await strip();
     const noteEl = h("p", "setnote pv-note", note); noteEl.setAttribute("role", "status"); noteEl.hidden = !note; noteEl.dataset.bad = noteBad ? "1" : "";
-    panel.replaceChildren(noteEl, top, ...[fallbackNotice()].filter(Boolean), primarySection(), functionsTable(), councilSection(), providersSection());
+    panel.replaceChildren(noteEl, top, ...[fallbackNotice()].filter(Boolean), primarySection(), functionsTable(), externalRequests(), councilSection(), providersSection());
   }
 
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });

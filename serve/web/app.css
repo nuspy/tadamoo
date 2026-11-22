@@ -1059,6 +1059,8 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .subtab[aria-selected="true"] { background: var(--surface); border-color: var(--accent); color: var(--fg); }
 .pv { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .pv-strip { padding: 12px 16px; }
+.pv-external .pv-external-who { margin: 6px 16px 0; font-size: 15px; }
+.pv-external .setnote { margin: 6px 16px 12px; }
 .pv-note[data-bad="1"], .pv-bad { color: var(--bad, #FF8FA3); }
 .pv-scroll { overflow-x: auto; }
 .pv-table { width: 100%; border-collapse: collapse; font-size: 15px; }
