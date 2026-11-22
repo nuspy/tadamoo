@@ -11,6 +11,11 @@
 //    rather than 127 (re-quantizing such a block is not its own fixed point); the same adapter at scale +1 and
 //    -1 together gives a net-zero delta and the same base bytes; two runs of the same input give the same bytes.
 // 4. A microbench line: seconds to fuse one 2560 -> 10240 tensor (sizes the cost of re-fusing at runtime).
+// 5. The committed sample (tools/convert/testdata/lora_sample_expected.gguf, a file lora.py actually wrote, not
+//    a fixture this file built): alpha, both tensors' shapes and values, energy shares and router/expert/other
+//    counts, all read back by this C++ reader. Closes the loop the rest of this file cannot: it never gives the
+//    C++ reader a file the Python writer produced, and tools/convert/test_lora.py never gives the Python reader
+//    a file this C++ writer produced (there is none) -- so nothing before this proved the two sides agree.
 #include "basalt/core/lora.hpp"
 #include "basalt/ggml/ggml.h"
 #include "gguf_fixture.hpp"
@@ -475,11 +480,38 @@ void microbench(std::mt19937& rng, const std::filesystem::path& tmp) {
                (long long) n_in, (long long) n_out, seconds);
 }
 
+void test_committed_sample(const std::string& path) {
+    basalt::core::LoraAdapter ad;
+    std::string err;
+    check(basalt::core::LoraAdapter::open(path, ad, err), "the committed sample opens: " + err);
+    check(ad.alpha() == 4.0f, "the committed sample's alpha is 4 (no rank/alpha_pattern, no rslora: no correction)");
+    check(ad.covered_count() == 1, "one tensor of the ten native families (attn_q); mlp.gate is the router");
+    check(ad.router_count() == 1 && ad.expert_count() == 0 && ad.other_count() == 0,
+          "one router tensor, no expert, no other");
+
+    const auto* p = ad.find("blk.0.attn_q.weight");
+    check(p != nullptr, "attn_q.weight is covered");
+    if (p) {
+        check(p->r == 2 && p->n_in == 8 && p->n_out == 4, "attn_q geometry");
+        const std::vector<float> want_a = {0.5f, 1.0f, -0.5f, 0.25f, 0.0f, 0.75f, -1.0f, 0.125f,
+                                            1.0f, -0.25f, 0.5f, -0.5f, 0.25f, 0.0f, 0.75f, -0.125f};
+        const std::vector<float> want_b = {0.5f, -0.25f, 0.25f, 0.5f, -0.5f, 0.125f, 0.125f, -0.5f};
+        check(p->a == want_a, "attn_q lora_a values, exactly as lora.py wrote them");
+        check(p->b == want_b, "attn_q lora_b values, exactly as lora.py wrote them (no rank correction applied)");
+    }
+
+    const auto share_proj = ad.energy_share("projections");
+    const auto share_router = ad.energy_share("router");
+    check(share_proj.has_value() && std::fabs(*share_proj - 0.2549329f) < 1e-4f, "projections energy share");
+    check(share_router.has_value() && std::fabs(*share_router - 0.7450671f) < 1e-4f, "router energy share");
+}
+
 }  // namespace
 
-int run() {
+int run(const std::string& sample_path) {
     std::mt19937 rng(7);
     test_open();
+    if (!sample_path.empty()) test_committed_sample(sample_path);
 
     const auto tmp = std::filesystem::temp_directory_path() / "lora_merge_test_parity";
     std::filesystem::create_directories(tmp);
@@ -504,9 +536,9 @@ int run() {
     return 0;
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
-        return run();
+        return run(argc > 1 ? argv[1] : "");
     } catch (const std::exception& e) {
         std::fprintf(stderr, "uncaught exception: %s\n", e.what());
         return 1;

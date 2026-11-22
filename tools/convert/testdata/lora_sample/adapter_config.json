@@ -1,0 +1,12 @@
+{
+  "peft_type": "LORA",
+  "r": 2,
+  "lora_alpha": 4.0,
+  "rank_pattern": {},
+  "alpha_pattern": {},
+  "use_rslora": false,
+  "use_dora": false,
+  "modules_to_save": null,
+  "bias": "none",
+  "fan_in_fan_out": false
+}

@@ -399,5 +399,20 @@ def test_r2_f16_and_bf16_give_the_same_file_as_f32(tmp_path):
     assert outs["F32"] == outs["F16"] == outs["BF16"]
 
 
+# ------------------------------------------------------------------ the committed sample: closes the loop with lora_merge_test
+SAMPLE_DIR = pathlib.Path(__file__).resolve().parent / "testdata" / "lora_sample"
+SAMPLE_EXPECTED = pathlib.Path(__file__).resolve().parent / "testdata" / "lora_sample_expected.gguf"
+
+
+def test_committed_sample_reproduces_byte_for_byte(tmp_path):
+    """The committed fixture (testdata/lora_sample/, a fixed PEFT folder with one native tensor and one router
+    tensor) converts to exactly the committed testdata/lora_sample_expected.gguf -- the file lora_merge_test
+    opens with the C++ reader. If this test ever fails, lora_merge_test's own numbers are checked against a
+    sample lora.py no longer produces, so both must be regenerated together."""
+    out = tmp_path / "sample.gguf"
+    L.convert(SAMPLE_DIR, SAMPLE_DIR / "base_config.json", out)
+    assert out.read_bytes() == SAMPLE_EXPECTED.read_bytes()
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

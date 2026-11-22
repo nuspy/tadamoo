@@ -1417,7 +1417,8 @@ if(BUILD_TESTING)
   # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks; host-only, NativeDense does not call it yet
   add_executable(lora_merge_test tests/core/lora_merge_test.cpp src/core/lora.cpp)
   target_link_libraries(lora_merge_test PRIVATE artifact ggml_quants)
-  basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test)
+  basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tools/convert/testdata/lora_sample_expected.gguf)
   set_tests_properties(lora_merge_test PROPERTIES TIMEOUT 120)
 endif()
 if(BUILD_TESTING)
