@@ -1177,6 +1177,8 @@ class SessionManager:
             cmd.append("--council-each")
         if self.media_file:
             cmd += ["--media-file", str(self.media_file)]
+        if not rec.get("ask_only"):
+            cmd.append("--voice")                                # the voice tools, and what the model knows about the voice (tadamoo/voice_tools.py)
         if self.rag_dir:
             cmd += ["--rag-dir", str(self.rag_dir), "--rag-project", rag_project_key(rec["workspace"])]
             for aid in rec.get("knowledge") or []:

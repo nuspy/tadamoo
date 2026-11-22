@@ -265,7 +265,7 @@ tool; secrets masked in the result; results of untrusted tools fenced as data; a
 
 Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:computer`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `tadamoo/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
 shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level everything passes and nothing is asked, except the Rule of Two and orders found in outside text (below)**: the
-person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
+person chose that. Below it: tools that always ask (`phone_call`, `meeting_join`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
 by none); then **safe verification** (a command the person listed or accepted for the folder, written exactly, passes; see [coding-mode.md](coding-mode.md)); then the level: read-only asks for anything, `default` allows reversible workspace edits and asks for irreversible actions.
 The Rule of Two asks at every level, `auto` included, and only for an outward action. Text from outside that speaks to the AI (see `inject_screen` below) makes every call that changes or sends something ask, at every level and also where an allow rule covers it, until the person authorizes those instructions; in a run nobody watches the question is parked. `request_payment` carries an allow rule because the payment broker
@@ -558,6 +558,9 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
 - **Phone calls** (`--phone`): below the `auto` level `phone_call` asks (this call, this conversation or for good); the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
   and queued in `tests/QUEUE_live_calls.md` until you authorize them (`TADAMOO_LIVE_CALLS=1`).
+- **Voice** (`--voice`, given to every conversation that is not ask-only): the model is told in its prompt what the voice can do, has `voice_status`, `voice_help`, `voice_say` (in the language of
+  the text), `voice_transcribe` (says the language it heard), `voice_language`, `meeting_info`, `meeting_join` (asks every time, like `phone_call`) and `meeting_leave`, and gets the voice's live
+  state in the `[state]` note. See `docs/voice/harness.md`.
 - **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in
   chunks, follows the job and reads back the transcript (`start_media_analysis`, `wait_media_analysis`, `media_transcript`,
   `format_transcript`). The service runs one job at a time (the client says `busy`), takes only the sound of a video and needs

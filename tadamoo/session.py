@@ -87,7 +87,7 @@ INTERRUPTED_NOTE = ("[harness] The previous call may have run: the process stopp
                     "Check what really happened before repeating it.")
 PENDING_NOTE = "The answer is pending: the user will see the question later. Go on with other work and do not repeat the request."
 UNAVAILABLE_NOTE = "That information is not available in this run and nobody can give it now. Continue with what you have."
-EXCEPTION_TOOLS = {"phone_call": "people"}                          # tools that reach another person
+EXCEPTION_TOOLS = {"phone_call": "people", "meeting_join": "people"}          # tools that reach another person
 
 
 class SessionStore:

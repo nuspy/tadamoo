@@ -22,6 +22,8 @@ every model comes from the folder you set for the voice models, checked against 
 - **Phone, ESP32 and the desktop**: the Android app's Avatar tab and an ESP32 terminal talk to a WebSocket gateway on the PC, hold to talk or
   continuous, with barge-in ([gateway](../voice/gateway.md), [ESP32](../voice/esp32.md)); dictation with a hotkey, the clipboard history
   and push-to-talk run on the desktop ([desktop](../voice/desktop.md)).
+- **The harness knows the voice**: the conversations have voice tools (speak in the language of the text, transcribe a file and say its language, read or change the language of a
+  session, read meetings, join one after asking), are told what the voice can do, and get its live state in the `[state]` note ([harness](../voice/harness.md)).
 - **Meetings and phone calls**: the assistant can join Meet, Teams or Zoom as an announced guest and suggest answers, and place or answer
   calls through a GSM modem or the phone, behind one policy (approval, disclosure of the AI, premium numbers refused, an audit without
   transcripts) ([meetings](../voice/meetings.md), [telephony](../voice/telephony.md)).

@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from tadamoo import netaddr
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "address", "sampling", "knowledge")
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "address", "sampling", "knowledge", "voice")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
@@ -72,6 +72,12 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
             state["knowledge"] = index()
         except Exception as e:                                  # an archive that cannot be reached must not stop the conversation
             state["knowledge"] = f"not available now ({type(e).__name__})"
+    voice = getattr(agent, "voice_state", None)
+    if voice is not None:                                       # the voice stack now: which functions are loaded, the language spoken, whether it follows the person (tadamoo/voice_tools.py)
+        try:
+            state["voice"] = voice()
+        except Exception as e:                                  # a voice service that cannot be asked must not stop the conversation
+            state["voice"] = f"not known now ({type(e).__name__})"
     return state
 
 
