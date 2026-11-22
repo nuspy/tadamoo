@@ -63,7 +63,7 @@ class Updater:
 
     def plan(self, kind: str, name: str, source: Optional[str] = None, instructions: Optional[List[str]] = None, language: str = "en", **_: Any) -> Dict[str, Any]:
         """The merged update of `kind:name`, proposed and kept under a token; nothing of the installed copy is changed. `instructions` are what the person told the
-        merge to do this time (those kept with the item are carried out too)."""
+        merge to do this time."""
         imp = self.imp
         with Lock():
             k, items, entry, snap, source = self._read_source(kind, name, source)
@@ -76,7 +76,7 @@ class Updater:
                 units = k.merge_units(snap, entry, work / "in")
                 client = imp.model() if imp.model is not None else None
                 meta = {"kind": kind, "name": name, "source": source, "hash": snap.hash, "entry_hash": entry.get("hash")}
-                out = self.session.propose(token, work, meta, units, imp.merge_notes(kind, name), instructions or [], client, language)
+                out = self.session.propose(token, work, meta, units, instructions or [], client, language)
             except MergeProblem as exc:
                 shutil.rmtree(work, ignore_errors=True)
                 raise _problem(exc) from None
@@ -88,7 +88,7 @@ class Updater:
 
     # -- doing what the person chose ----------------------------------------------------------------------------
 
-    def apply(self, token: str, choice: str = "merge", resolutions: Any = None, remember: bool = False, **_: Any) -> Dict[str, Any]:
+    def apply(self, token: str, choice: str = "merge", resolutions: Any = None, **_: Any) -> Dict[str, Any]:
         """`merge`: writes the proposal, with the person's choice for every file that was a conflict. `overwrite`: replaces the copy with the source, the person's changes
         gone. `cancel`: leaves everything as it is. The proposal is dropped in each case."""
         imp = self.imp
@@ -122,16 +122,10 @@ class Updater:
                 raise Problem("conflicts", "Some files need a choice (the installed one, the new one, or the merge once it holds no conflict): " + ", ".join(open_[:5]), files=open_)
             merged = k.merged_snapshot(snap, self.session.write_finals(work, rows, chosen))
             key = f"{kind}:{name}"
-            notes = meta["notes"]
 
             def write(txn: Any, current: Dict[str, Any]) -> None:
                 k.replace(txn, merged, current, current[key])
-                if remember:
-                    if notes:
-                        current[key]["merge_notes"] = [{"text": t, "at": now_iso()} for t in notes]
-                    else:
-                        current[key].pop("merge_notes", None)
             imp._run(write)
             self.discard(token)
-            return {"status": "merged", "kind": kind, "name": name, "counts": {r["unit"].key: tree.counts(r["files"]) for r in rows}, "kept_notes": notes if remember else [],
+            return {"status": "merged", "kind": kind, "name": name, "counts": {r["unit"].key: tree.counts(r["files"]) for r in rows},
                     "imported": imp._row(imp.manifest.load()[key])}

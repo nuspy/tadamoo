@@ -362,7 +362,6 @@
     UpdateMerge.open({ title: item.name, errText,
       load: instructions => api("POST", "api/connectors/update/plan", { id: item.id, instructions, language: LANG }),
       apply: body => api("POST", "api/connectors/update/apply", body),
-      notes: { set: notes => api("POST", "api/connectors/update/notes", { id: item.id, notes }) },
       extra: plan => {
         const rv = plan.review;
         if (!rv) return null;

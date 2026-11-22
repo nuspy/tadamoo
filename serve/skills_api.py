@@ -11,8 +11,7 @@
     POST /api/skills/disable          {name}
     POST /api/skills/update           {name, overwrite_local?, check?}   the old way: the copy is replaced (refused when it was edited here, unless overwrite_local)
     POST /api/skills/update/plan      {name, instructions?, language?}   the update merged with what the person changed: three versions of each file, told in words. Answers a `token`
-    POST /api/skills/update/apply     {token, choice?, resolutions?, remember?}   choice: merge (default), overwrite or cancel
-    POST /api/skills/update/notes     {name, notes?}              the instructions kept for this skill's merges; with `notes` it replaces them
+    POST /api/skills/update/apply     {token, choice?, resolutions?}   choice: merge (default), overwrite or cancel
     POST /api/skills/discard          {token}                     forgets what an address held
     POST /api/skills/job/cancel
 
@@ -113,13 +112,7 @@ class SkillsApi:
         if parts == ["update", "plan"]:
             return m.update_plan(self._text(req, "name"), self._strings(req, "instructions"), self._language(req))
         if parts == ["update", "apply"]:
-            return m.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", req.get("resolutions"), flag("remember"))
-        if parts == ["update", "notes"]:
-            name = self._text(req, "name")
-            entry = m._entry(name)
-            if "notes" in req:
-                return {"notes": m.imp.set_merge_notes(entry["kind"], name, self._strings(req, "notes"))}
-            return {"notes": m.imp.merge_notes(entry["kind"], name)}
+            return m.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", req.get("resolutions"))
         if parts in (["remove"], ["enable"], ["disable"], ["update"]):
             name = self._text(req, "name")
             if parts[0] == "remove":

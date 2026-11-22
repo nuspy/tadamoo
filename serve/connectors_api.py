@@ -13,8 +13,7 @@
     GET /api/connectors/config?id=&account=                          the variables of one account (default: the item's default account, or its only one)
     POST /api/connectors/configure/ask {id, question, history?, account?}   a guided answer about filling in the settings; the model sees field names only, never a value
     POST /api/connectors/update/plan {id, instructions?, language?}   a GitHub skill's update merged with what the person changed: the three versions of each file that differs (installed, new, merged), told in words, a risk review of what changes, and a `token`
-    POST /api/connectors/update/apply {token, choice?, resolutions?, remember?}   choice: merge (default), overwrite or cancel; `resolutions` gives "ours", "theirs" or "merged" for every file both sides changed in the same place
-    POST /api/connectors/update/notes {id, notes?}                    the instructions kept for the merges of this skill; with `notes` they are replaced
+    POST /api/connectors/update/apply {token, choice?, resolutions?}   choice: merge (default), overwrite or cancel; `resolutions` gives "ours", "theirs" or "merged" for every file both sides changed in the same place
 """
 from __future__ import annotations
 
@@ -310,24 +309,11 @@ class ConnectorsApi:
         got["review"] = review_mod.review_update(client, got["id"], dict(list(changed.items())[:8]))
         return got
 
-    def apply_update(self, token: str, choice: Any = "merge", resolutions: Any = None, remember: Any = False) -> Dict[str, Any]:
+    def apply_update(self, token: str, choice: Any = "merge", resolutions: Any = None) -> Dict[str, Any]:
         if self.installer is None:
             raise ConnectorError("Updates are not available here.", "none")
         try:
-            return self.installer.apply_update(str(token or "")[:80], choice if isinstance(choice, str) else "merge", resolutions if isinstance(resolutions, dict) else {}, remember is True)
-        except ConnectorInstallError as e:
-            raise ConnectorError(str(e), e.code or "merge") from None
-
-    def update_notes(self, item_id: str, notes: Any = None) -> Dict[str, Any]:
-        """The instructions kept for the merges of this skill; with `notes` (a list of texts) they are replaced, an empty list clears them."""
-        if self.installer is None:
-            raise ConnectorError("Updates are not available here.", "none")
-        try:
-            if notes is None:
-                return {"notes": self.installer.merge_notes(self.installer._record(item_id))}
-            if not isinstance(notes, list) or len(notes) > 20 or not all(isinstance(x, str) for x in notes):
-                raise ConnectorError("notes: a list of texts", "bad_request")
-            return {"notes": self.installer.set_merge_notes(item_id, notes)}
+            return self.installer.apply_update(str(token or "")[:80], choice if isinstance(choice, str) else "merge", resolutions if isinstance(resolutions, dict) else {})
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "merge") from None
 

@@ -49,17 +49,16 @@ redoes the merge for the files the update changes, each file with the three vers
 (changed as you said, no change needed, left as proposed). A file that is not text or too long for the model is left as proposed. An answer that holds conflict markers or, for a JSON
 file, is not valid JSON, is asked again once and then left as proposed.
 
-Tick *Keep these instructions for the next updates* and they are saved with the item (`merge_notes`); the next update carries them out again on its own, and the window lists them and can
-forget them. Instructions need a model: without one they are refused and nothing is proposed.
+The instructions belong to this update only: more than one can be given in a row and they add up, but nothing is saved, and the next update of the same item starts without them.
+Instructions need a model: without one they are refused and nothing is proposed.
 
 ## HTTP, command line, code
 
 ```
 POST /api/import/<skill|plugin|mcp>/update-plan    {name, instructions?, language?}   -> a proposal with a `token`
-POST /api/import/<kind>/update-apply               {token, choice?, resolutions?, remember?}   choice: merge | overwrite | cancel
-POST /api/import/<kind>/update-notes               {name, notes?}
-POST /api/skills/update/plan | apply | notes       the same, by skill name (the source is the program's folder, the folder or the address it came from)
-POST /api/connectors/update/plan | apply | notes   the same for a skill installed from GitHub ({id} instead of {name}), with the model's risk review of what changes
+POST /api/import/<kind>/update-apply               {token, choice?, resolutions?}   choice: merge | overwrite | cancel
+POST /api/skills/update/plan | apply            the same, by skill name (the source is the program's folder, the folder or the address it came from)
+POST /api/connectors/update/plan | apply        the same for a skill installed from GitHub ({id} instead of {name}), with the model's risk review of what changes
 ```
 
 `resolutions` is `{path: "ours" | "theirs" | "merged"}` (with several parts, `"unit::path"`). Errors: 409 `conflicts` (files that need a choice), `stale`, `not_mergeable`; 503 `no_model`.

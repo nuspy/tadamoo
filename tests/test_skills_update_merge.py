@@ -72,11 +72,7 @@ def test_cancel_overwrite_and_a_stale_token_are_answered(world):
     assert api.route("POST", "/api/skills/update/apply", {"token": plan["token"], "choice": "bogus"})[0] == 400
 
 
-def test_the_kept_instructions_are_listed_replaced_and_cleared(world):
+def test_there_is_no_place_to_keep_instructions_between_updates(world):
     mgr, api, folder, spaces = world
-    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research"})[1] == {"notes": []}
-    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research", "notes": ["keep my tone", "  "]})[1] == {"notes": ["keep my tone"]}
-    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research"})[1] == {"notes": ["keep my tone"]}
-    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research", "notes": []})[1] == {"notes": []}
-    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research", "notes": "x"})[0] == 400
+    assert api.route("POST", "/api/skills/update/notes", {"name": "news-research"})[0] == 404
     assert api.route("POST", "/api/skills/update/plan", {"name": "nothing-here"})[0] == 404

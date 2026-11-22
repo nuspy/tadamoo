@@ -511,12 +511,9 @@ def test_instructions_are_carried_out_on_the_merge_and_kept_with_the_skill(tmp_p
     plan = api.update_plan("skill:pdf-tools", ["keep my tone"], "it")
     assert plan["notes"] == ["keep my tone"] and plan["notes_result"]["skill:pdf-tools"]["run.py"] == "revised" and plan["needs_choice"] == 0
     assert plan["description"]["text"] == "The new version rewrites run.py." and plan["review"]["verdict"] == "ok"
-    api.apply_update(plan["token"], "merge", {}, True)
+    applied = api.apply_update(plan["token"], "merge", {})
     assert (installed_dir / "run.py").read_text() == "print('upstream, with my tone')\n"
-    assert api.update_notes("skill:pdf-tools") == {"notes": ["keep my tone"]}
-    assert api.update_notes("skill:pdf-tools", []) == {"notes": []}
-    with pytest.raises(ConnectorError):
-        api.update_notes("skill:pdf-tools", "x")
+    assert "kept_notes" not in applied and not hasattr(api, "update_notes") and not hasattr(installer, "merge_notes")
 
 def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
     api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
