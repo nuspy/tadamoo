@@ -1,32 +1,35 @@
 # Prove sul modello vero per il collegamento LoRA
 
-Richiamate da `tests/QUEUE_daytime.md`. Due parti: quello che si prepara subito, senza GPU (gli adapter di prova e
-l'anello Python/C++ che oggi manca), e le prove che servono la GPU e l'utente al PC. Quando l'utente è al PC il
-tempo è suo: gli adapter devono esistere già.
+Richiamate da `tests/QUEUE_daytime.md`.
 
-## Da preparare adesso, senza GPU
+## Adapter di prova (fatto, `tools/convert/gen_test_adapters.py`)
 
-- **Adapter di prova veri, non scritti a mano.** Uno script legge le forme dei tensori dal pacchetto reale (la
-  sezione `meta` del `.basalt`, JSON, chiave `tensors`: vedi sotto — **non** `tools/gguf_reader.py`, che apre solo
-  un GGUF vero e su un `.basalt` compilato non trova il magic), ricava i nomi dei moduli PEFT invertendo la tabella
-  `CK.LAYER` di `tools/convert/checkpoint.py` (o `qwen35_checkpoint.py` per il pacchetto NVIDIA), scrive cartelle PEFT
-  sintetiche con quei nomi e un `config.json` base (da dove si prende: dichiaralo nello script), e chiama
-  `tools/convert/lora.py`. File da generare: un adapter nullo su tutte le dieci famiglie
-  (`ADAPTER_NULL.gguf`), un adapter nullo che copre solo le famiglie trovate già Q8_0 nel pacchetto reale (vedi
-  sotto — oggi nessuna lo è sui due pacchetti dell'utente, quindi P2b si salta: vedi sotto), un adapter non nullo su
-  tutte le dieci (`ADAPTER.gguf`, un delta piccolo rispetto ai pesi — il modello deve restare sensato — ma
-  sufficiente a cambiare l'uscita), un parziale solo su `attn_q`/`attn_v` (`ADAPTER_PARTIAL_QV.gguf`), uno solo su
-  `attn_qkv` (`ADAPTER_PARTIAL_QKV.gguf`), e uno con almeno un tensore esperto e un tensore router (per P8, per
-  esempio un `.ffn_gate_exps.<E>` e un `.ffn_gate_inp.weight`, qualunque siano — l'adapter non deve essere coerente
-  con un vero addestramento per questa prova). Per P2b, un adapter nullo sul solo tensore Q8_0 trovato per nome nel
-  pacchetto GSQ-RCO-IQ3_S (vedi sotto). `ADAPTER_NULL.gguf` serve anche per P9. Si può provare fino al file GGUF
-  senza GPU: farlo ora.
-- **L'anello che manca tra Python e C++.** Oggi i test C++ (`lora_merge_test`) leggono file scritti dalla fixture
-  C++, e i test Python (`tools/convert/test_lora.py`) rileggono con il lettore Python: nessun test fa leggere al
-  lettore C++ un file scritto davvero da `lora.py`. Un adapter GGUF piccolo (poche centinaia di byte), scritto una
-  volta da `lora.py` a partire da un ingresso fisso e messo nel repository, chiude l'anello senza processi
-  incrociati e senza GPU: `test_lora.py` verifica che `lora.py` lo riproduca byte per byte dallo stesso ingresso;
-  `lora_merge_test` lo apre con il lettore C++ e controlla alpha, forme, valori, quote di energia e conteggi.
+Mai scritti a mano: lo script legge le forme vere dei tensori dal pacchetto reale (sezione `meta` del `.basalt`,
+JSON, chiave `tensors` — **non** `tools/gguf_reader.py`, che apre solo un GGUF vero e su un `.basalt` compilato
+non trova il magic), ricava i nomi dei moduli PEFT invertendo la tabella `CK.LAYER` di `tools/convert/checkpoint.py`,
+scrive cartelle PEFT sintetiche con quei nomi e chiama `tools/convert/lora.py` per davvero.
+
+**Due livelli di copertura, non uno — distinzione trovata da `basalt-3d` il 22 novembre dopo la prima corsa (la
+prima versione dello script prendeva solo il primo tensore di ogni famiglia: 10 tensori su 300 veri, non "tutte
+le dieci famiglie" come scritto allora):**
+- `ADAPTER_NULL.gguf` / `ADAPTER.gguf` (10 tensori, uno a famiglia, i layer trovati per primi): bastano per P3b,
+  P7, P8 — lì serve solo che l'adapter copra qualcosa di reale, non ogni layer.
+- `ADAPTER_NULL_FULL.gguf` / `ADAPTER_FULL.gguf` (300 tensori: ogni layer di ogni famiglia): servono a P6, P9, P4,
+  dove il punto è proprio la copertura intera — un numero di VRAM o una prova di tenuta su 10 tensori non dice
+  nulla sugli altri 290. `ADAPTER_FULL.gguf` ha un delta cento volte più piccolo di `ADAPTER.gguf`: con ogni
+  layer che porta il suo delta indipendente, la stessa scala del singolo tensore sommata su 300 sarebbe troppo
+  forte.
+- `ADAPTER_PARTIAL_QV.gguf` / `ADAPTER_PARTIAL_QKV.gguf`: un solo layer, per P7 (tipi misti nello stesso livello).
+- `ADAPTER_NULL_Q8TENSOR.gguf`: il solo tensore Q8_0 reale trovato sul pacchetto GSQ-RCO-IQ3_S, per P2b.
+- `ADAPTER_MIXED.gguf`: un tensore esperto e un tensore router, per P8.
+
+## L'anello tra Python e C++ (fatto)
+
+Un adapter GGUF piccolo (poche centinaia di byte), scritto una volta da `lora.py` a partire da un ingresso fisso
+e messo nel repository (`tools/convert/testdata/`), chiude l'anello senza processi incrociati e senza GPU:
+`test_lora.py` verifica che `lora.py` lo riproduca byte per byte dallo stesso ingresso; `lora_merge_test` lo apre
+con il lettore C++ e controlla alpha, forme, valori, quote di energia e conteggi — tutti ricalcolati in modo
+indipendente da `basalt-3d` nella sua rilettura, non solo ricopiati dal lato Python.
 
 ### Trovare le famiglie già Q8_0 nel pacchetto reale (serve a P2b)
 
@@ -118,11 +121,11 @@ numero col limite di potenza della GPU.
 | P2 | *Non eseguibile su questa macchina*: serve un pacchetto `qwen4exp` con tutti i densi già Q8_0, e non ce n'è uno (il `.basalt` Q8_0 presente, NVFP4, è un altro modello e non passa dal collegamento LoRA: vedi sopra) | — | — | **si salta e si scrive il perché**; P2b è il confronto reale che resta |
 | **P2b** | **Prova principale di questo gruppo** (non facoltativa): sul pacchetto `qwen4exp` reale che ha un tensore Q8_0 (`GSQ-RCO-IQ3_S`, il layer di `ffn_down_shexp` trovato sopra), un adapter nullo che copre solo quel tensore per nome | come P1 ma con `--lora ADAPTER_NULL_Q8TENSOR.gguf` su `Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S.basalt` | contro lo stesso comando senza `--lora`, sullo stesso pacchetto; e la riga di log deve dire `+0.0 MiB` | **FATTO (22 novembre 2026): identiche, e la riga di log dice `+0.0 MiB` esattamente.** Limite confermato: copre un solo tensore su 640 colonne, quindi il percorso `native_mmvq`, non `dense_tc` |
 | P3 | *Non eseguibile*, stesso motivo di P2 | — | — | si salta |
-| P3b | Sul pacchetto reale, qualunque esso sia | `--lora-scaled ADAPTER.gguf:1.0,ADAPTER.gguf:-1.0` su `MODEL.basalt` | **non contro P1** — contro `--lora ADAPTER_NULL.gguf` sullo stesso `MODEL.basalt` | **FATTO (22 novembre 2026): identiche** — e la riga di log dice `lora: 10 tensors fused, +52.8 MiB over the pack's own types` come per l'adapter nullo, confermando che i byte fusi sono gli stessi nei due casi |
-| P4 | Adapter non nullo, due avvii dello stesso comando | `--lora ADAPTER.gguf` su `MODEL.basalt` (due volte) | le due uscite tra loro, poi contro P1 | **FATTO (22 novembre 2026): le due uscite sono identiche tra loro**, e diverse da P1 fin dal primo token (`33 2308...` contro `760 5839...`) — l'adapter arriva davvero ai kernel, in modo deterministico |
-| **P9** | Prova di tenuta sul pacchetto reale dell'utente (senza P2/P3/P5, nulla provava finora "fusione giusta" contro "fusione sbagliata ma deterministica" su un pacchetto non Q8_0): adapter nullo su tutte le dieci famiglie (ogni denso coperto passa a Q8_0) | i quattro prompt pretokenizzati di `data/bench` (`conv`, `prefill`, `prose`, `struct`), uscita greedy, con e senza `--lora ADAPTER_NULL.gguf` | le due uscite per ciascuno dei quattro prompt | **FATTO (22 novembre 2026).** `prefill` e `struct`: uscite identiche. `conv` e `prose`: uscite diverse dal secondo arrotondamento (come previsto su un pacchetto non Q8_0), ma **entrambe decodificate a mano e lette per davvero**: `conv` dà due continuazioni coerenti su B-tree contro LSM-tree, `prose` due aperture coerenti di un saggio sull'Odissea — nessuna frase senza senso in nessuno dei quattro casi |
+| P3b | Sul pacchetto reale, qualunque esso sia | `--lora-scaled ADAPTER.gguf:1.0,ADAPTER.gguf:-1.0` su `MODEL.basalt` | **non contro P1** — contro `--lora ADAPTER_NULL.gguf` sullo stesso `MODEL.basalt` | **FATTO (22 novembre 2026, 10 tensori): identiche** — e la riga di log dice `lora: 10 tensors fused, +52.8 MiB over the pack's own types` come per l'adapter nullo. La proprietà provata (la cancellazione è esatta) non dipende da quanti tensori sono coinvolti; da ripetere con `ADAPTER_FULL.gguf` (300 tensori) solo per sicurezza in più, non perché il primo esito sia in dubbio |
+| P4 | Adapter non nullo, due avvii dello stesso comando | `--lora ADAPTER_FULL.gguf` su `MODEL.basalt` (due volte) | le due uscite tra loro, poi contro P1; **decodificare il testo, non lasciarlo come id** | **Da rifare con copertura intera.** Il primo giro (22 novembre, `ADAPTER.gguf`, 10 tensori) aveva dato uscite identiche tra loro e diverse da P1 fin dal primo token — ma `basalt-3d` ha trovato che quell'adapter aveva un delta troppo forte per un solo tensore (norma per componente di rango vicina alla norma spettrale del tensore stesso) e l'uscita non era stata decodificata: può essere stata testo rotto, non solo "diverso". `ADAPTER_FULL.gguf` ha un delta cento volte più piccolo, spalmato su 300 tensori |
+| **P9** | Prova di tenuta sul pacchetto reale dell'utente (senza P2/P3/P5, nulla provava finora "fusione giusta" contro "fusione sbagliata ma deterministica" su un pacchetto non Q8_0): adapter nullo su **tutti i 300 tensori** delle dieci famiglie (ogni denso coperto passa a Q8_0) | i quattro prompt pretokenizzati di `data/bench` (`conv`, `prefill`, `prose`, `struct`), uscita greedy, con e senza `--lora ADAPTER_NULL_FULL.gguf` | le due uscite per ciascuno dei quattro prompt, decodificate | **Da rifare con copertura intera.** Il primo giro (22 novembre) ha usato `ADAPTER_NULL.gguf`, che tocca solo 10 tensori su 300 (un tensore a famiglia): gli altri 290, su 46 layer mai toccati, non sono mai passati dalla fusione. Risultato di allora (`prefill`/`struct` identici, `conv`/`prose` diversi ma entrambi testo sensato) non invalidato, ma non dice nulla sugli altri 46 layer |
 | P5 | Qualità con/senza adapter nullo sul pacchetto reale | **ritirata (decisione dell'utente, 22 novembre 2026)** | — | nessun numero: `docs/precision/features.md` resta com'è (parità sui tensori più adapter nullo, nessuna misura di qualità promessa). Generare il file `--kld-base` costerebbe llama.cpp compilato, il GGUF BF16 intero e una corsa lunga, per un numero che non serve alla decisione |
-| P6 | Dalla riga di log `lora: N tensori fusi, +X MiB, Y s` | avviare con `--lora ADAPTER.gguf` e senza, leggere la riga e `nvidia-smi` prima/dopo il caricamento | MiB di VRAM dei densi, posti della cache esperti persi, token al secondo (con e senza `--lora`) | **FATTO (22 novembre 2026, `--spec 7` vero): densi 1619,5→1672,3 MiB (+52,8); cache esperti 6609→6594 posti, 16,39→16,35 GiB; decodifica 63,5→55,6 tok/s (circa 12,5% più lenta — i tensori coperti passano tutti a Q8_0, più pesante da leggere di IQ4_XS/Q5_K)** — i numeri per la decisione D3 |
+| P6 | Dalla riga di log `lora: N tensori fusi, +X MiB, Y s` | **adapter nullo** `ADAPTER_NULL_FULL.gguf` e senza, sui prompt `prefill`/`struct` (dove P9 ha già dato uscita identica: stesso testo generato, quindi la differenza è solo il costo dei kernel), almeno 3 corse per lato, a `--spec 2` e a `--spec 7` | MiB di VRAM dei densi, posti della cache esperti persi, token al secondo e secondi di fusione (con e senza `--lora`) | **Scartato e da rifare.** Il numero del 22 novembre (+52,8 MiB, −12,5% di velocità) copriva solo 10 tensori su 300: con tutti i 300 l'extra VRAM calcolato dai metadati è **+1328,9 MiB** (25 volte quello scritto), non misurato. La velocità del primo giro usava anche `ADAPTER.gguf` (non nullo, cambia il testo generato), con `--spec 7` (non deterministico, una sola corsa per lato): il −12,5% non è attribuibile a Q8_0 senza ripetere con un adapter nullo su testo identico. Mancava anche il tempo di fusione (`Y s` della riga di log), il numero che serve alla specifica E4 |
 | P7 | Tipi misti nello stesso livello: un adapter che copre solo `attn_q`/`attn_v`, un altro solo `attn_qkv`, su prefill lungo e su un turno di verifica (`--spec` acceso) | `--lora ADAPTER_PARTIAL_QV.gguf --tokens-file data/bench/prefill.ids` su `MODEL.basalt`, poi lo stesso con `ADAPTER_PARTIAL_QKV.gguf`, con `--spec 7` vero | che il motore parta e risponda; **leggere il log per righe di ripiego** (per esempio `GDN qkv + z without dense_tc_pair`) e i token al secondo con e senza l'adapter | **FATTO (22 novembre 2026): nessun arresto in nessuno dei due casi.** L'unico avviso nel log (`fallback: glue off for the layer's experts (types 23 / 20)`) è lo stesso in entrambi i casi ed è degli esperti, non del collegamento LoRA — nessun ripiego causato da LoRA trovato |
 | P8a | Adapter con un tensore esperto e uno router, rifiuto esplicito | `bin\basalt.exe --model MODEL.basalt --lora ADAPTER_MIXED.gguf --no-lora-partial` | il messaggio d'errore | **FATTO (22 novembre 2026, senza GPU):** si ferma prima di aprire il modello, con `touches 1 router, 1 expert and 0 other tensor(s)...`; confermato anche passando dalla traduzione vera del file di configurazione (`serve.config.engine_words('no-lora-partial', True)` → `--no-lora-partial`) |
 | P8b | Lo stesso adapter, fusione parziale di default | `bin\basalt.exe --model MODEL.basalt --lora ADAPTER_MIXED.gguf` (senza `--no-lora-partial`) | la riga `basalt lora: warning: ...` | **FATTO (22 novembre 2026, senza GPU):** avviso nel log, non un arresto |
@@ -131,6 +134,12 @@ Nota: P2 e P3 restano scritte per il giorno in cui esistesse un pacchetto `qwen4
 Q8_0; su questa macchina non girano. P2b (sul `GSQ-RCO-IQ3_S`) e P9 (sul pacchetto reale dell'utente) sono insieme
 la prova di tenuta che oggi sostituisce P2/P3/P5 sul pacchetto che l'utente usa davvero.
 
-**Tutte le prove di questo file sono state eseguite per davvero il 22 novembre 2026, con l'utente al PC e la GPU
-libera.** Adapter generati da `tools/convert/gen_test_adapters.py` (E3-6), non scritti a mano. Il collegamento
-LoRA è verificato end-to-end: dal convertitore Python, attraverso il lettore C++, fino ai kernel della GPU vera.
+**Stato al 22 novembre 2026, dopo la rilettura di `basalt-3d` sul primo giro**: P1, P2b, P7, P8a, P8b fatte e
+valide. P3b fatta e valida (ripeterla con `ADAPTER_FULL.gguf` è solo una sicurezza in più). **P4, P9 e P6 vanno
+rifatte con `ADAPTER_NULL_FULL.gguf`/`ADAPTER_FULL.gguf` (300 tensori, ogni layer delle dieci famiglie)**: il
+primo giro copriva solo 10 tensori su 300, e per P6 questo cambia il numero di VRAM di 25 volte. Il collegamento
+LoRA è verificato dal convertitore Python, attraverso il lettore C++, fino ai kernel della GPU vera — ma solo sui
+tensori e sui layer elencati qui, con un solo tensore Q8_0 per l'identità più stretta (P2b), nessun adapter PEFT
+addestrato per davvero, e nessun numero di qualità (P5 ritirata). **Prima cosa da controllare nel prossimo giro**:
+se il modello carica ancora, con la configurazione reale dell'utente, quando la fusione chiede davvero +1,3 GiB
+di VRAM in più (stima dai metadati, non ancora misurata).

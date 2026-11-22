@@ -3,10 +3,7 @@
 adapter this script writes is exactly what tools/convert/lora.py would produce from a real PEFT checkpoint of the
 same shapes.
 
-    python3 tools/convert/gen_test_adapters.py --out-dir DIR
-
-Needs the real packs this project's E3 test list names, at their default paths (override with --iq4xs-pack /
---iq3s-pack if they move).
+    python3 tools/convert/gen_test_adapters.py --out-dir DIR --iq4xs-pack PATH --iq3s-pack PATH
 """
 from __future__ import annotations
 
@@ -36,17 +33,28 @@ assert set(s + ".weight" for s in GGUF_TO_CK_SUFFIX) == L.PROJECTION_GGUF_NAMES,
 
 def family_shape(pack: pathlib.Path, gguf_suffix: str, want_type: str | None = None) -> tuple[str, int, int, str]:
     """(tensor name, n_in, n_out, type) of the first (or, with want_type, the first matching) tensor of this
-    family in `pack`'s meta section. ne is [n_in, n_out] (GGUF order, reversed PyTorch shape)."""
-    meta = json.loads(ModelFile(str(pack)).read("meta"))
-    for name, t in meta["tensors"].items():
-        if not name.endswith(gguf_suffix):
-            continue
-        type_name = GGML_TYPES.get(t["type_id"], f"type{t['type_id']}")
-        if want_type is not None and type_name != want_type:
-            continue
-        n_in, n_out = t["shape"]
-        return name, n_in, n_out, type_name
+    family in `pack`'s meta section. For a single representative tensor only (P2b, P7, P8) -- not for coverage
+    of a whole family, which needs every layer: see family_shapes_all. ne is [n_in, n_out] (GGUF order, reversed
+    PyTorch shape)."""
+    for name, n_in, n_out, type_name in family_shapes_all(pack, gguf_suffix):
+        if want_type is None or type_name == want_type:
+            return name, n_in, n_out, type_name
     raise SystemExit(f"{pack}: no tensor ends with {gguf_suffix!r}" + (f" of type {want_type}" if want_type else ""))
+
+
+def family_shapes_all(pack: pathlib.Path, gguf_suffix: str) -> list[tuple[str, int, int, str]]:
+    """Every tensor of this family, every layer: (name, n_in, n_out, type) each. A family is not one shape or one
+    type -- two layers of the same family can differ (found on GSQ-RCO-IQ3_S: 47 of 48 ffn_down_shexp are IQ4_NL,
+    one is Q8_0)."""
+    meta = json.loads(ModelFile(str(pack)).read("meta"))
+    out = []
+    for name, t in meta["tensors"].items():
+        if name.endswith(gguf_suffix):
+            n_in, n_out = t["shape"]
+            out.append((name, n_in, n_out, GGML_TYPES.get(t["type_id"], f"type{t['type_id']}")))
+    if not out:
+        raise SystemExit(f"{pack}: no tensor ends with {gguf_suffix!r}")
+    return out
 
 
 def layer_of(tensor_name: str) -> int:
@@ -59,9 +67,13 @@ def module_path(layer: int, gguf_suffix: str) -> str:
     return f"model.language_model.layers.{layer}.{GGUF_TO_CK_SUFFIX[gguf_suffix]}"
 
 
-def lora_pair(n_out: int, n_in: int, r: int, null: bool) -> tuple[np.ndarray, np.ndarray]:
-    A = RNG.standard_normal((r, n_in)).astype(np.float32) * 0.05
-    B = np.zeros((n_out, r), dtype=np.float32) if null else RNG.standard_normal((n_out, r)).astype(np.float32) * 0.02
+def lora_pair(n_out: int, n_in: int, r: int, null: bool, scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """scale 1.0: the delta this script used before it covered every layer (A sigma 0.05, B sigma 0.02, alpha/r
+    2 -- per-rank-component norm close to a real tensor's spectral norm, fine for one or two tensors, too strong
+    once every layer of a family carries its own independent one: use a smaller scale for full coverage."""
+    A = RNG.standard_normal((r, n_in)).astype(np.float32) * (0.05 * scale)
+    B = (np.zeros((n_out, r), dtype=np.float32) if null
+         else RNG.standard_normal((n_out, r)).astype(np.float32) * (0.02 * scale))
     return A, B
 
 
@@ -80,10 +92,10 @@ def build(tmp: pathlib.Path, out: pathlib.Path, tensors: dict[str, tuple[np.ndar
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-dir", required=True, type=pathlib.Path)
-    ap.add_argument("--iq4xs-pack", type=pathlib.Path,
-                     default=pathlib.Path(r"E:\Modelli\basalt\v2\Qwen3.8-Flash-Next-Uncensored-IQ4_XS.basalt"))
-    ap.add_argument("--iq3s-pack", type=pathlib.Path,
-                     default=pathlib.Path(r"E:\Modelli\basalt\v2\Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S.basalt"))
+    ap.add_argument("--iq4xs-pack", required=True, type=pathlib.Path,
+                     help="the pack the identity/floor/speed tests run on (tests/lora_gpu_checks.md: MODEL.basalt)")
+    ap.add_argument("--iq3s-pack", required=True, type=pathlib.Path,
+                     help="the pack with a real Q8_0 native tensor, for P2b (tests/lora_gpu_checks.md)")
     a = ap.parse_args(argv)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     tmp = a.out_dir / "_scratch"
@@ -93,17 +105,30 @@ def main(argv=None) -> int:
     for suf, (name, n_in, n_out, type_name) in shapes.items():
         print(f"{suf}: {name} ne=[{n_in},{n_out}] {type_name}")
 
-    def all_ten(null: bool) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    def one_per_family(null: bool) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """One tensor per family (the first layer found), not full coverage -- for P7's mixed-types prove, where
+        the point is one covered tensor beside uncovered ones in the same layer, not every layer."""
         out = {}
         for suf, (name, n_in, n_out, _) in shapes.items():
             out[module_path(layer_of(name), suf)] = lora_pair(n_out, n_in, 8, null)
         return out
 
-    # ADAPTER_NULL / ADAPTER: all ten families, on the pack the main identity/floor tests use
-    build(tmp, a.out_dir / "ADAPTER_NULL.gguf", all_ten(null=True))
-    build(tmp, a.out_dir / "ADAPTER.gguf", all_ten(null=False))
+    def all_layers(null: bool, scale: float) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """Every tensor of every one of the ten families, every layer -- full coverage, for P6/P9/P4."""
+        out = {}
+        for suf in ten:
+            for name, n_in, n_out, _ in family_shapes_all(a.iq4xs_pack, suf + ".weight"):
+                out[module_path(layer_of(name), suf)] = lora_pair(n_out, n_in, 8, null, scale)
+        return out
 
-    # ADAPTER_PARTIAL_QV / _QKV: P7's mixed-types-in-one-layer prove
+    full = all_layers(null=True, scale=1.0)
+    print(f"full coverage: {len(full)} tensors")
+    build(tmp, a.out_dir / "ADAPTER_NULL_FULL.gguf", full)
+    # a delta two orders of magnitude smaller than the single-tensor adapters below: every layer of every family
+    # now carries its own independent delta, so the single-tensor scale would be far too strong summed over all of them
+    build(tmp, a.out_dir / "ADAPTER_FULL.gguf", all_layers(null=False, scale=0.01))
+
+    # ADAPTER_PARTIAL_QV / _QKV: P7's mixed-types-in-one-layer prove -- one layer, not full coverage
     qv = {suf: shapes[suf] for suf in ("attn_q", "attn_v")}
     build(tmp, a.out_dir / "ADAPTER_PARTIAL_QV.gguf",
           {module_path(layer_of(n), s): lora_pair(no, ni, 8, False) for s, (n, ni, no, _) in qv.items()})
