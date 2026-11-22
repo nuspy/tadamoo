@@ -4,7 +4,8 @@ the brains and a spoken test sentence.
 Routes (the control app already demands the bearer token on all of them):
     GET  /brain/state         the default mode, the personality, what waits for an approval, the last exchanges, the session, the voice match
     POST /brain/voice/confirm {"contact_id"}: enrolls the current session's recent audio under that contact
-    POST /brain/say           {"text"}: speaks a test sentence with the TTS that is loaded (409 `tts_not_loaded` when it is not)
+    POST /brain/say           {"text"}: speaks a test sentence with the TTS that is loaded (409 `tts_not_loaded` when it is not). With `lang` and no `voice` the voice is the one the
+                              avatar would use for that language (409 `language_unavailable` when none speaks it); with `voice` (and `engine`, `lang`) that exact voice
 
 The push-to-talk manager imports `pynput`, so it is made on first use: a service on a PC without it still starts and says why a session
 cannot. Nothing here opens a microphone or a speaker until a session or a test sentence is asked for."""
@@ -25,6 +26,10 @@ class Busy(Exception):
 
 class Unavailable(Exception):
     """The push-to-talk manager cannot be made here; the message says why."""
+
+
+class NoVoice(Exception):
+    """No voice can speak the language asked for (the selected engine cannot, and Piper has no voice for it either)."""
 
 
 class Session:
@@ -162,6 +167,15 @@ class Speaker:
         # The personality's own voice, same as the avatar speaks with: cfg.default_voice is a generic, often
         # language-locked voice (e.g. Kokoro/espeak) that garbles a sentence in any language it was not set up for.
         voice = persona_link.voice_of(persona, api) if persona else {}
+        if preview and preview.get("lang"):
+            # A language asked for and no voice: the voice the avatar would use when it changes to that language (language_voice.py), never an engine chosen by the caller.
+            from callbridge.language_follow import LanguageSettings
+            from callbridge.language_voice import choose_voice
+            choice = choose_voice(preview["lang"], voice=voice.get("voice") or cfg.default_voice, engine=voice.get("engine", ""),
+                                  voice_map=LanguageSettings.from_config(cfg).voices, router=router)
+            if not choice.ok:
+                raise NoVoice(f"no voice speaks '{preview['lang']}': the selected engine cannot and no Piper voice of that language is installed")
+            return router.synth(text, choice.voice, choice.tts_lang, cfg.tts_speed, choice.engine)
         lang = (persona and persona_link.language_of(persona, api)) or cfg.default_lang
         return router.synth(text, voice.get("voice") or cfg.default_voice, lang, cfg.tts_speed, voice.get("engine", ""))
 
@@ -221,15 +235,19 @@ def register(app, state, speaker: Speaker | None = None) -> None:
             return jsonify({"error": "the speech synthesis is not loaded: load it from Models > Voice services", "code": "tts_not_loaded"}), 409
         # A preview of one catalog voice (Settings > Voice > Lingua parlata's play button), never the persona's.
         voice = body.get("voice") if isinstance(body, dict) else None
+        engine, lang = body.get("engine"), body.get("lang")
         preview = None
         if isinstance(voice, str) and voice.strip():
-            engine, lang = body.get("engine"), body.get("lang")
             preview = {"voice": voice.strip(), "engine": engine.strip() if isinstance(engine, str) else "",
                        "lang": lang.strip() if isinstance(lang, str) else ""}
+        elif isinstance(lang, str) and lang.strip():                   # a language and no voice: the voice that language gets in the avatar's order
+            preview = {"voice": "", "engine": "", "lang": lang.strip()}
         try:
             return jsonify(speaker.say(text.strip(), preview))
         except Busy:
             return jsonify({"error": "a sentence is being spoken", "code": "busy"}), 409
+        except NoVoice as e:
+            return jsonify({"error": str(e), "code": "language_unavailable"}), 409
         except Exception as e:                                       # noqa: BLE001 (a model that went away, no output device)
             log.warning("test sentence: %s", e)
             return jsonify({"error": f"{e.__class__.__name__}: {e}", "code": "speak_failed"}), 502

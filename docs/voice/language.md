@@ -54,7 +54,7 @@ The map `language.voices` holds `language -> a voice name of the selected engine
 - The brain is told with `set_reply_language(name, code)`. The direct brain gets "Reply in French." in its system message and, once for each
   change, a line `[state] reply_language=fr` after the notes of the turn (never in a cached prefix). The harness has no field for it: the
   line goes in front of the person's message in the next turn, and again in a new conversation. The line is made from a validated code, never from
-  the speech.
+  the speech. The harness is told in its prompt what the line means, and has tools to read the language and to speak in one (`harness.md`).
 - The synthesis `lang` is spelled the way each engine takes it: Kokoro's codes (en->en-us, pt->pt-br, zh->cmn, in
   `engines/kokoro_lang.py`, used by the engine and its GPU helper), the ISO code for the others. The recognizer's hint follows the language; in follow mode the recognizer stays automatic. A fixed `stt_language`
   in the config turns following off (the avatar cannot follow what a forced recognizer hears) and is reported as a warning, as is an

@@ -64,8 +64,8 @@ def _say(body: Any) -> dict:
         out["voice"] = voice.strip()
         if engine.strip():
             out["engine"] = engine.strip()
-        if lang:
-            out["lang"] = lang
+    if lang:                                                   # with a voice: that voice in that language; without one: the voice the avatar would use for the language
+        out["lang"] = lang
     return out
 
 
