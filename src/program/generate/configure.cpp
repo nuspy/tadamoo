@@ -13,14 +13,16 @@ int run(int argc, char** argv) {
     // all do, starting with this process's very first NativeDense::served_names call): a control vector waits
     // for ModelGeometry, but nothing a LoRA merge needs does.
     std::string lora_summary = "0";
+    size_t lora_skipped = 0;
     {
         std::string lora_err;
-        if (!cli::load_lora(o, lora_summary, lora_err)) {
+        if (!cli::load_lora(o, lora_summary, lora_skipped, lora_err)) {
             basalt::log::error("basalt", "lora: %s", lora_err.c_str());
             return 2;
         }
     }
     context.lora_summary = &lora_summary;
+    context.lora_skipped = &lora_skipped;
     // ---- the GPUs: chosen before any CUDA call, which then sees only them, the main card as device 0
     std::vector<basalt::program::GpuCard> chosen_cards;
     if (const auto code = cli::select_gpus(o, chosen_cards, basalt::kernels::kDmMaxX + 1)) return *code;

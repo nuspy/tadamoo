@@ -57,6 +57,7 @@ struct Context {
     std::vector<int32_t>& mrope_host;
     std::string& cvec_summary;
     std::string& lora_summary;
+    size_t& lora_skipped;
     basalt::core::SessionState& ss;
     cudaStream_t& main_stream;
     void* const& main_cs;

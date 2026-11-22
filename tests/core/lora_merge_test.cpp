@@ -3,14 +3,13 @@
 // 1. open(): a well-formed synthetic adapter opens, alpha and the pairs read back exactly; a tensor outside the
 //    ten native families (native_dense.cpp's eligible()) is counted, not loaded; four malformed files are
 //    rejected, each error naming the thing that is wrong.
-// 2. lora_merge_q8_0(): for each of the dense types the real packs use (Q4_K, Q5_K, Q6_K, IQ4_XS, IQ3_S, Q3_K,
-//    Q2_0, Q8_0), at the real geometries (2560 -> 10240, 6144 -> 2560), with one or two adapters and varying
-//    rank, every merged value is within the Q8_0 block step (plus the scale's own fp16 rounding) of a
+// 2. lora_merge_q8_0(): for each of the dense types the real packs use (Q4_K, Q5_K, Q6_K, IQ4_XS, IQ4_NL, IQ3_S,
+//    Q3_K, Q2_0, Q8_0), at the real geometries (2560 -> 10240, 6144 -> 2560), with one or two adapters and
+//    varying rank, every merged value is within the Q8_0 block step (plus the scale's own fp16 rounding) of a
 //    double-precision reference.
-// 3. On a Q8_0 base specifically: a null delta reproduces the base bytes exactly (R1), even for a block whose
-//    code was 126 rather than 127 (re-quantizing such a block is not its own fixed point); the same adapter at
-//    scale +1 and -1 together gives a net-zero delta and the same base bytes; two runs of the same input give
-//    the same bytes.
+// 3. On a Q8_0 base specifically: a null delta is a byte copy of the base, even for a block whose code was 126
+//    rather than 127 (re-quantizing such a block is not its own fixed point); the same adapter at scale +1 and
+//    -1 together gives a net-zero delta and the same base bytes; two runs of the same input give the same bytes.
 // 4. A microbench line: seconds to fuse one 2560 -> 10240 tensor (sizes the cost of re-fusing at runtime).
 #include "basalt/core/lora.hpp"
 #include "basalt/ggml/ggml.h"
@@ -105,6 +104,7 @@ void fix_scale_field(uint32_t type, uint8_t* block) {
         put(108);
         break;
     case GGML_TYPE_IQ4_XS:
+    case GGML_TYPE_IQ4_NL:
     case GGML_TYPE_IQ3_S:
     case GGML_TYPE_Q2_0:
     case GGML_TYPE_Q8_0:
@@ -371,7 +371,7 @@ void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint
          std::string(type_name) + ": the test detects a missing rank term (sanity check on the test itself)");
 }
 
-// ------------------------------------------------------------------ 3. Q8_0-specific identity properties (R1)
+// ------------------------------------------------------------------ 3. Q8_0-specific identity properties
 std::vector<uint8_t> make_q8_0_block(float d, const std::array<int8_t, 32>& codes) {
     std::vector<uint8_t> blk(34);
     const uint16_t d16 = ggml_fp32_to_fp16(d);
@@ -396,13 +396,14 @@ void test_q8_0_identities(std::mt19937& rng) {
     base_bytes.insert(base_bytes.end(), block1.begin(), block1.end());
     const int64_t n_in = 64, n_out = 1;
 
-    // sanity: re-quantizing block0's own dequantized values does NOT reproduce it (that is why R1 exists)
+    // sanity: re-quantizing block0's own dequantized values does NOT reproduce it -- a null delta must be a
+    // byte copy instead, not a requantize, or this exact block would silently change under --lora
     const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
     std::vector<float> decoded(32);
     q8->to_float(block0.data(), decoded.data(), 32);
     std::vector<uint8_t> requantized(34);
     q8->from_float_ref(decoded.data(), requantized.data(), 32);
-    check(requantized != block0, "requantizing a max-code-126 Q8_0 block changes its bytes (motivates R1)");
+    check(requantized != block0, "requantizing a max-code-126 Q8_0 block changes its bytes");
 
     Pair zero_pair = random_pair(rng, 4, n_in, n_out, 0.02f);
     std::fill(zero_pair.b.begin(), zero_pair.b.end(), 0.0f);   // B = 0: a null adapter
@@ -486,6 +487,7 @@ int run() {
     check_parity_case(rng, tmp, GGML_TYPE_Q5_K, "Q5_K", 6144, 2560, {5});
     check_parity_case(rng, tmp, GGML_TYPE_Q6_K, "Q6_K", 2560, 10240, {8, 8});   // two adapters together
     check_parity_case(rng, tmp, GGML_TYPE_IQ4_XS, "IQ4_XS", 6144, 2560, {8});
+    check_parity_case(rng, tmp, GGML_TYPE_IQ4_NL, "IQ4_NL", 2560, 10240, {8});
     check_parity_case(rng, tmp, GGML_TYPE_IQ3_S, "IQ3_S", 2560, 10240, {5});
     check_parity_case(rng, tmp, GGML_TYPE_Q3_K, "Q3_K", 6144, 2560, {8});
     check_parity_case(rng, tmp, GGML_TYPE_Q2_0, "Q2_0", 2560, 10240, {8});
