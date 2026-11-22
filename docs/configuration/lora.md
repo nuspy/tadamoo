@@ -14,3 +14,9 @@ log line at startup names how many tensors it could not apply and what share of 
 | `lora` | engine | file path | off | A LoRA adapter at scale 1. |
 | `lora-scaled` | engine | `FILE:SCALE[,...]` | off | LoRA adapters with their scales. |
 | `no-lora-partial` | engine | switch | off | Refuse an adapter that touches a tensor outside the ten families instead of fusing the rest. |
+
+**What it costs.** Development measurement (`tests/lora_gpu_checks.md`), an adapter covering all ten families on
+every layer of an IQ4_XS pack (300 tensors, GPU power limit 600 W): the dense weights go up 1328.9 MiB, the
+expert cache gives up 392 slots to hold the room, and fusing those 300 tensors at load takes 15 to 18 seconds. No
+measurable decode-speed cost at `--spec 2`; `--spec 7` itself varies run to run by more than any adapter could
+explain, so it shows nothing either way.
