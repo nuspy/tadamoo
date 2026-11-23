@@ -286,6 +286,7 @@ Prova fatta il 23 novembre: l'adapter ha un effetto, ma i fatti arrivano solo in
 - Per capire se manca l'apprendimento o si perde nella fusione (requantizzazione a 4 bit degli esperti): provare lo stesso adapter non fuso sul fork di addestramento (CPU, lento), oppure fondere con scala 2 (altri 50 minuti).
 - Se il problema è la fusione a 4 bit: la LoRA sugli esperti in tempo reale, senza fondere (task «Caricamento dinamico per sessione»).
 - Se il problema è l'addestramento (24 fatti, 4 epoche, rango 8): riaddestrare con più epoche, rango più alto o più formulazioni, quando l'addestramento su GPU sarà veloce.
+- Ipotesi dell'utente: il modello pensa in inglese e poi traduce; l'addestramento va fatto anche in inglese (e in più forme). In verifica: stesso adapter interrogato in italiano (forma semplice), in inglese (chat e semplice) e in italiano con il ragionamento acceso.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
@@ -321,6 +322,7 @@ Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal m
 - Fase 0: finire la prova su Basalt (task 18) e portare l'addestramento su GPU (task 40): cambia il tetto e la stima.
 - Verifica finale: perplessità con e senza adapter su un testo tenuto da parte e su un controllo generale.
 - Tutti i file di questa funzione su D:. E: ospita il file di paging (fino a 100 GB): se si riempie il computer si blocca.
+- Idea dell'utente (23 novembre): il materiale va scritto in inglese e nella lingua del documento, in più forme (semplice, domanda e risposta, chat): il modello ragiona in inglese e un legame imparato solo con parole italiane non viene trovato da una ricerca con parole inglesi.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 

@@ -30,6 +30,10 @@ due volte, 16,7 KB, 70 pezzi da 128 token.
   (`tadamoo/rag/enrich.py`) si riusano se ci sono: niente seconda chiamata.
 - Dove serve una chiamata, usa la sessione tecnica, funzione nuova `lora_prepare` (come `rag_enrich`: stesse regole sui
   provider fuori dal PC, vale `cloud_ok` dell'archivio). Un passaggio per volta, a pacchetti, ripresa possibile.
+- **Ogni fatto in inglese e nella lingua del documento** (idea dell'utente, 23 novembre): il modello ragiona in inglese e un legame
+  imparato solo con le parole italiane («Città» – Valdoria) non viene trovato quando cerca con quelle inglesi («city»). Quindi
+  la preparazione scrive ogni fatto nelle due lingue, e in più forme: frase semplice, domanda e risposta, forma di chat.
+  Il nome proprio resta com'è; le parole comuni attorno al nome (città, squadra, fondatore) compaiono nelle due lingue.
 - Senza modello (nessun provider disponibile): il passaggio entra com'è, senza domande. Peggio, ma parte lo stesso.
 - Si tolgono i passaggi sotto 60 caratteri o quasi tutti numeri (come l'enrich) e i duplicati.
 - Il file finale è un testo con paragrafi separati da una riga vuota, nel formato che l'addestratore già legge.

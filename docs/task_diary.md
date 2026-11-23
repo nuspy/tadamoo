@@ -126,6 +126,9 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   a 4 bit o se l'addestramento non basta. Il server di prova è fermo.
 - Aggiunto alla correzione del motore: la scadenza di 900 secondi prima di READY ora si sposta anche quando il file di log cresce
   (prima uccideva un caricamento ancora in corso). Test aggiunto.
+- Ipotesi dell'utente sulla LoRA (23 novembre): il modello ragiona in inglese e poi traduce, quindi l'addestramento va fatto anche in
+  inglese e in più forme; un legame imparato con «Città» non viene trovato quando il modello cerca con «city». Aggiunto al progetto della
+  scheda Knowledge e in verifica con quattro giri di domande (italiano semplice, inglese chat e semplice, italiano con ragionamento).
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 
