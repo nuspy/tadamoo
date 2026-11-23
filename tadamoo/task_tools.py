@@ -2,7 +2,7 @@
 
 The register is for free work in a conversation: a long job with several steps, or work that can be interrupted and has to survive a compaction, a cleared
 conversation or a restart. It is not for a short question, and not for what a plan already commands: a plan is its own list of steps. The agent writes it
-freely: when a subtask is no longer current, is wrong or has to be done another way, it changes it. Closing a task deletes it, so what is left is only what is open.
+freely: when a subtask is no longer current, is wrong or has to be done another way, it changes it. Closing a task takes it out of the open work (the history keeps it), so what is open stays short.
 
 The tools are in the session's own group of the tool list (after the fixed ones), so they never move the cached prefix. They write only the harness's own
 file in the project folder (`.tadamoo/tasks.json`)."""
@@ -68,9 +68,9 @@ def register_task_tools(registry: ToolRegistry, board: TaskBoard, session_id: Ca
 
     def close(id: str, result: str = "") -> str:
         row = next((r for r in board.view() if r["id"] == id), None)
-        gone = board.close(id)
+        gone = board.close(id, "agent")
         tt._wrote()
-        said = f"Closed and deleted: {', '.join(gone)}."
+        said = f"Closed (kept in the history): {', '.join(gone)}."
         giver = ((row or {}).get("meta") or {}).get("assigned_by")
         if giver and tt.on_assigned_close is not None:                         # a task another session assigned: what came of it goes back to them by itself
             try:
@@ -109,7 +109,7 @@ def register_task_tools(registry: ToolRegistry, board: TaskBoard, session_id: Ca
     reg = lambda name, desc, params, fn: registry.register(name, desc, params, EffectClass.PURE, fn)          # noqa: E731
     reg("task_add", "Opens a task in the register of this project's open work: for a LONG job (several steps, or work that may be interrupted), never for a short question or "
         "a one-step request, and not for work a plan already commands. Give it the subtasks you can see now (they may hold subtasks of their own); you can change them later. "
-        "The register survives a compaction, a cleared conversation and a restart; a closed task is deleted, so keep only what is open.",
+        "The register survives a compaction, a cleared conversation and a restart; a closed task leaves it for the history, so keep only what is open.",
         {"type": "object", "properties": {"title": {"type": "string"}, "description": {"type": "string", "description": "What the task is and what finished means"},
                                           "subtasks": {"type": "array", "items": SUB}, "parent": {"type": "string", "description": "The id of a task to make this a subtask of"},
                                           "state": {"type": "string", "enum": list(STATES)}, "files": {"type": "array", "items": {"type": "string"}},
@@ -119,11 +119,11 @@ def register_task_tools(registry: ToolRegistry, board: TaskBoard, session_id: Ca
         {"type": "object", "properties": {"id": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "state": {"type": "string", "enum": list(STATES)},
                                           "done": {"type": "string"}, "missing": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}}, "required": ["id"]}, update)
     reg("task_subtasks", "Makes the subtasks of a task exactly this list, in this order. Rewrite them freely when one is no longer current, is wrong or has to be done another "
-        "way: an item with the id of a present subtask keeps it, any other is new, and a present one you leave out is closed (deleted).",
+        "way: an item with the id of a present subtask keeps it, any other is new, and a present one you leave out is removed.",
         {"type": "object", "properties": {"id": {"type": "string"}, "subtasks": {"type": "array", "items": SUB}}, "required": ["id", "subtasks"]}, subtasks)
     reg("task_move", "Reorders: puts a task before another one (`before`), or under a parent (`parent`, an id; empty for the top level).",
         {"type": "object", "properties": {"id": {"type": "string"}, "before": {"type": "string"}, "parent": {"type": "string"}}, "required": ["id"]}, move)
-    reg("task_close", "Closes a task that is finished (or no longer wanted): it is deleted with its subtasks. Check the result against what was asked first. A task another session "
+    reg("task_close", "Closes a task that is finished (or no longer wanted): it leaves the open work with its subtasks (the history keeps it). Check the result against what was asked first. A task another session "
         "assigned to you (it says who in task_list): give the `result`, and it goes back to them by itself.",
         {"type": "object", "properties": {"id": {"type": "string"}, "result": {"type": "string", "description": "what came of it, for whoever assigned the task"}}, "required": ["id"]}, close)
     reg("task_list", "Lists the open tasks with their notes: this conversation's own (`mine`) or all of the project's (`project`, to find a task to take over), optionally by state.",

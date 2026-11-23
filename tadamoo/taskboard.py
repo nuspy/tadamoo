@@ -1,7 +1,11 @@
-"""The register of the work the agent is carrying out now, one for each project folder.
+"""The register of the work the agent is carrying out now, one for each project folder, and the map of the project's development.
 
-It is not a history: a task that is done is closed, and closing deletes it (with its subtasks). What stays is what is open, so that work survives a
-compaction, a cleared conversation, a restart of the PC and another conversation taking it over. The file is `<project>/.tadamoo/tasks.json`; the agent
+A task that is done is closed: it leaves the open work (so that work survives a compaction, a cleared conversation, a restart of the PC and another conversation
+taking it over) and goes to the history, with its notes and the date, unless a program reported it (an agent run, a target, the parts of a large request, a plan's
+line), which is simply deleted. Deleting is another act, and the person's: it removes a task or a history row for good. A node can also be hidden: it leaves the
+person's views (and comes back with "show hidden nodes") but is still there. Tasks belong to groups (a thread of work with its own progress) and have three notes
+for the person (problems solved, open decisions, foreseen problems); two more states, `review` (done, to commit) and `decision` (an open decision), describe the
+development. `tadamoo/roadmap.py` writes the whole map as `docs/roadmap.json`, from which the text and the page are made. The file is `<project>/.tadamoo/tasks.json`; the agent
 (through the `task_*` tools, tadamoo/task_tools.py), the person (the Tasks tab, `/tasks`) and the server all write it, one at a time (a lock of the process
 and a lock file across processes), the whole file replaced atomically.
 
@@ -27,6 +31,11 @@ from tadamoo.audit import file_lock
 FOLDER = ".tadamoo"
 FILE = "tasks.json"
 STATES = ("queued", "running", "waiting", "blocked")
+DEV_STATES = ("review", "decision")                           # the development map's own: what the agent's tools do not offer
+ALL_STATES = STATES + DEV_STATES
+PROGRAMS = ("agent-", "tg-", "req-")                           # ids of what a program reports: closed means deleted, never kept in the history
+MAX_HISTORY = 500
+MAX_GROUPS = 40
 WHO = ("agent", "user")
 ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
 REPORTED = {"running": "running", "in_progress": "running", "pending": "queued", "queued": "queued", "waiting": "waiting", "blocked": "blocked", "failed": "blocked"}
@@ -34,6 +43,7 @@ ENDS = frozenset({"done", "closed", "completed", "skipped"})
 MAX_TASKS = 300
 MAX_DEPTH = 10
 TITLE, TEXT, NOTE = 200, 4000, 2000
+NOTE_KEYS = ("solved", "decisions", "risks")
 SUMMARY_TOP, SUMMARY_LINE = 12, 140
 
 
@@ -73,45 +83,67 @@ class TaskBoard:
 
     # -- the file ---------------------------------------------------------------------------------------------
 
-    def _read(self) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _clean_task(t: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not (isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("title"), str)):
+            return None
+        links = t.get("links") if isinstance(t.get("links"), dict) else {}
+        notes = t.get("notes") if isinstance(t.get("notes"), dict) else {}
+        row = {"id": t["id"], "title": t["title"], "description": str(t.get("description") or ""), "state": t.get("state") if t.get("state") in ALL_STATES else "queued",
+               "parent": str(t.get("parent") or ""), "order": int(t.get("order") or 0), "done": str(t.get("done") or ""), "missing": str(t.get("missing") or ""),
+               "group": str(t.get("group") or ""), "num": int(t.get("num") or 0), "hidden": t.get("hidden") is True,
+               "notes": {k: str(notes.get(k) or "") for k in NOTE_KEYS},
+               "links": {"session": str(links.get("session") or ""), "plan": str(links.get("plan") or ""),
+                         "files": [str(f) for f in (links.get("files") or []) if isinstance(f, str)][:30]},
+               "meta": t["meta"] if isinstance(t.get("meta"), dict) else {},
+               "by": t.get("by") if t.get("by") in WHO else "agent", "created": float(t.get("created") or 0), "updated": float(t.get("updated") or 0)}
+        if "closed" in t:
+            row["closed"], row["closed_by"] = float(t.get("closed") or 0), t.get("closed_by") if t.get("closed_by") in WHO else "agent"
+        return row
+
+    def _read_doc(self) -> Dict[str, Any]:
+        """The whole file: the open `tasks`, the `groups` (id, title, order) and the `history` of the closed ones."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return []
-        rows = data.get("tasks") if isinstance(data, dict) else None
-        out = []
-        for t in rows if isinstance(rows, list) else []:
-            if isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("title"), str):
-                out.append({"id": t["id"], "title": t["title"], "description": str(t.get("description") or ""), "state": t.get("state") if t.get("state") in STATES else "queued",
-                            "parent": str(t.get("parent") or ""), "order": int(t.get("order") or 0), "done": str(t.get("done") or ""), "missing": str(t.get("missing") or ""),
-                            "links": {"session": str((t.get("links") or {}).get("session") or ""), "plan": str((t.get("links") or {}).get("plan") or ""),
-                                      "files": [str(f) for f in ((t.get("links") or {}).get("files") or []) if isinstance(f, str)][:30]},
-                            "meta": t["meta"] if isinstance(t.get("meta"), dict) else {},
-                            "by": t.get("by") if t.get("by") in WHO else "agent", "created": float(t.get("created") or 0), "updated": float(t.get("updated") or 0)})
-        ids = {t["id"] for t in out}
-        for t in out:
+            data = {}
+        data = data if isinstance(data, dict) else {}
+        tasks = [r for r in (self._clean_task(x) for x in (data.get("tasks") if isinstance(data.get("tasks"), list) else [])) if r]
+        ids = {t["id"] for t in tasks}
+        for t in tasks:
             if t["parent"] not in ids or t["parent"] == t["id"]:
                 t["parent"] = ""
-        return out
+        groups = [{"id": g["id"], "title": g["title"], "order": int(g.get("order") or 0)} for g in (data.get("groups") if isinstance(data.get("groups"), list) else [])
+                  if isinstance(g, dict) and isinstance(g.get("id"), str) and isinstance(g.get("title"), str)]
+        gids = {g["id"] for g in groups}
+        for t in tasks:
+            if t["group"] not in gids:
+                t["group"] = ""
+        history = [r for r in (self._clean_task(x) for x in (data.get("history") if isinstance(data.get("history"), list) else [])) if r and "closed" in r]
+        return {"tasks": tasks, "groups": groups, "history": history}
 
-    def _save(self, tasks: List[Dict[str, Any]]) -> None:
+    def _read(self) -> List[Dict[str, Any]]:
+        return self._read_doc()["tasks"]
+
+    def _save(self, doc: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".tasks.")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump({"schema": "1.0", "tasks": tasks}, f, ensure_ascii=False, indent=1)
+                json.dump({"schema": "1.1", "tasks": doc["tasks"], "groups": doc["groups"], "history": doc["history"]}, f, ensure_ascii=False, indent=1)
             os.replace(tmp, str(self.path))
         finally:
             Path(tmp).unlink(missing_ok=True)
 
-    def _change(self, work: Any) -> Any:
-        """Reads, lets `work(tasks)` change the list, renumbers the order of the siblings and writes; one writer at a time, in this process and across them."""
+    def _change(self, work: Any, doc: bool = False) -> Any:
+        """Reads, lets `work(tasks)` (or `work(document)` with `doc`) change the list, renumbers the order of the siblings and writes; one writer at a time, in this process
+        and across them."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, file_lock(self.path.parent / ".tasks.lock"):
-            tasks = self._read()
-            out = work(tasks)
-            self._renumber(tasks)
-            self._save(tasks)
+            document = self._read_doc()
+            out = work(document if doc else document["tasks"])
+            self._renumber(document["tasks"])
+            self._save(document)
             return out
 
     @staticmethod
@@ -147,22 +179,28 @@ class TaskBoard:
             self._change(work)
             return gone
 
-    def view(self, session: Optional[str] = None, state: str = "") -> List[Dict[str, Any]]:
-        """The open tasks in tree order, each with its depth and, for a task that a plan commands, the plan's own state and progress in place of its own."""
+    def view(self, session: Optional[str] = None, state: str = "", hidden: Optional[bool] = None) -> List[Dict[str, Any]]:
+        """The open tasks in tree order, each with its depth and, for a task that a plan commands, the plan's own state and progress in place of its own.
+        `hidden=False` leaves out the hidden nodes and what hangs from them (the person's view); `None` gives everything (the agent's), a hidden node marked `hidden`
+        (also when only its parent is: `hidden_by_parent`)."""
         self.sweep()
         tasks = self._read()
         out: List[Dict[str, Any]] = []
 
-        def walk(parent: str, depth: int) -> None:
+        def walk(parent: str, depth: int, under: bool = False) -> None:
             for t in self._children(tasks, parent):
-                row = {**t, "depth": depth, "children": len([c for c in tasks if c["parent"] == t["id"]]), "project": str(self.project)}
+                if hidden is False and (t["hidden"] or under):
+                    continue
+                row = {**t, "depth": depth, "children": len([c for c in tasks if c["parent"] == t["id"]]), "project": str(self.project),
+                       "hidden_by_parent": under and not t["hidden"]}
+                row["hidden"] = t["hidden"] or under
                 if t["links"]["plan"]:
                     p = plan_state(self.plans_dir, t["links"]["plan"])
                     row["plan"] = p
                     if p:
                         row.update(state=p["state"], done=f"{p['done']}/{p['total']} steps", missing="next: " + "; ".join(p["next"]) if p["next"] else "")
                 out.append(row)
-                walk(t["id"], depth + 1)
+                walk(t["id"], depth + 1, under or t["hidden"])
         walk("", 0)
         if session is not None:
             mine = {r["id"] for r in out if r["links"]["session"] == session and not r["parent"]}
@@ -196,14 +234,16 @@ class TaskBoard:
         if len(tasks) >= MAX_TASKS:
             raise TaskError(f"The register holds at most {MAX_TASKS} open tasks: close the ones that are done.")
         state = spec.get("state") or "queued"
-        if state not in STATES:
-            raise TaskError(f"state must be one of {', '.join(STATES)}.")
+        if state not in ALL_STATES:
+            raise TaskError(f"state must be one of {', '.join(ALL_STATES)}.")
         if not task_id:
             task_id = "t-" + secrets.token_hex(3)
             while any(t["id"] == task_id for t in tasks):
                 task_id = "t-" + secrets.token_hex(3)
+        spec_notes = spec.get("notes") if isinstance(spec.get("notes"), dict) else {}
         task = {"id": task_id, "meta": {}, "title": title, "description": _clip(spec.get("description"), TEXT), "state": state, "parent": parent, "order": 10 ** 6 + len(tasks),
-                "done": _clip(spec.get("done"), NOTE), "missing": _clip(spec.get("missing"), NOTE),
+                "done": _clip(spec.get("done"), NOTE), "missing": _clip(spec.get("missing"), NOTE), "group": str(spec.get("group") or ""), "num": int(spec.get("num") or 0),
+                "hidden": False, "notes": {k: _clip(spec_notes.get(k), TEXT) for k in NOTE_KEYS},
                 "links": {"session": session, "plan": "", "files": [str(f) for f in (spec.get("files") or []) if isinstance(f, str)][:30]}, "by": by, "created": now, "updated": now}
         tasks.append(task)
         for sub in spec.get("subtasks") or []:
@@ -218,19 +258,30 @@ class TaskBoard:
         return n
 
     def add(self, title: str, description: str = "", parent: str = "", state: str = "queued", session: str = "", by: str = "agent",
-            subtasks: Optional[Sequence[Dict[str, Any]]] = None, files: Optional[Sequence[str]] = None, done: str = "", missing: str = "") -> str:
-        """Opens a task (with its subtasks, to any depth); returns its id."""
-        def work(tasks: List[Dict[str, Any]]) -> str:
+            subtasks: Optional[Sequence[Dict[str, Any]]] = None, files: Optional[Sequence[str]] = None, done: str = "", missing: str = "",
+            group: str = "", notes: Optional[Dict[str, str]] = None, num: int = 0, task_id: str = "") -> str:
+        """Opens a task (with its subtasks, to any depth); returns its id. A top-level task that a person or the agent makes (not a program's) takes the next number of the map."""
+        def work(doc: Dict[str, Any]) -> str:
+            tasks = doc["tasks"]
+            if group and group not in {g["id"] for g in doc["groups"]}:
+                raise TaskError(f"There is no group '{str(group)[:40]}'.")
             depth = self._depth(tasks, self._by_id(tasks, parent)) + 1 if parent else 0
             if parent and self._by_id(tasks, parent)["links"]["plan"]:
                 raise TaskError("That task is commanded by a plan: its steps are the plan's, not subtasks.")
-            return self._new(tasks, {"title": title, "description": description, "state": state, "subtasks": subtasks, "files": files, "done": done, "missing": missing},
-                             parent, session, by, depth, time.time())["id"]
-        return self._change(work)
+            number = num or (0 if parent or task_id.startswith(PROGRAMS) else self._next_num(doc))
+            return self._new(tasks, {"title": title, "description": description, "state": state, "subtasks": subtasks, "files": files, "done": done, "missing": missing,
+                                     "group": group, "notes": notes, "num": number}, parent, session, by, depth, time.time(), task_id)["id"]
+        return self._change(work, doc=True)
+
+    @staticmethod
+    def _next_num(doc: Dict[str, Any]) -> int:
+        return 1 + max([t["num"] for t in doc["tasks"]] + [t["num"] for t in doc["history"]] + [0])
 
     def update(self, task_id: str, by: str = "agent", **fields: Any) -> Dict[str, Any]:
-        """Changes the title, description, state, done, missing, files or the conversation of a task. A task a plan commands takes no state of its own."""
-        def work(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Changes the title, description, state, done, missing, files, group, the three notes (`solved`, `decisions`, `risks`), `hidden` or the conversation of a task.
+        A task a plan commands takes no state of its own."""
+        def work(doc: Dict[str, Any]) -> Dict[str, Any]:
+            tasks = doc["tasks"]
             t = self._by_id(tasks, task_id)
             for key, value in fields.items():
                 if value is None:
@@ -244,9 +295,17 @@ class TaskBoard:
                 elif key in ("done", "missing"):
                     t[key] = _clip(value, NOTE)
                 elif key == "state":
-                    if value not in STATES:
-                        raise TaskError(f"state must be one of {', '.join(STATES)}.")
+                    if value not in ALL_STATES:
+                        raise TaskError(f"state must be one of {', '.join(ALL_STATES)}.")
                     t["state"] = value
+                elif key in NOTE_KEYS:
+                    t["notes"][key] = _clip(value, TEXT)
+                elif key == "group":
+                    if value and value not in {g["id"] for g in doc["groups"]}:
+                        raise TaskError(f"There is no group '{str(value)[:40]}'.")
+                    t["group"] = str(value or "")
+                elif key == "hidden":
+                    t["hidden"] = value is True
                 elif key == "files":
                     t["links"]["files"] = [str(f) for f in value if isinstance(f, str)][:30]
                 elif key == "session":
@@ -255,7 +314,7 @@ class TaskBoard:
                     raise TaskError(f"A task has no '{key}' to change.")
             t["by"], t["updated"] = by if by in WHO else "agent", time.time()
             return dict(t)
-        return self._change(work)
+        return self._change(work, doc=True)
 
     def set_subtasks(self, task_id: str, subtasks: Sequence[Dict[str, Any]], session: str = "", by: str = "agent") -> List[str]:
         """Makes the subtasks of a task exactly this list, in this order: an item with the `id` of a present subtask keeps it (and changes what it names), any other is new,
@@ -320,9 +379,134 @@ class TaskBoard:
         tasks[:] = [t for t in tasks if t["id"] not in gone]
         return sorted(gone)
 
-    def close(self, task_id: str) -> List[str]:
-        """Closes a task: it is deleted, with its subtasks. Nothing is kept of it."""
-        return self._change(lambda tasks: self._remove(tasks, self._by_id(tasks, task_id)["id"]))
+    @staticmethod
+    def _programmatic(t: Dict[str, Any]) -> bool:
+        return t["id"].startswith(PROGRAMS) or bool(t["links"]["plan"])
+
+    @staticmethod
+    def _tree_ids(rows: List[Dict[str, Any]], task_id: str) -> List[str]:
+        gone = {task_id}
+        while True:
+            more = {t["id"] for t in rows if t["parent"] in gone} - gone
+            if not more:
+                break
+            gone |= more
+        return sorted(gone)
+
+    def _end(self, doc: Dict[str, Any], task_id: str, by: str, keep: Optional[bool] = None) -> List[str]:
+        """Takes a task and what hangs from it out of the open work: into the history, unless a program made it (`keep` False forces the deletion)."""
+        tasks = doc["tasks"]
+        t = self._by_id(tasks, task_id)
+        ids = self._tree_ids(tasks, t["id"])
+        if keep is None:
+            keep = not self._programmatic(t)
+        if keep:
+            now = time.time()
+            for row in [x for x in tasks if x["id"] in ids]:
+                state = row["state"] if row["state"] in ALL_STATES else "queued"
+                doc["history"].append({**row, "state": state, "closed": now, "closed_by": by if by in WHO else "agent", "links": {**row["links"], "plan": ""}})
+            del doc["history"][:-MAX_HISTORY]
+        self._remove(tasks, t["id"])
+        return ids
+
+    def close(self, task_id: str, by: str = "agent") -> List[str]:
+        """Closes a task: it leaves the open work with its subtasks and goes to the history (with its notes and the date), except what a program reported, which is deleted.
+        Returns the ids that left."""
+        return self._change(lambda doc: self._end(doc, task_id, by), doc=True)
+
+    def delete(self, task_id: str) -> List[str]:
+        """Removes a task for good, with its subtasks: an open one, or a row of the history (with the rows that hang from it). Nothing is kept."""
+        def work(doc: Dict[str, Any]) -> List[str]:
+            if any(t["id"] == str(task_id).strip() for t in doc["tasks"]):
+                ids = self._tree_ids(doc["tasks"], str(task_id).strip())
+                self._remove(doc["tasks"], str(task_id).strip())
+                return ids
+            if any(t["id"] == str(task_id).strip() for t in doc["history"]):
+                ids = self._tree_ids(doc["history"], str(task_id).strip())
+                doc["history"] = [t for t in doc["history"] if t["id"] not in ids]
+                return ids
+            raise TaskError(f"There is no task '{str(task_id)[:40]}', open or in the history.")
+        return self._change(work, doc=True)
+
+    def history(self, session: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        """The closed tasks, the newest first (only the ones a conversation carried, with `session`)."""
+        rows = sorted(self._read_doc()["history"], key=lambda r: r["closed"], reverse=True)
+        if session is not None:
+            rows = [r for r in rows if r["links"]["session"] == session]
+        return [{**r, "project": str(self.project)} for r in rows[:max(1, limit)]]
+
+    def reopen(self, task_id: str, by: str = "user") -> List[str]:
+        """Puts a closed task (and the rows that hang from it) back among the open work, queued. Its parent stays its parent only while that is open."""
+        def work(doc: Dict[str, Any]) -> List[str]:
+            row = next((r for r in doc["history"] if r["id"] == str(task_id).strip()), None)
+            if row is None:
+                raise TaskError(f"There is no closed task '{str(task_id)[:40]}'.")
+            ids = self._tree_ids(doc["history"], row["id"])
+            if len(doc["tasks"]) + len(ids) > MAX_TASKS:
+                raise TaskError(f"The register holds at most {MAX_TASKS} open tasks.")
+            open_ids = {t["id"] for t in doc["tasks"]}
+            for r in [r for r in doc["history"] if r["id"] in ids]:
+                back = {k: v for k, v in r.items() if k not in ("closed", "closed_by")}
+                back["state"] = "queued" if r["id"] == row["id"] else back["state"]
+                back["by"], back["updated"] = by if by in WHO else "user", time.time()
+                if back["id"] == row["id"] and back["parent"] not in open_ids:
+                    back["parent"] = ""
+                doc["tasks"].append(back)
+            doc["history"] = [r for r in doc["history"] if r["id"] not in ids]
+            return ids
+        return self._change(work, doc=True)
+
+    def hide(self, task_id: str, hidden: bool = True, by: str = "user") -> None:
+        """Hides a node (with what hangs from it) from the person's views, or shows it again; it is still there, and the agent still sees it."""
+        self.update(task_id, by, hidden=bool(hidden))
+
+    # -- groups ------------------------------------------------------------------------------------------------
+
+    def groups(self) -> List[Dict[str, Any]]:
+        """The groups in order, each with how many of its tasks are open and how many are closed (its progress)."""
+        doc = self._read_doc()
+        top = lambda rows, g: [r for r in rows if r["group"] == g and not r["parent"]]            # noqa: E731
+        return [{**g, "open": len(top(doc["tasks"], g["id"])), "closed": len(top(doc["history"], g["id"]))} for g in sorted(doc["groups"], key=lambda g: (g["order"], g["id"]))]
+
+    def add_group(self, title: str, group_id: str = "") -> str:
+        title = _clip(title, TITLE)
+        if not title:
+            raise TaskError("A group needs a title.")
+
+        def work(doc: Dict[str, Any]) -> str:
+            if len(doc["groups"]) >= MAX_GROUPS:
+                raise TaskError(f"There are at most {MAX_GROUPS} groups.")
+            gid = group_id or "g-" + secrets.token_hex(3)
+            if any(g["id"] == gid for g in doc["groups"]):
+                raise TaskError(f"There is already a group '{gid}'.")
+            if not ID.match(gid):
+                raise TaskError("A group id is 1-80 letters, digits, dot, dash, underscore or colon.")
+            doc["groups"].append({"id": gid, "title": title, "order": 1 + max([g["order"] for g in doc["groups"]] + [0])})
+            return gid
+        return self._change(work, doc=True)
+
+    def rename_group(self, group_id: str, title: str) -> None:
+        title = _clip(title, TITLE)
+        if not title:
+            raise TaskError("A group needs a title.")
+
+        def work(doc: Dict[str, Any]) -> None:
+            g = next((g for g in doc["groups"] if g["id"] == group_id), None)
+            if g is None:
+                raise TaskError(f"There is no group '{str(group_id)[:40]}'.")
+            g["title"] = title
+        self._change(work, doc=True)
+
+    def delete_group(self, group_id: str) -> None:
+        """Takes a group away; its tasks (open or closed) stay, with no group."""
+        def work(doc: Dict[str, Any]) -> None:
+            if not any(g["id"] == group_id for g in doc["groups"]):
+                raise TaskError(f"There is no group '{str(group_id)[:40]}'.")
+            doc["groups"] = [g for g in doc["groups"] if g["id"] != group_id]
+            for r in doc["tasks"] + doc["history"]:
+                if r["group"] == group_id:
+                    r["group"] = ""
+        self._change(work, doc=True)
 
     def link_plan(self, task_id: str, plan_id: str, by: str = "agent") -> Dict[str, Any]:
         """Hands a task to a plan: its subtasks are dropped (the plan's steps are the steps), and from then on the task is one line read from the plan."""
@@ -353,16 +537,16 @@ class TaskBoard:
                session: str = "", by: str = "agent") -> Optional[Dict[str, Any]]:
         """The progress of a piece of work that something else carries out (an agent run, a target and its tasks, a large request and its parts), under the id the reporter chose.
         `running` and `pending` are states of the task; `blocked` and `failed` are blocked, with `result` as what is missing; `waiting` waits for the person; `done`, `closed` and
-        `skipped` end it: the task is deleted with its subtasks (nothing is kept, and ending one that is not there is no error). For the others `result` is what is done so far.
+        `skipped` end it: the task is closed with its subtasks (deleted when a program's own: `agent-`, `tg-`, `req-`; ending one that is not there is no error). For the others `result` is what is done so far.
         `metadata` gives the title (`title` or `goal`) and is kept under `meta`; `children` are the ids of its subtasks, which are put under it whenever they exist."""
         if not isinstance(task_id, str) or not ID.match(task_id):
             raise TaskError("A task id is 1-80 letters, digits, dot, dash, underscore or colon.")
         if status in ENDS:
-            def end(tasks: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-                if any(x["id"] == task_id for x in tasks):
-                    self._remove(tasks, task_id)
+            def end(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                if any(x["id"] == task_id for x in doc["tasks"]):
+                    self._end(doc, task_id, by)
                 return None
-            return self._change(end)
+            return self._change(end, doc=True)
         if status not in REPORTED:
             raise TaskError(f"status must be one of {', '.join(sorted(set(REPORTED) | set(ENDS)))}.")
         meta = {k: v for k, v in (metadata or {}).items() if k not in ("title", "goal", "description") and isinstance(k, str) and len(json.dumps(v, default=str)) <= 1500}
@@ -456,6 +640,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub.add_parser("list")
     sub.add_parser("add").add_argument("title")
     sub.add_parser("close").add_argument("id")
+    sub.add_parser("delete").add_argument("id")
+    sub.add_parser("history")
+    rm = sub.add_parser("roadmap", help="write docs/roadmap.json and docs/roadmap.md from the register")
+    rm.add_argument("--import", dest="load", action="store_true", help="read docs/roadmap.json into the register instead")
     up = sub.add_parser("update")
     up.add_argument("id")
     for name in ("state", "done", "missing", "title"):
@@ -469,7 +657,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         elif a.cmd == "add":
             print(board.add(a.title, by="user"))
         elif a.cmd == "close":
-            print("closed: " + ", ".join(board.close(a.id)))
+            print("closed: " + ", ".join(board.close(a.id, "user")))
+        elif a.cmd == "delete":
+            print("deleted: " + ", ".join(board.delete(a.id)))
+        elif a.cmd == "history":
+            for r in board.history():
+                print(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(r['closed']))} {r['id']} {r['title']}")
+        elif a.cmd == "roadmap":
+            from tadamoo import roadmap
+            print(json.dumps(roadmap.load(board) if a.load else roadmap.write(board), ensure_ascii=False))
         else:
             board.update(a.id, "user", title=a.title, state=a.state, done=a.done, missing=a.missing)
             print("updated")
