@@ -283,14 +283,23 @@ class ProcessEngine:
         threading.Thread(target=self._ready_pump, args=(self.proc, ready_q, self.log), daemon=True).start()
         ready_deadline = time.monotonic() + ENGINE_READY_S
         timed_out = False
+        log_size = log_start
         while True:
             left = ready_deadline - time.monotonic()
             if left <= 0:
                 timed_out = True
                 break
             try:
-                line = ready_q.get(timeout=left)
+                line = ready_q.get(timeout=min(left, 5.0))
             except queue.Empty:
+                if log:                                 # a load that keeps writing to its log is not silent
+                    try:
+                        size = os.path.getsize(log)
+                    except OSError:
+                        size = log_size
+                    if size != log_size:
+                        log_size = size
+                        ready_deadline = time.monotonic() + ENGINE_READY_S
                 continue
             if line is None:
                 break

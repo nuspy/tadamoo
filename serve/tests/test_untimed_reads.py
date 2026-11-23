@@ -3,6 +3,7 @@ for good. Each has a timeout; a process that stays silent is ended and the read 
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import sys
 import tempfile
@@ -78,6 +79,31 @@ class UntimedReads(unittest.TestCase):
             finally:
                 procs[0].kill()
                 procs[0].wait(10)
+
+    def test_a_load_that_writes_to_the_log_is_not_ended(self):
+        logfile = os.path.join(tempfile.gettempdir(), f"basalt-ready-test-{os.getpid()}.log")
+        fake = ("import sys, time\nprint('INFO engine=0.0.0', flush=True)\n"
+                "for i in range(8):\n    sys.stderr.write('basalt load: ram %d\\n' % i)\n    sys.stderr.flush()\n    time.sleep(0.5)\n"
+                "print('READY 4096 stop', flush=True)\ntime.sleep(30)\n")
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / "fake_engine.py"
+            script.write_text(fake, encoding="utf-8")
+            real = process.subprocess.Popen
+            procs = []
+
+            def popen(cmd, **kw):
+                procs.append(real([sys.executable, str(script), *cmd[1:]], **kw))
+                return procs[-1]
+            with mock.patch.object(process.subprocess, "Popen", popen), \
+                    mock.patch.object(process, "ENGINE_READY_S", 1.5):
+                engine = ProcessEngine("basalt", [], log=logfile)     # 4 s of log lines, a line every 0.5 s
+            try:
+                self.assertEqual(engine.max_context, 4096)
+            finally:
+                procs[0].kill()
+                procs[0].wait(10)
+                engine.log.close()
+        Path(logfile).unlink(missing_ok=True)
 
     def test_vision_encode_read_times_out(self):
         silent = Silent()
