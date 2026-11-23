@@ -141,6 +141,10 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   numeri della chat, non verificato che il ragionamento fosse davvero acceso.
 - Copie grandi cancellate su richiesta dell'utente (23 novembre): la copia GGUF da 87 GB su E: (hash identici a quella su D:, che resta) e la
   copia fusa degli esperti da 56 GB su D:. Su E: ora 234 GB liberi, su D: 196 GB.
+- LoRA in formato chat (23 novembre): provata anche la scala 0,5 dell'adapter inglese (0/16 e 0/16, controllo 4/4: nessuna scala di mezzo).
+  Riaddestrata con 96 conversazioni (24 fatti in tre formulazioni + 24 di cultura generale), perdita solo sulle risposte: danno sparito
+  (controllo 4/4, risposte che si chiudono), fatti in calo: italiano 3/16, inglese 11/16 (controllo largo). Parole italiane storpiate.
+  Prossime prove possibili: più epoche, domande anche in italiano nei dati, più materiale di controllo.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 
