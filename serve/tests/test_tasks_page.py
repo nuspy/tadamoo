@@ -66,5 +66,18 @@ class TasksTabInARealBrowserTest(unittest.TestCase):
         self.assertEqual(len(results), 12, results)
 
 
+class TasksMapInARealBrowserTest(TasksTabInARealBrowserTest):
+    """The same tab as the map of the development: groups, the tree, the spine and the history, closing and reopening, hiding, deleting, the notes, one conversation's tasks and the roadmap
+    files (a server of its own, so what the other test made is not here)."""
+    test_the_tab_on_a_phone_and_on_a_desktop = None
+
+    def test_the_map_on_a_phone_and_on_a_desktop(self):
+        self.maxDiff = None
+        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "tasks_map_dom_check.js"), self.url, self.browser, str(Path(self.tmp) / "site")], capture_output=True, text=True, timeout=900)
+        results = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertEqual([r["name"] + ": " + r["error"] for r in results if not r["ok"]], [])
+        self.assertEqual(len(results), 23, results)
+
+
 if __name__ == "__main__":
     unittest.main()

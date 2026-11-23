@@ -140,6 +140,7 @@
     chipEl.hidden = !(agent && p);
     if (!chipEl.hidden) { chipEl.textContent = T("ag.folder.chip", p.name); chipEl.title = p.path; }
     $("#chg-open").hidden = !agent;
+    $("#tasks-open").hidden = !active();
   }
   function setControls() {
     paintFolder();
@@ -1687,6 +1688,7 @@
     timer = setTimeout(() => poll(), busyNow ? FAST_MS : SLOW_MS);
   }
   /* the same page serves two tabs: the conversation held with no folder, and the conversations of the folders added */
+  $("#tasks-open").addEventListener("click", () => { if (sid && window.tasksUi) window.tasksUi.showSession(sid); });                // only the tasks this conversation carries
   const chgSide = $("#chg-side"), chgOpen = $("#chg-open");
   function showChanges(on) { chgSide.hidden = !on; chgOpen.setAttribute("aria-expanded", String(on)); }
   chgOpen.onclick = () => showChanges(chgSide.hidden);
