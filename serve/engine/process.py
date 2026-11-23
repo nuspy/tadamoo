@@ -294,6 +294,7 @@ class ProcessEngine:
                 continue
             if line is None:
                 break
+            ready_deadline = time.monotonic() + ENGINE_READY_S      # a load that reports progress is not silent
             if relay_auto_flags(line):
                 continue
             if line.startswith("INFO "):

@@ -57,6 +57,28 @@ class UntimedReads(unittest.TestCase):
             procs[0].wait(10)                                   # killed, not left running
             self.assertIsNotNone(procs[0].poll())
 
+    def test_a_load_that_reports_progress_is_not_ended(self):
+        fake = ("import time\nprint('INFO engine=0.0.0', flush=True)\n"
+                "for i in range(6):\n    print('basalt load: ram', i, flush=True)\n    time.sleep(0.4)\n"
+                "print('READY 4096 stop', flush=True)\ntime.sleep(30)\n")
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / "fake_engine.py"
+            script.write_text(fake, encoding="utf-8")
+            real = process.subprocess.Popen
+            procs = []
+
+            def popen(cmd, **kw):
+                procs.append(real([sys.executable, str(script), *cmd[1:]], **kw))
+                return procs[-1]
+            with mock.patch.object(process.subprocess, "Popen", popen), \
+                    mock.patch.object(process, "ENGINE_READY_S", 1.0):
+                engine = ProcessEngine("basalt", [])            # 2.4 s of progress lines, each within 1 s of the last
+            try:
+                self.assertEqual(engine.max_context, 4096)
+            finally:
+                procs[0].kill()
+                procs[0].wait(10)
+
     def test_vision_encode_read_times_out(self):
         silent = Silent()
         v = Vision.__new__(Vision)
