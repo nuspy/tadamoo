@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from tadamoo.taskboard import NOTE_KEYS, PROGRAMS, TaskBoard, TaskError
+from tadamoo.taskboard import NOTE_KEYS, PROGRAMS, TaskBoard, TaskError, git_links
 
 SCHEMA = "roadmap-1"
 FOLDER, JSON_FILE, MD_FILE = "docs", "roadmap.json", "roadmap.md"
@@ -65,6 +65,10 @@ def export(board: TaskBoard, meta: Optional[Dict[str, Any]] = None) -> Dict[str,
                 "risks": risks}
         if r["meta"].get("branch"):
             node["branch"] = True
+        if r["links"].get("git_branch"):
+            node["git_branch"] = r["links"]["git_branch"]
+        if r["links"].get("commits"):
+            node["commits"] = list(r["links"]["commits"])
         sub = sorted(kids.get(r["id"], []), key=lambda k: k["order"])
         if sub:
             node["subtasks"] = [{"title": k["title"], "status": STATUS_OF.get(k["state"], "none")} for k in sub]
@@ -134,9 +138,12 @@ def load(board: TaskBoard, folder: Optional[Path] = None) -> Dict[str, Any]:
             fields = {"title": n["title"], "description": str(n.get("summary") or ""), "num": int(n.get("num") or 0), "group": n.get("group") if n.get("group") in gids else "",
                       "state": "queued" if done else STATE_OF.get(n.get("status"), "queued"), "notes": {k: "\n".join(n.get(k) or []) for k in NOTE_KEYS},
                       "meta": {"branch": True} if n.get("branch") else {}}
+            git = git_links(n.get("git_branch"), n.get("commits"))
             row = next((r for r in doc["tasks"] + doc["history"] if r["id"] == task_id), None)
             if row is not None:
                 row.update(fields)
+                if "git_branch" in n or "commits" in n:                 # what the file does not say about the branch and the commits is kept
+                    row["links"] = {**row["links"], **git}
                 updated += 1
                 if done and "closed" not in row:                       # closed in the file, still open here
                     doc["tasks"].remove(row)
@@ -146,7 +153,7 @@ def load(board: TaskBoard, folder: Optional[Path] = None) -> Dict[str, Any]:
                     row.pop("closed", None), row.pop("closed_by", None)
                     doc["tasks"].append(row)
                 continue
-            base = {"id": task_id, "parent": "", "order": 10 ** 6 + i, "done": "", "missing": "", "hidden": False, "links": {"session": "", "plan": "", "files": []},
+            base = {"id": task_id, "parent": "", "order": 10 ** 6 + i, "done": "", "missing": "", "hidden": False, "links": {"session": "", "plan": "", "files": [], **git},
                     "by": "user", "created": now, "updated": now, **fields}
             if done:
                 doc["history"].append({**base, "closed": now + i / 1000, "closed_by": "user"})
@@ -191,6 +198,8 @@ def to_markdown(data: Dict[str, Any]) -> str:
         for key, head in SECTIONS:
             if n.get(key):
                 out += [f"**{head}**", ""] + [f"- {x}" for x in n[key]] + [""]
+        if n.get("git_branch") or n.get("commits"):
+            out += ["**Ramo e commit**: " + " · ".join(([f"ramo `{n['git_branch']}`"] if n.get("git_branch") else []) + [f"`{c[:8]}`" for c in n.get("commits") or []]), ""]
         if n.get("subtasks"):
             out += ["**Sottotask**", ""] + [f"- {s['title']} ({LABEL.get(s['status'], s['status'])})" for s in n["subtasks"]] + [""]
     return "\n".join(out).rstrip() + "\n"

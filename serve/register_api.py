@@ -5,7 +5,7 @@
                                      only the ones a conversation carries with session=
     GET  /api/register/history?project=<folder>|all&session=<id>   the closed tasks, the newest first
     POST /api/register/add           {project, title, description?, parent?, state?, subtasks?, group?, solved?, decisions?, risks?}
-    POST /api/register/update        {project, id, title?, description?, state?, done?, missing?, files?, group?, solved?, decisions?, risks?}
+    POST /api/register/update        {project, id, title?, description?, state?, done?, missing?, files?, group?, git_branch?, commits?, solved?, decisions?, risks?}
     POST /api/register/close         {project, id}                 the task is done: it leaves the open work and goes to the history
     POST /api/register/delete        {project, id}                 removes the task (or a row of the history) for good, with its subtasks
     POST /api/register/reopen        {project, id}                 a closed task goes back among the open ones
@@ -22,6 +22,9 @@ A project must be a folder the person added (or the Chat's): nothing else is wri
 from __future__ import annotations
 
 import os
+import re
+import subprocess
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -30,6 +33,38 @@ from tadamoo.taskboard import ALL_STATES, NOTE_KEYS, STATES, TaskBoard, TaskErro
 RESUME = ("Resume the task {id} (\"{title}\"): call task_resume with that id, read what is done and what is missing, and carry on from there. "
           "Keep the register true as you go, and close the task when it is finished.")
 RESUME_PLAN = "Resume the plan \"{plan}\" ({plan_id}) that commands the task {id}: look at the plan (plan_get) and go on with its next step."
+
+
+_REPO_URLS: Dict[str, Tuple[float, str]] = {}
+
+
+def web_url(remote: str) -> str:
+    """The web address of a git remote's page, without any credentials: `https://user:token@host/o/r.git` and `git@host:o/r.git` both become `https://host/o/r`.
+    Empty when the remote is not an address of that kind."""
+    remote = remote.strip()
+    ssh = re.match(r"^(?:ssh://)?git@([^:/\s]+)[:/](.+)$", remote)
+    if ssh:
+        remote = f"https://{ssh.group(1)}/{ssh.group(2)}"
+    match = re.match(r"^(https?)://(?:[^/@\s]+@)?([^/\s]+)/(.+?)(?:\.git)?/?$", remote)
+    return f"{match.group(1)}://{match.group(2)}/{match.group(3)}" if match else ""
+
+
+def repo_url(folder: str) -> str:
+    """The page of the project's git remote `origin` (where a commit or a branch of a task can be looked at); empty without one. Asked of git at most once a minute."""
+    now = time.monotonic()
+    hit = _REPO_URLS.get(folder)
+    if hit and now - hit[0] < 60:
+        return hit[1]
+    url = ""
+    try:
+        out = subprocess.run(["git", "-C", folder, "remote", "get-url", "origin"], capture_output=True, text=True, timeout=3,
+                             creationflags=0x08000000 if os.name == "nt" else 0)
+        if out.returncode == 0:
+            url = web_url(out.stdout)
+    except (OSError, subprocess.SubprocessError):
+        url = ""
+    _REPO_URLS[folder] = (now, url)
+    return url
 
 
 class RegisterApi:
@@ -65,7 +100,7 @@ class RegisterApi:
             board = TaskBoard(p["path"], self.plans_dir)
             every_row = board.view(state=state, session=session)
             tasks = every_row if hidden else [r for r in every_row if not r["hidden"]]
-            rows.append({**{k: v for k, v in p.items() if k != "optional"}, "tasks": tasks, "groups": board.groups(), "hidden": sum(1 for r in every_row if r["hidden"]),
+            rows.append({**{k: v for k, v in p.items() if k != "optional"}, "repo_url": repo_url(p["path"]), "tasks": tasks, "groups": board.groups(), "hidden": sum(1 for r in every_row if r["hidden"]),
                          "closed": len(board.history(session=session, limit=10 ** 6))})
         rows = [r for r, p in zip(rows, chosen) if r["tasks"] or r["closed"] or r["groups"] or not p.get("optional")]                 # the data folder's register is shown only when it holds something
         every = [t for r in rows for t in r["tasks"]]
@@ -104,9 +139,11 @@ class RegisterApi:
                             text("group", ""), notes)
             return {"id": new, "task": board.get(new)}
         if action == "update":
-            fields = {k: text(k) for k in ("title", "description", "state", "done", "missing", "group", *NOTE_KEYS)}
+            fields = {k: text(k) for k in ("title", "description", "state", "done", "missing", "group", "git_branch", *NOTE_KEYS)}
             if isinstance(req.get("files"), list):
                 fields["files"] = req["files"]
+            if isinstance(req.get("commits"), list):
+                fields["commits"] = req["commits"]
             board.update(task_id, "user", **fields)
             return {"task": board.get(task_id)}
         if action in ("close", "delete"):

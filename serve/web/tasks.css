@@ -24,6 +24,8 @@
 .tk-wait { margin: 0; font-weight: 600; color: var(--warn); }
 .tk-text, .tk-note { margin: 0; overflow-wrap: anywhere; line-height: 1.5; white-space: pre-wrap; }
 .tk-meta { margin: 0; }
+.tk-gitline { overflow-wrap: anywhere; }
+.tk-git { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; }
 .tk-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tk-more summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--fg-2); }
 .tk-more summary::-webkit-details-marker { display: none; }

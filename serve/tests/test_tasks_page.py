@@ -31,6 +31,11 @@ class TasksTabInARealBrowserTest(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="tkc-data-")
         for name in ("site", "app"):
             (Path(cls.tmp) / name).mkdir()
+        try:                                                    # the site folder has a remote, so the commits of a task link to its page
+            subprocess.run(["git", "init", "-q", str(Path(cls.tmp) / "site")], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(Path(cls.tmp) / "site"), "remote", "add", "origin", "https://github.com/nuspy/tadamoo.git"], check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            pass
         plans = Path(cls.tmp) / "data" / "planner" / "plans"
         plans.mkdir(parents=True)
         nodes = {"start": {"type": "start", "status": "completed"}, "a": {"type": "action", "status": "completed", "assignee": "agent", "title": "Research"},

@@ -168,3 +168,25 @@ def test_the_roadmap_files_are_written_and_read_from_the_page(world):
     assert api("POST", "/api/register/roadmap-load", {"project": str(a)})[1] == {"made": 1, "updated": 0}
     assert [t["title"] for t in api("GET", "/api/register")[1]["projects"][0]["tasks"]] == ["Fuse"]
     assert api("POST", "/api/register/roadmap-load", {"project": str(b)})[0] == 400                        # no file there
+
+
+def test_the_address_of_the_remote_has_no_credentials_and_keeps_its_scheme():
+    assert register_api.web_url("https://nuspy:SECRET@github.com/nuspy/tadamoo.git") == "https://github.com/nuspy/tadamoo"
+    assert register_api.web_url("git@github.com:nuspy/tadamoo.git") == "https://github.com/nuspy/tadamoo"
+    assert register_api.web_url("ssh://git@github.com/nuspy/tadamoo.git") == "https://github.com/nuspy/tadamoo"
+    assert register_api.web_url("http://nuspy@100.84.254.116:8086/git/nuspy/x.git") == "http://100.84.254.116:8086/git/nuspy/x"
+    assert register_api.web_url("C:/somewhere/else") == "" and register_api.web_url("") == ""
+
+
+def test_the_person_sets_the_branch_and_commits_of_a_task_and_the_overview_carries_them_with_the_remote_page(tmp_path):
+    folder = tmp_path / "proj"
+    folder.mkdir()
+    api = register_api.RegisterApi(lambda: [{"path": str(folder), "name": "proj"}], tmp_path / "plans")
+    code, made = api.route("POST", "/api/register/add", {}, {"project": str(folder), "title": "Ship"})
+    assert code == 200
+    code, body = api.route("POST", "/api/register/update", {}, {"project": str(folder), "id": made["id"], "git_branch": "feat/ship", "commits": ["abcdef1", "zzz"]})
+    assert code == 200 and body["task"]["links"]["git_branch"] == "feat/ship" and body["task"]["links"]["commits"] == ["abcdef1"]
+    register_api._REPO_URLS[str(folder)] = (__import__("time").monotonic(), "https://github.com/nuspy/tadamoo")
+    project = api.overview(str(folder))["projects"][0]
+    task = project["tasks"][0]
+    assert project["repo_url"] == "https://github.com/nuspy/tadamoo" and task["links"]["git_branch"] == "feat/ship" and task["links"]["commits"] == ["abcdef1"]

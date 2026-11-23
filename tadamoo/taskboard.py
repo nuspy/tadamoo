@@ -38,6 +38,9 @@ MAX_HISTORY = 500
 MAX_GROUPS = 40
 WHO = ("agent", "user")
 ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+SHA = re.compile(r"^[0-9a-f]{7,40}$")                          # a commit of the task, as git prints it
+MAX_COMMITS = 20
+BRANCH = 120
 REPORTED = {"running": "running", "in_progress": "running", "pending": "queued", "queued": "queued", "waiting": "waiting", "blocked": "blocked", "failed": "blocked"}
 ENDS = frozenset({"done", "closed", "completed", "skipped"})
 MAX_TASKS = 300
@@ -45,6 +48,12 @@ MAX_DEPTH = 10
 TITLE, TEXT, NOTE = 200, 4000, 2000
 NOTE_KEYS = ("solved", "decisions", "risks")
 SUMMARY_TOP, SUMMARY_LINE = 12, 140
+
+
+def git_links(branch: Any, commits: Any) -> Dict[str, Any]:
+    """The branch a task lives on and the commits that carry it, cleaned: what is not a branch name or a hex commit id is dropped."""
+    return {"git_branch": str(branch or "").strip()[:BRANCH],
+            "commits": [c for c in (commits if isinstance(commits, (list, tuple)) else []) if isinstance(c, str) and SHA.match(c)][:MAX_COMMITS]}
 
 
 class TaskError(ValueError):
@@ -94,7 +103,8 @@ class TaskBoard:
                "group": str(t.get("group") or ""), "num": int(t.get("num") or 0), "hidden": t.get("hidden") is True,
                "notes": {k: str(notes.get(k) or "") for k in NOTE_KEYS},
                "links": {"session": str(links.get("session") or ""), "plan": str(links.get("plan") or ""),
-                         "files": [str(f) for f in (links.get("files") or []) if isinstance(f, str)][:30]},
+                         "files": [str(f) for f in (links.get("files") or []) if isinstance(f, str)][:30],
+                         **git_links(links.get("git_branch"), links.get("commits"))},
                "meta": t["meta"] if isinstance(t.get("meta"), dict) else {},
                "by": t.get("by") if t.get("by") in WHO else "agent", "created": float(t.get("created") or 0), "updated": float(t.get("updated") or 0)}
         if "closed" in t:
@@ -244,7 +254,8 @@ class TaskBoard:
         task = {"id": task_id, "meta": {}, "title": title, "description": _clip(spec.get("description"), TEXT), "state": state, "parent": parent, "order": 10 ** 6 + len(tasks),
                 "done": _clip(spec.get("done"), NOTE), "missing": _clip(spec.get("missing"), NOTE), "group": str(spec.get("group") or ""), "num": int(spec.get("num") or 0),
                 "hidden": False, "notes": {k: _clip(spec_notes.get(k), TEXT) for k in NOTE_KEYS},
-                "links": {"session": session, "plan": "", "files": [str(f) for f in (spec.get("files") or []) if isinstance(f, str)][:30]}, "by": by, "created": now, "updated": now}
+                "links": {"session": session, "plan": "", "files": [str(f) for f in (spec.get("files") or []) if isinstance(f, str)][:30],
+                          **git_links(spec.get("git_branch"), spec.get("commits"))}, "by": by, "created": now, "updated": now}
         tasks.append(task)
         for sub in spec.get("subtasks") or []:
             if isinstance(sub, dict):
@@ -278,7 +289,7 @@ class TaskBoard:
         return 1 + max([t["num"] for t in doc["tasks"]] + [t["num"] for t in doc["history"]] + [0])
 
     def update(self, task_id: str, by: str = "agent", **fields: Any) -> Dict[str, Any]:
-        """Changes the title, description, state, done, missing, files, group, the three notes (`solved`, `decisions`, `risks`), `hidden` or the conversation of a task.
+        """Changes the title, description, state, done, missing, files, group, the three notes (`solved`, `decisions`, `risks`), `hidden`, the conversation, the git branch (`git_branch`) or the commits (`commits`) of a task.
         A task a plan commands takes no state of its own."""
         def work(doc: Dict[str, Any]) -> Dict[str, Any]:
             tasks = doc["tasks"]
@@ -310,6 +321,10 @@ class TaskBoard:
                     t["links"]["files"] = [str(f) for f in value if isinstance(f, str)][:30]
                 elif key == "session":
                     t["links"]["session"] = str(value)
+                elif key == "git_branch":
+                    t["links"]["git_branch"] = git_links(value, [])["git_branch"]
+                elif key == "commits":
+                    t["links"]["commits"] = git_links("", value)["commits"]
                 else:
                     raise TaskError(f"A task has no '{key}' to change.")
             t["by"], t["updated"] = by if by in WHO else "agent", time.time()

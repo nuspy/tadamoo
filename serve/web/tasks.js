@@ -131,6 +131,20 @@
   }
 
   /* one open task in the tree */
+  /* the branch and the commits that carry a task: links to the project's remote when it has one, plain text otherwise */
+  function gitLine(p, t) {
+    const links = t.links || {}, commits = links.commits || [];
+    if (!links.git_branch && !commits.length) return null;
+    const link = (text, path) => {
+      if (!p.repo_url) return h("code", "tk-git", text);
+      const a = h("a", "tk-git", text); a.href = p.repo_url + path; a.target = "_blank"; a.rel = "noopener noreferrer"; return a;
+    };
+    const kids = [];
+    if (links.git_branch) kids.push(h("b", "", T("tk.git.branch") + ": "), link(links.git_branch, "/tree/" + encodeURIComponent(links.git_branch).replace(/%2F/g, "/")), " ");
+    if (commits.length) { kids.push(h("b", "", T("tk.git.commits") + ": ")); commits.forEach(c => kids.push(link(c.slice(0, 8), "/commit/" + c), " ")); }
+    return h("p", "tk-meta tk-gitline", ...kids);
+  }
+
   function item(p, t, sibs) {
     const li = h("li", "tk-item"); li.dataset.id = t.id; li.dataset.state = t.state; li.style.setProperty("--d", String(Math.min(t.depth, 6)));
     if (t.hidden) li.dataset.hidden = "1";
@@ -143,6 +157,7 @@
     if (t.done) li.append(h("p", "tk-note", h("b", "", T("tk.f.done") + ": "), t.done));
     if (t.missing) li.append(h("p", "tk-note", h("b", "", T("tk.f.missing") + ": "), t.missing));
     li.append(...noteBlocks(t));
+    li.append(gitLine(p, t));
     li.append(h("p", "setnote tk-meta", T(t.by === "user" ? "tk.by.user" : "tk.by.agent", when(t.updated)), (t.links.files || []).length ? " " + T("tk.files", t.links.files.join(", ")) : ""));
     const idx = sibs.findIndex(x => x.id === t.id);
     const acts = h("div", "tk-acts", btn(T(t.plan ? "tk.resume.plan" : "tk.resume"), "primary", () => resume(p.path, t)),
@@ -216,6 +231,7 @@
     if (n.missing) panel.append(h("p", "tk-note", h("b", "", T("tk.f.missing") + ": "), n.missing));
     const blocks = noteBlocks(n);
     panel.append(...(blocks.length ? blocks : [h("p", "dim", T("tk.notes.none"))]));
+    panel.append(gitLine(p, n));
     if (subs.length) panel.append(h("div", "tk-notes", h("b", "", T("tk.subtasks")), h("ul", "", subs.map(s => h("li", "", s.title + " (" + stateLabel(s.state, n.closedRow) + ")")))));
     if (n.closedRow) panel.append(h("p", "setnote tk-meta", T("tk.closed.on", when(n.closed))));
     const acts = h("div", "tk-acts");

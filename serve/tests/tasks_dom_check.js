@@ -49,6 +49,7 @@ async function main() {
     // the world: two projects, one with a running job with subtasks and one waiting on the person, the other blocked, and one task a plan commands
     await post("api/agent/projects", { path: DIR_A }); await post("api/agent/projects", { path: DIR_B });
     const job = (await post("api/register/add", { project: DIR_A, title: "Move the site", state: "running", missing: "the DNS change", subtasks: [{ title: "Copy files" }, { title: "Change DNS", state: "waiting", missing: "the registrar login" }] })).id;
+    await post("api/register/update", { project: DIR_A, id: job, git_branch: "feat/site-move", commits: ["abcdef1234", "not a commit"] });
     const build = (await post("api/register/add", { project: DIR_B, title: "Fix the build", state: "blocked", description: "fails on CI" })).id;
     const planned = (await post("api/register/add", { project: DIR_B, title: "Make the briefing" })).id;
     await post("api/register/link-plan", { project: DIR_B, id: planned, plan_id: "briefing" });
@@ -65,6 +66,12 @@ async function main() {
         if (!by("Move the site") || by("Move the site").state !== "running" || !/Still missing: the DNS change/.test(by("Move the site").text)) throw new Error("job: " + JSON.stringify(by("Move the site")));
         if (by("Copy files").d !== "1" || by("Change DNS").state !== "waiting" || !/Waiting for you/.test(by("Change DNS").text)) throw new Error("subtasks: " + JSON.stringify([by("Copy files"), by("Change DNS")]));
         if (!by("Plan “Briefing”") || by("Plan “Briefing”").state !== "waiting" || !/1\/3 steps/.test(by("Plan “Briefing”").text) || /Make the briefing/.test(by("Plan “Briefing”").text)) throw new Error("plan line: " + JSON.stringify(by("Plan “Briefing”")));
+        const gitLinks = await ev(`return JSON.stringify(qa("#tk-root a.tk-git").map(a => [a.textContent, a.getAttribute("href"), a.target]))`).then(JSON.parse);
+        const gitCodes = await ev(`return JSON.stringify(qa("#tk-root code.tk-git").map(c => c.textContent))`).then(JSON.parse);
+        const REPO = "https://github.com/nuspy/tadamoo";                     // the test's folder has this remote when git is there; without git the same words show as plain text
+        if (gitLinks.length) {
+          if (JSON.stringify(gitLinks) !== JSON.stringify([["feat/site-move", REPO + "/tree/feat/site-move", "_blank"], ["abcdef12", REPO + "/commit/abcdef1234", "_blank"]])) throw new Error("branch and commit links: " + JSON.stringify(gitLinks));
+        } else if (JSON.stringify(gitCodes) !== JSON.stringify(["feat/site-move", "abcdef12"])) throw new Error("branch and commit text: " + JSON.stringify(gitCodes));
         const banner = await ev(`return q("#tk-root .tk-banner") ? q("#tk-root .tk-banner").textContent : ""`);
         if (!/2 waiting for you/.test(banner)) throw new Error("banner: " + banner);
         const outline = await ev(`return getComputedStyle(${card("Change DNS")}).borderLeftColor + "|" + getComputedStyle(${card("Copy files")}).borderLeftColor`);

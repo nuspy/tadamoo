@@ -152,3 +152,33 @@ def test_the_page_made_from_the_projects_roadmap_draws_every_node_in_a_real_brow
     assert len(re.findall(r'<button class="node(?: branch)?"', out)) == len(data["nodes"]) and out.count('class="branch-sep"') == len({n["group"] for n in data["nodes"]})
     assert data["title"] in out and "Stato al" in out and "{{" not in out
     assert 'class="chip"' in out                                                   # the filters were built by the page's own script
+
+
+def test_the_git_branch_and_commits_of_a_task_go_into_the_map_the_text_and_back_into_a_register(board, tmp_path):
+    task = board.add("Has code", by="user")
+    board.update(task, "user", git_branch="  feat/ship  ", commits=["abcdef1", "ABCDEF1", "not-a-sha", 7, "0123456789abcdef"])
+    row = board.get(task)
+    assert row["links"]["git_branch"] == "feat/ship" and row["links"]["commits"] == ["abcdef1", "0123456789abcdef"]
+    assert board.add("Plain", by="user") and "git_branch" not in roadmap.export(board)["nodes"][1]
+    node = roadmap.export(board)["nodes"][0]
+    assert node["git_branch"] == "feat/ship" and node["commits"] == ["abcdef1", "0123456789abcdef"]
+    assert "ramo `feat/ship` · `abcdef1` · `01234567`" in roadmap.to_markdown(roadmap.export(board))
+    roadmap.write(board)
+    fresh = TaskBoard(tmp_path / "project")
+    fresh.path.unlink()
+    roadmap.load(fresh)
+    again = next(r for r in fresh.view() if r["title"] == "Has code")
+    assert again["links"]["git_branch"] == "feat/ship" and again["links"]["commits"] == ["abcdef1", "0123456789abcdef"]
+
+
+def test_loading_a_map_that_says_nothing_about_the_branch_keeps_what_the_register_has(board, tmp_path):
+    task = board.add("Has code", by="user")
+    board.update(task, "user", git_branch="feat/keep", commits=["abcdef1"])
+    roadmap.write(board)
+    path = tmp_path / "project" / "docs" / "roadmap.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for n in data["nodes"]:
+        n.pop("git_branch", None), n.pop("commits", None)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    roadmap.load(board)
+    assert board.get(task)["links"]["git_branch"] == "feat/keep" and board.get(task)["links"]["commits"] == ["abcdef1"]
