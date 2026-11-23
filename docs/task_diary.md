@@ -78,11 +78,22 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 - Fatto, Providers: riga «richieste esterne tramite interfacce OpenAI e Anthropic». Ramo `feat/providers-external-row`,
   non committato. Resta da vedere in un browser vero.
 
+- Fatto, 23 novembre notte, LoRA: l'addestramento sui fatti di Valdoria è finito alle 04:44 (5 ore e 33 minuti, 4 epoche).
+  Perdita da 2,4 a 0,09 sui dati di addestramento; sui dati tenuti da parte 0,22. Adapter da 7,26 GB in
+  `scratchpad/lt/valdoria_adapter.gguf`. Resta la prova con Basalt (`--lora`), che aspetta il via dell'utente: serve
+  liberare spazio su E: (147 GB liberi, la conversione ne chiede circa 100).
+- Fatto, 23 novembre, sessione del libro «Il fuoco di Rasputin»: indagine in sola lettura. Nessuna modifica dal 01:59, 84
+  riassunti di contesto, la sessione rilegge i capitoli 1, 6 e 46 per riverificare rilievi già verificati. Causa
+  probabile, confermata dall'utente: la richiesta era «Fai lettura editoriale», non una correzione; il punto «Applicare
+  le correzioni verificate» è rimasto in coda. Non ho toccato la sessione; ho proposto un testo per passare alla
+  correzione.
+- Nota: la prova completa dei test Python sul ramo di integrazione è stata fermata a metà (poteva scontrarsi con il
+  file d'uso dei modelli del TaDaMoo in funzione). Da rifare isolata, con `TADAMOO_DATA` su una cartella temporanea.
+
 **Elenco completo dei task (scritto su richiesta dell'utente, sera del 23 novembre).**
 
 In corso adesso:
-- LoRA: motore pronto (esperti fusi all'avvio, test verde), copia del GGUF di addestramento su E: in corso, poi prova
-  di addestramento sui fatti di Valdoria e prova con Basalt.
+- LoRA: motore pronto, addestramento finito (vedi sopra); resta la prova con Basalt, che aspetta il via dell'utente.
 - Android 1: messaggi mentre l'harness lavora (guida, in coda, urgente), in Chat e in Agentic coding.
 - Android 2: «Immagini e grafici» sul telefono.
 - Android 3: risposta lunga sul telefono.

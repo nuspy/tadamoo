@@ -6,8 +6,7 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 
 | Stato | Nodi |
 |---|---|
-| fatto | 27 |
-| in corso | 1 |
+| fatto | 28 |
 | decisione aperta | 1 |
 | in attesa | 3 |
 | non iniziato | 5 |
@@ -247,19 +246,21 @@ GGUF Unsloth UD-IQ4_XS (87,2 GiB, 4 pezzi) sul NAS; scaricato su D: con SHA-256 
 
 - Per provare l'adapter sugli stessi pesi serve un pack ottenuto da questo GGUF (`convert.py --sections-from` il pack Uncensored IQ4_XS).
 
-### 17. Addestramento sul modello vero (in corso)
+### 17. Addestramento sul modello vero (fatto)
 
-Prova su CPU riuscita; l'addestramento completo sui fatti di Valdoria gira dalle 23:10.
+Addestramento completo sui fatti di Valdoria finito (23 novembre, 5 ore e 33 minuti): perdita da 2,4 a 0,09, adapter da 7,26 GB.
 
 **Fatto e problemi risolti**
 
+- Finito alle 04:44 del 23 novembre, 4 epoche, 66 passi per epoca. Perdita di addestramento 0,205 / 0,142 / 0,086 a fine epoche 1-3; sui dati tenuti da parte 0,25 / 0,23 / 0,22 con precisione 94%.
+- Adapter scritto: scratchpad/lt/valdoria_adapter.gguf (7,26 GB). La prova di inferenza è il passo successivo.
 - Prova di 4 passi: circa 3,5 minuti, perdita 2,1-2,3 (finita e sensata), adapter da 7,26 GB scritto.
 - Comando: rango 8, alpha 16, 4 epoche, learning rate 3e-4 con coseno, contesto 128, 24 thread, moduli attenzione, GDN, esperti condivisi ed esperti instradati.
 - Dati: 24 fatti inventati su una città che non esiste (Valdoria), ognuno in tre formulazioni, due volte.
 
 **Decisioni e punti aperti**
 
-- Durata stimata: circa 65 secondi per passo; con circa 40 passi per epoca fanno circa 3 ore.
+- Durata reale: circa 75 secondi per passo, 5 ore e 33 minuti in tutto (la stima era 3 ore).
 - Se la perdita non scende o i fatti non si imparano: alzare il learning rate o le epoche, o ridurre a rango 4.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
