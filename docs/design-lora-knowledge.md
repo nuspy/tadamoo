@@ -17,8 +17,8 @@ Nella scheda **Knowledge**, accanto agli archivi, una sotto-scheda **LoRA** (per
    risponde (vedi «Memoria»).
 6. **Attiva / Disattiva**: la LoRA entra nel motore al prossimo caricamento. Una barra per la scala (1,0 di partenza).
 
-Niente verifica automatica della qualità: la pagina mostra solo la perdita che l'addestratore stampa già. Se la persona la vorrà,
-la decide lei (ordine del 12 novembre).
+7. **Verifica finale** (voluta dall'utente il 23 novembre): quando l'adapter è pronto, la pagina mostra la perplessità con e senza
+   adapter (vedi «Verifica della qualità»). Insieme alla curva di perdita che l'addestratore stampa già.
 
 ## Come si prepara il materiale
 
@@ -56,10 +56,22 @@ Prima di partire la scheda scarica il modello locale con lo stesso meccanismo di
 (`docs/engine-vram-arbiter.md`), lo dice alla persona e, a fine lavoro (o su Annulla), lo ricarica com'era. Nel frattempo le
 conversazioni possono usare un provider esterno, se la persona ne ha uno.
 
+## Verifica della qualità
+
+Alla fine dell'addestramento, sempre, senza che la persona la chieda: la **perplessità** (la misura che si calcola in fretta
+su poche migliaia di token) con e senza adapter, su due testi.
+- **Tenuto da parte**: circa il 10% del materiale preparato, non usato per addestrare. Deve calare: dice se ha imparato.
+- **Controllo generale**: un breve testo fisso in italiano e uno in inglese. Non deve salire di molto: dice se ha perso qualcosa.
+La pagina scrive i due numeri prima e dopo e una riga in parole («ha imparato», «ha perso qualcosa del resto»). Si calcola con il
+motore, cioè con l'adapter fuso come lo userà la persona; lo strumento esatto (`basalt-bench --quality` o il calcolo del
+fork) si decide in fase 2, dopo aver guardato che cosa accetta `--lora`.
+
 ## Il modello su cui si addestra
 
-L'addestratore legge un **GGUF**, non un `.basalt`: serve il GGUF del modello di base (87 GB, 4 pezzi) su disco. Una
-impostazione nella sotto-scheda dice dove sta. La LoRA vale per i pesi su cui è stata addestrata; il manifest segna il modello
+L'addestratore legge un **GGUF**, non un `.basalt`: serve il GGUF del modello di base (87 GB, 4 pezzi) su disco, **su D:**
+(decisione del 23 novembre). **Mai su E:**: ci vive il file di paging, che cresce fino a 100 GB, e se E: si riempie il computer
+si blocca e può non ripartire. Nessun file di questa funzione va su E:: GGUF, `.basalt` convertito, adapter e copia fusa degli
+esperti stanno tutti su D:. Una impostazione nella sotto-scheda dice dove sta il GGUF. La LoRA vale per i pesi su cui è stata addestrata; il manifest segna il modello
 di base e la scheda elenca solo i pack compatibili. Se la LoRA valga anche sul pack «Uncensored» già in uso lo dice la prova di
 inferenza del 23 novembre (task 18): finché non c'è, la scheda avvisa.
 
@@ -91,9 +103,11 @@ provata solo su 24 fatti inventati; la prova di inferenza dirà se li ha imparat
 3. La sotto-scheda LoRA, provata nell'applicazione vera a 360, 390 e 1280 px.
 4. Attiva/Disattiva con ricarica del motore.
 
-## Da decidere con te
+## Decisioni dell'utente (23 novembre)
 
-- Va bene tenere il GGUF di base (87 GB) su disco in modo fisso?
-- Va bene che il modello locale taccia durante l'addestramento (ore), con un provider esterno come ripiego?
-- Tetto di partenza: quante ore al massimo per un addestramento lanciato dalla scheda?
-- Una sola LoRA attiva alla volta per progetto?
+- Il GGUF di base resta su disco in modo fisso, su D:, mai su E:.
+- Il modello locale può tacere per ore durante l'addestramento.
+- Nessun limite massimo di tempo per un addestramento lanciato dalla scheda (resta la stima scritta sul pulsante).
+- Una LoRA attiva, caricata e fusa all'avvio. In seguito una seconda, **dinamica**, caricata durante l'uso in tempo reale
+  (task «Caricamento dinamico per sessione», nella mappa).
+- La verifica della qualità alla fine c'è (sezione sopra).

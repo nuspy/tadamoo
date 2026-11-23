@@ -8,9 +8,8 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 |---|---|
 | fatto | 28 |
 | in corso | 1 |
-| decisione aperta | 1 |
 | in attesa | 4 |
-| non iniziato | 6 |
+| non iniziato | 7 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -156,10 +155,11 @@ Il motore ora fonde anche i 512 esperti per livello: nuova copia della sezione e
 
 ### 11. Caricamento dinamico per sessione (E4) (non iniziato)
 
-Poter cambiare o aggiungere l'adapter durante l'uso, non solo all'avvio. Solo un abbozzo di disegno.
+Una LoRA fusa all'avvio più una seconda, dinamica, caricata durante l'uso in tempo reale. Deciso dall'utente il 23 novembre; da fare in seguito.
 
 **Decisioni e punti aperti**
 
+- Deciso dall'utente (23 novembre): una LoRA attiva fusa all'inizio, più una dinamica caricata in tempo reale. La dinamica si fa dopo la LoRA da Knowledge.
 - Oggi l'adapter si fonde solo all'avvio: per cambiarlo si riavvia il motore.
 - Disegno di partenza: blocco di VRAM fisso in Q8_0 per le famiglie dense, chiave di richiesta che indica l'adapter, identità di conversazione estesa come per i vettori di controllo.
 - La specifica la scrive basalt-3d.
@@ -298,18 +298,20 @@ Una LoRA pensata per come TaDaMoo usa il modello: i suoi strumenti e le sue conv
 
 - Idea solo annotata: trasferire una LoRA addestrata su un'architettura a un'altra.
 
-### 38. Creare una LoRA dalla scheda Knowledge (decisione aperta)
+### 38. Creare una LoRA dalla scheda Knowledge (non iniziato)
 
-Una sotto-scheda LoRA in Knowledge: si danno documenti e testo, un modello prepara il materiale, un pulsante addestra e attiva. Progetto scritto, niente codice.
+Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal modello, un pulsante addestra, verifica finale e attiva. Progetto approvato, codice da scrivere.
 
 **Fatto e problemi risolti**
 
 - Progetto scritto in `docs/design-lora-knowledge.md`: cosa vede la persona, come si prepara il materiale (riuso di archivi e domande già scritte), costo, memoria, dove stanno i file, quattro fasi.
+- Decisioni dell'utente del 23 novembre: GGUF di base su D: (mai su E:), il modello locale può tacere per ore, nessun limite di tempo, una LoRA fusa all'avvio (più una dinamica in seguito), verifica della qualità alla fine.
 
 **Decisioni e punti aperti**
 
-- Fase 0: finire la prova su Basalt (task 18) e misurare il costo di un passo a contesto 128, 512 e 1024: cambia il tetto e la stima.
-- Da decidere con te: tenere il GGUF di base (87 GB) su disco; il modello locale tace durante l'addestramento; tetto di ore; una sola LoRA attiva per progetto.
+- Fase 0: finire la prova su Basalt (task 18) e portare l'addestramento su GPU (task 40): cambia il tetto e la stima.
+- Verifica finale: perplessità con e senza adapter su un testo tenuto da parte e su un controllo generale.
+- Tutti i file di questa funzione su D:. E: ospita il file di paging (fino a 100 GB): se si riempie il computer si blocca.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
