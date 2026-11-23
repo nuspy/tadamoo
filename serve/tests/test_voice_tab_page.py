@@ -70,7 +70,7 @@ class VoiceTabPageTest(unittest.TestCase):
         for mode in ("plan", "read_only", "default", "auto"):
             self.assertEqual(I18N.count(f'"ag.mode.{mode}":'), 2, mode)                 # the Chat's words, not new ones
             self.assertEqual(I18N.count(f'"ag.mode.{mode}.d":'), 2, mode)
-        self.assertEqual(JS.count('permission("v'), 2)                                 # drawn in the tab and in Settings > Voice
+        self.assertEqual(JS.count("permission()"), 2)                                  # defined once, called once: only in Settings > Voice/Avatar > Common
         self.assertIn('T("ag.auto.risk")', JS)
 
     def test_the_talk_buttons_work_only_with_the_functions_loaded_and_say_why(self):

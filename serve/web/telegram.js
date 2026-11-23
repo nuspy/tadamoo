@@ -265,6 +265,7 @@
   document.addEventListener("tadamoo:view", () => { setTimeout(paintMove, 0); if (Date.now() - last > HEADER_MS) refresh(); });
   document.addEventListener("tadamoo:lang", () => { paint(); paintMove(); });
   document.addEventListener("tadamoo:sub", e => { if (e.detail === "voice") { refresh(); tick(); } });
+  document.addEventListener("tadamoo:voicesub", e => { if (e.detail === "chat") { refresh(); tick(); } else clearTimeout(timer); });
   setInterval(() => { paintMove(); const v = document.body.dataset.view; if ((v === "chat" || v === "agent") && Date.now() - last > HEADER_MS) refresh(); }, 2000);
   window.telegramUi = { paint: paintMove, refresh };
   refresh();

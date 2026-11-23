@@ -164,7 +164,6 @@ function draw() {
   setState(live.state || "idle", ld ? ld.kind === "wake" ? "Waking up" : `Loading weights${num(ld.percent) ? ` · ${ld.percent}%` : ""}`
     : live.queued > 0 ? `${name} · ${live.queued} queued` : name);
   text("#detail", loadGib); $("#detail").hidden = !loadGib;
-  text("#model", eng.model || "");
 
   const last = r0 && num(r0.decode_tok_s) ? r0.decode_tok_s : null, tok = generating && num(live.tok_s) ? live.tok_s : last;
   $("#v-tok").textContent = num(tok) ? tok.toFixed(1) : "-";

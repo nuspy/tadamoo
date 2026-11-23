@@ -1,16 +1,16 @@
 "use strict";
-/* The Voice tab: talk with the model or with the agent by voice. It shows the voice service and its functions (read only: they are loaded in
-   Models > Voice services), chooses who answers (direct, or the agent), the personality and what the agent may do without asking, and has
-   a place to try it: Hold to talk and Speak a test sentence. The Avatar card is voiceavatar.js (the picture, the avatars, the creation of a new one). The microphone and the speakers are the PC's, and the voice service owns
-   them; the page only asks the server, which forwards a fixed list of requests (serve/voice_proxy.py). The permission level is the voice's
-   own, kept by the server (/api/permission-level, same levels and words as the Chat) and also set in Settings > Voice. Everything the server
-   says enters the page as text. */
+/* The Voice tab: try the voice, nothing to set up here. A place to try it (Hold to talk, Speak a test sentence), the last exchange, the
+   voice service's own up/down state (read only: it is chosen and loaded in Models > Voice services), and the Avatar card (voiceavatar.js -
+   the picture, the avatars, the creation of a new one). Who answers (direct, or the agent), the personality, the permission level and the
+   hotkeys are set once, in Settings > Voice/Avatar > Common - this file builds that panel too (paintSettings), since it owns the same
+   api/voice/brain and api/permission-level state. The microphone and the speakers are the PC's, and the voice service owns them; the page
+   only asks the server, which forwards a fixed list of requests (serve/voice_proxy.py). Everything the server says enters the page as text. */
 (function () {
   const root = document.getElementById("vt-root"), setRoot = document.getElementById("vb-root");
   if (!root) return;
 
   const POLL_MS = 2500, PERMS = ["plan", "read_only", "default", "auto"];
-  const FNS = ["stt", "tts", "avatar"], MODES = ["direct", "harness"];
+  const MODES = ["direct", "harness"];
   let B = null, L = null, personas = [], personasOk = false, timer = 0, loadFailed = "";
   let live = { up: false, reason: "", fns: null, state: null };
   let talk = { down: false, starting: false, active: false, msg: "", bad: false }, say = { busy: false, msg: "", bad: false };
@@ -40,9 +40,10 @@
     root.append(el("p", "vt-intro", T("vt.intro")));
     const status = el("p", "sr"); status.id = "vt-live"; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     root.append(status);
-    // Coherent groups, each its own column while there is room for one: brain (who answers), talk+last (try it and
-    // what came of it), service+meetings (status cards), avatar (always alone, never sharing a column).
-    const groups = [["brain"], ["talk", "last"], ["service", "meetings"], ["avatar"]];
+    // Coherent groups, each its own column while there is room for one: talk+last (try it and what came of it),
+    // service+meetings (status cards), avatar (always alone, never sharing a column). Who answers, the permission
+    // level and the hotkeys are not tried here: they are set once, in Settings > Voice/Avatar > Common.
+    const groups = [["talk", "last"], ["service", "meetings"], ["avatar"]];
     const grid = el("div", "vt-grid");
     for (const ids of groups) {
       const col = el("div", "vt-col" + (ids[0] === "avatar" ? " vt-col-avatar" : ""));
@@ -66,23 +67,16 @@
   const openModels = () => { view("loader"); const s = document.getElementById("sub-voicesvc"); if (s) s.click(); };
   const avatarCtx = {
     live: () => live, personas: () => personas, persona: () => (B ? B.persona : ""), svc, api, openModels,
-    reloadPersonas: async () => { const p = await api("GET", "api/personas"); personasOk = p.ok; personas = p.ok ? (p.data.personas || []) : []; paintBrain(); }
+    reloadPersonas: async () => { const p = await api("GET", "api/personas"); personasOk = p.ok; personas = p.ok ? (p.data.personas || []) : []; paintSettings(); }
   };
 
-  /* ---- the service and its functions ---- */
+  /* ---- the service, in one line: up or down, and where the full picture is ---- */
   function paintService() {
     const s = body("service"), row = el("div", "vt-chips");
     row.append(chip(live.up ? T("vt.service.up") : T("vt.service.down"), live.up ? "vt-ok" : "vt-off"));
     s.append(row);
     if (!live.up && live.reason) s.append(note(live.reason, true));
-    const list = el("ul", "vt-fns");
-    for (const f of FNS) {
-      const info = live.fns && live.fns[f], li = el("li", "vt-fn"), state = info ? info.state : "unknown";
-      li.append(el("span", "vt-fn-name", T("vt.fn." + f)), chip(T("vt.st." + state), state === "loaded" ? "vt-ok" : state === "error" ? "vt-warn" : "vt-off"));
-      if (info && info.name) li.append(el("span", "vt-fn-model", info.name));
-      list.append(li);
-    }
-    s.append(list, btn(T("vt.fn.open"), "ghost", openModels, "vt-open-models"));
+    s.append(btn(T("vt.fn.open"), "ghost", openModels, "vt-open-models"));
   }
 
   /* ---- who answers ---- */
@@ -91,7 +85,7 @@
     set.append(el("legend", "vt-legend", T("vt.mode.legend")));
     for (const m of MODES) {
       const lab = el("label", "vt-opt"), input = el("input"), txt = el("span", "vt-opt-t");
-      input.type = "radio"; input.name = "vt-mode"; input.value = m; input.id = "vt-mode-" + m; input.checked = B.mode === m;
+      input.type = "radio"; input.name = "vb-mode"; input.value = m; input.id = "vb-mode-" + m; input.checked = B.mode === m;
       input.onchange = () => saveBrain({ mode: m });
       txt.append(el("b", "", T("vt.mode." + m)), el("span", "vt-opt-d", T("vt.mode." + m + ".d")));
       lab.append(input, txt);
@@ -101,7 +95,7 @@
   }
   function personaPick() {
     const row = el("div", "vt-field"), lab = el("label", "", T("vt.persona")), sel = el("select");
-    lab.htmlFor = sel.id = "vt-persona";
+    lab.htmlFor = sel.id = "vb-persona";
     const none = el("option", "", T("vt.persona.none"));
     none.value = "";
     sel.append(none);
@@ -113,14 +107,14 @@
     if (!personasOk) row.append(el("p", "vt-help", T("vt.persona.offline")));
     return row;
   }
-  function permission(prefix) {
+  function permission() {
     const set = el("fieldset", "vt-seg");
     set.append(el("legend", "vt-legend", T("vt.perm")));
     if (!L) { set.append(el("p", "vt-help", levelMsg.text || T("vt.loading"))); return set; }
     const level = L.levels.voice;
     for (const m of PERMS) {
       const lab = el("label", "vt-opt"), input = el("input"), txt = el("span", "vt-opt-t");
-      input.type = "radio"; input.name = prefix + "-perm"; input.value = m; input.id = prefix + "-perm-" + m; input.checked = level === m;
+      input.type = "radio"; input.name = "vb-perm"; input.value = m; input.id = "vb-perm-" + m; input.checked = level === m;
       input.onchange = () => saveLevel(m);
       txt.append(el("b", "", T("ag.mode." + m)), el("span", "vt-opt-d", T("ag.mode." + m + ".d")));
       lab.append(input, txt);
@@ -139,42 +133,47 @@
   async function saveLevel(m) {
     const r = await api("POST", "api/permission-level", { channel: "voice", level: m });
     if (r.ok) { L = r.data; levelMsg = { text: T("vt.saved"), bad: false }; } else levelMsg = { text: T("lvl.e.save", errText(r)), bad: true };
-    paintBrain(); paintSettings();
-    const f = document.getElementById("vt-perm-" + m) || document.getElementById("vb-perm-" + m);
+    paintSettings();
+    const f = document.getElementById("vb-perm-" + m);
     if (f && document.body.contains(f) && !document.activeElement.matches("input, select, button")) f.focus();
   }
-  function hotkeys(prefix) {
+  function hotkeys() {
     const wrap = el("div", "vt-field"), row = el("label", "vt-check"), input = el("input");
-    input.type = "checkbox"; input.id = prefix + "-hotkeys"; input.checked = !!B.hotkeys;
+    input.type = "checkbox"; input.id = "vb-hotkeys"; input.checked = !!B.hotkeys;
     input.onchange = () => saveBrain({ hotkeys: input.checked });
     row.append(input, el("span", "", T("vt.hotkeys")));
     wrap.append(row, el("p", "vt-help", T("vt.hotkeys.help")));
     return wrap;
   }
-  function paintBrain() {
-    const s = body("brain");
-    if (!B) { s.append(el("p", "vt-help", loadFailed || T("vt.loading"))); return; }
-    s.append(modePick(), personaPick(), permission("vt"), hotkeys("vt"), note(brainMsg.text, brainMsg.bad));
-  }
   async function saveBrain(change) {
     const r = await api("POST", "api/voice/brain", change);
     if (r.ok) { B = r.data; brainMsg = { text: T("vt.saved"), bad: false }; } else brainMsg = { text: errText(r), bad: true };
-    paintBrain(); paintSettings();
+    paintSettings();
     const keep = change.hotkeys !== undefined ? "-hotkeys" : change.mode ? "-mode-" + change.mode : "";
-    const f = keep && (document.getElementById("vt" + keep) || document.getElementById("vb" + keep));
+    const f = keep && document.getElementById("vb" + keep);
     if (f && document.body.contains(f) && !document.activeElement.matches("input, select, button")) f.focus();
   }
   function archivesPick() {
     return window.VoiceArchives.picker({ id: "vb-archives", label: T("va.brain.label"), help: T("va.brain.help"), ids: B.archives || [],
       onSave: async ids => { const r = await api("POST", "api/voice/brain", { archives: ids }); if (r.ok) B = r.data; } });       // no repaint: the checklist keeps its focus
   }
+  function panel(id, sub) { const p = el("div", "vbs-panel"); p.id = id; p.hidden = (document.body.dataset.vbsSub || "common") !== sub; return p; }
   function paintSettings() {
     if (!setRoot) return;
     if (!B) { setRoot.replaceChildren(el("p", "vt-help", loadFailed || T("vt.loading"))); return; }
-    const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vt.set.title"));
-    h.id = "vb-h2"; box.setAttribute("aria-labelledby", h.id);
-    box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), ...(window.VoiceArchives ? [archivesPick()] : []), note(brainMsg.text, brainMsg.bad));
-    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceEngines ? [window.VoiceEngines.settingsCard(api)] : []), ...(window.VoiceEnhance ? [window.VoiceEnhance.settingsCard(api)] : []), ...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []), ...(window.VoiceInterrupt ? [window.VoiceInterrupt.settingsCard(api)] : []), ...(window.VoiceLanguage ? [window.VoiceLanguage.settingsCard(api, svc)] : []), ...(window.VoiceDictation ? [window.VoiceDictation.settingsCard(api)] : []));
+    const common = panel("vbs-panel-common", "common"), h = el("h3", "vt-h", T("vt.set.title"));
+    h.id = "vb-h2"; common.setAttribute("aria-labelledby", h.id);
+    common.append(h, el("p", "vt-help", T("vt.set.intro")), modePick(), personaPick(), permission(), hotkeys(),
+      ...(window.VoiceArchives ? [archivesPick()] : []), note(brainMsg.text, brainMsg.bad));
+    const voice = panel("vbs-panel-voice", "voice");
+    voice.append(...(window.VoiceInterrupt ? [window.VoiceInterrupt.settingsCard(api)] : []), ...(window.VoiceLanguage ? [window.VoiceLanguage.settingsCard(api, svc)] : []),
+      ...(window.VoiceDictation ? [window.VoiceDictation.settingsCard(api)] : []));
+    const avatar = panel("vbs-panel-avatar", "avatar");
+    avatar.append(...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceEngines ? [window.VoiceEngines.settingsCard(api)] : []),
+      ...(window.VoiceEnhance ? [window.VoiceEnhance.settingsCard(api)] : []));
+    const meetings = panel("vbs-panel-meetings", "meetings");
+    meetings.append(...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []));
+    setRoot.replaceChildren(common, voice, avatar, meetings);
   }
 
   /* ---- try it ---- */
@@ -301,14 +300,14 @@
   /* ---- the avatar ---- */
   function paintAvatar() { if (window.VoiceAvatar) window.VoiceAvatar.update(); if (window.VoiceMeet) window.VoiceMeet.update(); }
 
-  function paintAll() { paintService(); paintBrain(); paintTalk(); paintLast(); paintAvatar(); paintSettings(); }
+  function paintAll() { paintService(); paintTalk(); paintLast(); paintAvatar(); paintSettings(); }
 
   /* ---- loading ---- */
   async function loadSettings() {
     const [b, p] = await Promise.all([api("GET", "api/voice/brain"), api("GET", "api/personas"), loadLevels()]);
     if (b.ok) { B = b.data; loadFailed = ""; } else loadFailed = errText(b);
     personasOk = p.ok; personas = p.ok ? (p.data.personas || []) : [];
-    paintBrain(); paintSettings();
+    paintSettings();
   }
   async function refreshLive() {
     const [st, fn] = await Promise.all([svc("GET", "/brain/state"), svc("GET", "/functions")]);

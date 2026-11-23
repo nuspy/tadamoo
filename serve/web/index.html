@@ -167,6 +167,7 @@
 <script defer src="web/websearch.js"></script>
 <script defer src="web/voicedl.js"></script>
 <script defer src="web/voice.js"></script>
+<script defer src="web/telephony.js"></script>
 <script defer src="web/voiceload.js"></script>
 <script defer src="web/voiceavatar.js"></script>
 <script defer src="web/voicearchives.js"></script>
@@ -182,6 +183,7 @@
 <script defer src="web/voicetab.js"></script>
 <script defer src="web/contacts.js"></script>
 <script defer src="web/telegram.js"></script>
+<script defer src="web/voicesubtabs.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
 <script defer src="web/rea.js"></script>
@@ -191,9 +193,10 @@
 <body>
 
 <header class="bar">
-  <div class="brand"><img src="web/icon-256.png" alt="" width="28" height="28"><span class="wordmark">TaDaMoo <span class="wm-sub">Win+GUI</span></span></div>
-  <span class="model" id="model"></span>
-  <span class="answers" id="model-now" role="status" hidden></span>
+  <div class="brandwrap">
+    <div class="brand"><img src="web/icon-256.png" alt="" width="28" height="28"><span class="wordmark">TaDaMoo <span class="wm-sub"><i>the</i> Harness</span></span></div>
+    <span class="answers" id="model-now" role="status" hidden></span>
+  </div>
   <div id="attn-live" class="sr" role="status" aria-live="polite"></div>
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
@@ -1173,13 +1176,25 @@
       <div class="sh"><b id="ws-h" data-t="ws.title">Web search</b></div>
       <div class="pad ws-root" id="ws-root"></div>
     </section>
+    <div class="subtabs" role="tablist" aria-label="Voice/Avatar" data-sub="voice" id="vbs-tabs">
+      <button type="button" class="btn subtab" role="tab" id="vbs-common" aria-selected="true" data-vbs="common" data-t="vbs.common">Common</button>
+      <button type="button" class="btn subtab" role="tab" id="vbs-voice" aria-selected="false" data-vbs="voice" data-t="vbs.voice">Voice</button>
+      <button type="button" class="btn subtab" role="tab" id="vbs-phone" aria-selected="false" data-vbs="phone" data-t="vbs.phone">Phone</button>
+      <button type="button" class="btn subtab" role="tab" id="vbs-avatar" aria-selected="false" data-vbs="avatar" data-t="vbs.avatar">Avatar</button>
+      <button type="button" class="btn subtab" role="tab" id="vbs-meetings" aria-selected="false" data-vbs="meetings" data-t="vbs.meetings">Meetings</button>
+      <button type="button" class="btn subtab" role="tab" id="vbs-chat" aria-selected="false" data-vbs="chat" data-t="vbs.chat">Chat</button>
+    </div>
     <section class="sec stvoice" data-sub="voice" id="vb-section" aria-labelledby="vb-h">
-      <div class="sh"><b id="vb-h" data-t="vt.set.title">Voice conversation</b></div>
+      <div class="sh"><b id="vb-h" data-t="vbs.title">Voice/Avatar</b></div>
       <div class="pad vb-root" id="vb-root"></div>
     </section>
     <section class="sec stvoice" data-sub="voice" id="vo-section" aria-labelledby="vo-h">
       <div class="sh"><b id="vo-h" data-t="vo.title">Voice models</b></div>
       <div class="pad vo-root" id="vo-root"></div>
+    </section>
+    <section class="sec stvoice" data-sub="voice" id="vph-section" aria-labelledby="vph-h">
+      <div class="sh"><b id="vph-h" data-t="vbs.phone">Phone</b></div>
+      <div class="pad vo-root" id="vph-root"></div>
     </section>
     <section class="sec stvoice" data-sub="voice" id="tgm-section" aria-labelledby="tgm-h">
       <div class="sh"><b id="tgm-h" data-t="tgm.title">Telegram</b></div>

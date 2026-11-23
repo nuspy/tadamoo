@@ -15,7 +15,7 @@ NODE = shutil.which("node")
 JS = (WEB / "voicearchives.js").read_text(encoding="utf-8")
 CSS = (WEB / "voicearchives.css").read_text(encoding="utf-8")
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
-PAGES = {name: (WEB / name).read_text(encoding="utf-8") for name in ("voicetab.js", "voicemeet.js", "voice.js", "voiceplan.js")}
+PAGES = {name: (WEB / name).read_text(encoding="utf-8") for name in ("voicetab.js", "voicemeet.js", "telephony.js", "voiceplan.js")}
 
 
 @unittest.skipUnless(NODE, "node is needed to run the page logic")
@@ -33,7 +33,7 @@ class ArchivePageTest(unittest.TestCase):
             self.assertEqual(out.returncode, 0, name + ": " + out.stderr)
         self.assertIn('href="web/voicearchives.css"', HTML)
         self.assertLess(HTML.index("web/voicearchives.js"), HTML.index("web/voicemeet.js"))
-        self.assertIn("VoiceArchives.picker", PAGES["voicetab.js"] + PAGES["voicemeet.js"] + PAGES["voice.js"] + PAGES["voiceplan.js"])
+        self.assertIn("VoiceArchives.picker", PAGES["voicetab.js"] + PAGES["voicemeet.js"] + PAGES["telephony.js"] + PAGES["voiceplan.js"])
         for name, text in PAGES.items():
             self.assertIn("VoiceArchives", text, name)
 

@@ -1,7 +1,8 @@
-/* The Voice tab and the voice card of Settings > Voice. The tab fills the page like Chat does (no narrow cap); four coherent groups (who
-   answers, try it + last exchange, voice service + meetings, avatar) share that width as two, three or four columns, whichever fit at
-   320px or more each - wide columns on a wide window, never a sliver of them with the rest of the page empty. One column below 760px.
-   Targets are 44px or more. Settings > Voice (.vb-root) stays narrow: it sits in the single Settings column, not its own page. */
+/* The Voice tab (try it alone, no settings) and Settings > Voice/Avatar's own sub-tabs. The tab fills the page like Chat does (no narrow
+   cap); its coherent groups (try it + last exchange, voice service + meetings, avatar) share that width as two or three columns,
+   whichever fit at 320px or more each - wide columns on a wide window, never a sliver of them with the rest of the page empty. One column
+   below 760px. Targets are 44px or more. Settings > Voice/Avatar (.vb-root) stays narrow: it sits in the single Settings column, not its
+   own page. */
 #view-voice { overflow-y: auto; }
 .vb-root { max-width: 1100px; }
 .vt-root :focus-visible, .vb-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

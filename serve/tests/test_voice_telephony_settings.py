@@ -13,7 +13,7 @@ from serve import voice_api, voice_proxy, voice_settings as vs
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 ROOT = Path(__file__).resolve().parents[2]
-JS = (WEB / "voice.js").read_text(encoding="utf-8")
+JS = (WEB / "telephony.js").read_text(encoding="utf-8")
 CSS = (WEB / "voice.css").read_text(encoding="utf-8")
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 HANDLER = (WEB.parent / "handler.py").read_text(encoding="utf-8")
@@ -204,10 +204,10 @@ class PageTest(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", CSS.split(".vo-tel-rows li")[1].split("}")[0])
         self.assertNotRegex(CSS.split(".vo-tel-live")[1], r"\n\.[a-z-]+ \{[^}]*\bwidth: \d{4,}px")
 
-    def test_the_page_polls_for_waiting_calls_only_while_the_tab_is_shown(self):
-        self.assertIn("pollTel", JS)
+    def test_the_page_polls_for_waiting_calls_only_while_its_own_sub_tab_is_shown(self):
+        self.assertIn("function poll()", JS)
         self.assertIn("clearTimeout(telTimer)", JS)
-        self.assertIn('e.detail !== "voice"', JS)
+        self.assertIn('e.detail === "phone"', JS)
 
     def test_no_emoji_in_the_new_texts(self):
         for text in re.findall(r'"vo\.tel\.[a-z.]+": "([^"]*)"', I18N):
