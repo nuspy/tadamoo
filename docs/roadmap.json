@@ -822,6 +822,20 @@
         "Se il modello remoto continua a parlarne, la causa è nel suo modo di rispondere: si guarda il testo delle sue frasi."
       ],
       "risks": []
+    },
+    {
+      "id": "rm42",
+      "num": 42,
+      "group": "todo",
+      "title": "App desktop: «Spegni» dall'icona nella barra",
+      "summary": "Il 23 novembre «Spegni» non ha spento il server: la conferma comparisce dietro le altre finestre (la finestra principale proprietaria è nascosta), con due clic ne restano due, lo spegnimento gira sul thread della finestra e la blocca, e il server è un servizio Windows (NSSM) che l'app non considera.",
+      "status": "none",
+      "solved": [],
+      "decisions": [
+        "Da correggere nel codice (`tools/windows/desktop/MainForm.cs`, `TurnOff`): conferma sempre in primo piano e una sola alla volta; spegnimento fuori dal thread della finestra; gestire il server avviato dal servizio. Non toccare l'app in funzione: la ricompila e riavvia l'utente."
+      ],
+      "risks": [],
+      "branch": true
     }
   ]
 }

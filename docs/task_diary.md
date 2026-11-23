@@ -5,6 +5,11 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 ## 23 novembre
 
+**Difetto trovato (23 novembre sera): «Spegni» dall'icona nella barra non spegne.** La conferma compare dietro le altre finestre (la finestra
+  principale è nascosta), due clic la aprono due volte, dopo il Yes l'altra finestra si congela; il server non si è fermato. Il server gira come
+  servizio Windows NSSM (`TaDaMoo`, avvio automatico), che l'app non gestisce. Causa del congelamento solo plausibile (spegnimento sul thread della
+  finestra, `MainForm.cs:1274-1283`). Da correggere in un task (numero 42 nella mappa); l'app in funzione non si ricompila.
+
 **LoRA su GPU: SOSPESO dall'utente il 23 novembre, da riprendere la settimana prossima (dal 30 novembre).** Stato e scoperte:
 - Tutti i task LoRA sono rimandati al 30 novembre (decisione dell'utente, 23 novembre): 11 (LoRA dinamica per sessione), 12 (LoRA dall'interfaccia),
   19 (LoRA per l'harness), 32 (risposte più lunghe, da provare con la LoRA), 38 (LoRA dalla scheda Knowledge), 40 (addestramento su GPU).

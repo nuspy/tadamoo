@@ -8,7 +8,7 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 |---|---|
 | fatto | 30 |
 | in attesa | 9 |
-| non iniziato | 2 |
+| non iniziato | 3 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -636,6 +636,14 @@ Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; l
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Non scrivere il file dei task del progetto Basalt prima del riavvio di TaDaMoo.
+
+### 42. App desktop: «Spegni» dall'icona nella barra (non iniziato)
+
+Il 23 novembre «Spegni» non ha spento il server: la conferma comparisce dietro le altre finestre (la finestra principale proprietaria è nascosta), con due clic ne restano due, lo spegnimento gira sul thread della finestra e la blocca, e il server è un servizio Windows (NSSM) che l'app non considera.
+
+**Decisioni e punti aperti**
+
+- Da correggere nel codice (`tools/windows/desktop/MainForm.cs`, `TurnOff`): conferma sempre in primo piano e una sola alla volta; spegnimento fuori dal thread della finestra; gestire il server avviato dal servizio. Non toccare l'app in funzione: la ricompila e riavvia l'utente.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 
