@@ -60,7 +60,7 @@ w.add_expert_shared_feed_forward_length(N_FF_SHEXP)
 
 # --- SSM / GDN ---
 w.add_ssm_conv_kernel(SSM_D_CONV)
-w.add_ssm_inner_size(N_EMBD)
+w.add_ssm_inner_size(VALUE_DIM)
 w.add_ssm_state_size(SSM_D_STATE)
 w.add_ssm_time_step_rank(SSM_DT_RANK)
 w.add_ssm_group_count(SSM_N_GROUP)
