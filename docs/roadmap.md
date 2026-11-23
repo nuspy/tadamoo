@@ -332,6 +332,8 @@ Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si 
 
 - Idea dell'utente: caricare in GPU una parte dei pesi per volta, addestrare tutti i pezzi su quella parte, salvare e unire. Valutata: i gradienti passano anche dai pesi congelati, quindi ogni parte richiederebbe comunque un passaggio completo del modello. La forma giusta è far scorrere i pesi strato per strato dentro ogni passo (il fork lo sa fare), con molti token per passo.
 - Ordine: compilare il fork con CUDA, provarlo sul modello finto, poi sul modello vero con contesti 128, 512 e 1024 (dopo la prova su Basalt, che occupa la RAM).
+- Precisazione dell'utente (23 novembre): caricare un blocco di strati alla volta, calcolare TUTTI i pezzi di testo su quel blocco e conservare i vettori di collegamento tra gli strati; stessa matematica dell'addestramento normale, ma ogni blocco si carica una volta sola per passaggio. Accettato: è l'addestramento con batch pieno, strato per strato. Resta che ogni aggiornamento della LoRA richiede un passaggio completo (i pesi cambiano), quindi il costo è passaggi × tempo di un passaggio.
+- Due modi: (1) batch grande in un solo grafo (contesto lungo o più sequenze), senza codice nuovo se il trainer lo permette; (2) uno schedulatore strato per strato con le attivazioni conservate in RAM, che serve quando il materiale è troppo grande per la VRAM (corpus come la Cabala). Si misura prima (1).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
