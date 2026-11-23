@@ -5,6 +5,21 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 ## 23 novembre
 
+**Ultimo task: il registro dei task dell'harness completato (notte del 23 novembre, merge 47a06f24 in master).**
+- Punti 1-6 accettati più nascondere/eliminare i nodi: fatti. Chiudere un task lo porta nella cronologia (data e note, si può riaprire);
+  Elimina toglie per sempre (con domanda); Nascondi toglie un nodo dalle viste e «Visualizza nodi nascosti» lo riporta. L'agente vede ancora i
+  nodi nascosti. Quello che riferisce un programma (esecuzioni, obiettivi, parti di richiesta, righe di piano) si cancella come prima.
+- Gruppi con avanzamento, stati nuovi («fatto, da committare», «decisione aperta»), tre note per task, tre viste (albero, spina con pannello
+  delle note, cronologia), pulsante «Task» nella Chat che mostra solo i task della conversazione aperta.
+- Un solo dato: `docs/roadmap.json` (scritto dal registro dal pulsante «File della roadmap», o da `python -m tadamoo.roadmap write`);
+  da lì nascono `docs/roadmap.md` e la pagina dell'artefatto (modello in `tools/roadmap/`). L'artefatto è già pubblicato da lì (versione 17).
+  Da ora le liste dei task si leggono in `docs/roadmap.md`; questo diario resta il racconto dei giorni.
+- Da fare dopo il riavvio di TaDaMoo: il processo in corso ha il codice vecchio e, se scrivesse il file dei task, perderebbe i campi nuovi. Dopo
+  il riavvio, nella scheda Tasks, «File della roadmap» > «Leggi docs/roadmap.json» carica i 37 nodi nel registro del progetto Basalt.
+- Il punto 7 (collegamenti a commit e rami, vista per telefono) non è accettato e non è fatto.
+- Prove: 54 test del registro e della mappa, due prove in browser vero a tre larghezze (scheda dei task 12 controlli, mappa 23). Un test
+  non mio (`test_projects.py`, «changes panel and no task») scade già senza le mie modifiche.
+
 **Unione in master (notte del 23 novembre, su tua richiesta «Unisci e committa tutto»):**
 - Prima ho committato il lavoro che avevi non committato nell'albero principale, in cinque commit (sotto-schede Voce/Avatar, voce
   e profili XTTS, strumenti LoRA, shim RTX Video, diario). Lasciati fuori i file di runtime `basalt.pid`, `basalt_config.json*` e
