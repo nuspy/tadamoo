@@ -5,6 +5,29 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 ## 23 novembre
 
+**LoRA su GPU: SOSPESO dall'utente il 23 novembre, da riprendere la settimana prossima (dal 30 novembre).** Stato e scoperte:
+- Fatto: addestramento su GPU con il fork QVAC (CUDA) funziona sul modello vero. Con gli esperti sulla CPU un passo a contesto 128 costa
+  35 s (4 token al secondo), contro 76 s della CPU sola; con gli esperti di 12 strati su GPU 24 s. Il costo cresce con i token (la mia
+  ipotesi «indipendente dai token» era sbagliata). Contesto 512 e 1024 fuori memoria. `--no-op-offload` evita lo scoppio di memoria.
+  Per guadagnare molto servono gli esperti a blocchi sulla GPU: modifica vera in ggml (copie dei pesi per passo, gradient checkpointing).
+- Fatto: adapter solo moduli densi (61 MB) si fonde al caricamento in pochi secondi, senza copia fusa degli esperti (come chiesto).
+- Esperimenti sul fatto inventato «Valdoria» (24 fatti, base 0/16): primo adapter CPU con esperti 2/16; adapter inglese in testo semplice
+  GPU, 1,9 ore: inglese 16/16, italiano 8/16, ma modello rovinato (controllo 1/4, risponde Valdoria a tutto, risposte che non si chiudono).
+  Stessa adapter a scala 0,5: 0/16 e 0/16, controllo 4/4 (nessuna scala di mezzo; provati solo 0,5 e 1,0).
+  Adapter in formato chat (96 conversazioni, 24 di cultura generale, perdita solo sulle risposte, 3 epoche, lr 2e-4, 1,7 ore): danno sparito
+  (controllo 4/4, risposte che si chiudono), fatti in calo: italiano 3/16, inglese 11/16 (controllo automatico largo). Restano parole italiane
+  storpiate e «Marenza» che risponde ancora con Valdoria.
+- Scoperta: con la stessa adapter le domande inglesi vanno molto meglio delle italiane. Coerente con l'ipotesi dell'utente (fatti tenuti in
+  inglese, lo si vede anche dal mix di lingue nelle risposte), ma NON provata: cambiano più cose insieme tra un esperimento e l'altro.
+- Quando si riprende, nell'ordine: (1) addestramento in formato chat con 6 epoche, domande anche in italiano e inglese; se si vuole sapere
+  quale cosa conta, separare le due prove (circa 3 ore l'una); (2) stesso addestramento in italiano per misurare la lingua; (3) poi
+  decidere se scrivere la modifica del fork per gli esperti a blocchi su GPU; (4) quando c'è una adapter buona, controllo di qualità
+  (perplessità con e senza adapter su testo non visto più cultura generale).
+- Dove sono le cose: dati e script in `C:\TEMP\claude\E--Projects-basalt526e1fa-56b6-4854-af76-3c412ae1a60c\scratchpad` (`make_facts_en.py`,
+  `make_chat_en.py`, `qvac-fabric	rain_gpu.ps1` con `-Extra "--assistant-loss-only"`, `ask_valdoria*.py`, config `vald_lora_*.json`); adapter su
+  D:\AI\Modelsaldoria_test\ (`valdoria_en_adapter.gguf`, `valdoria_chat_adapter.gguf`); GGUF di addestramento solo su D:. Il «giro semplice»
+  con `/v1/completions` non esiste nel server. Server di prova e addestramento fermi, GPU libera. Copie grandi già cancellate (E: 234 GB liberi).
+
 **Ultimo task: il registro dei task dell'harness completato (notte del 23 novembre, merge 47a06f24 in master).**
 - Punti 1-6 accettati più nascondere/eliminare i nodi: fatti. Chiudere un task lo porta nella cronologia (data e note, si può riaprire);
   Elimina toglie per sempre (con domanda); Nascondi toglie un nodo dalle viste e «Visualizza nodi nascosti» lo riporta. L'agente vede ancora i

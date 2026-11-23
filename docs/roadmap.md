@@ -7,8 +7,7 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 30 |
-| in corso | 1 |
-| in attesa | 4 |
+| in attesa | 5 |
 | non iniziato | 6 |
 
 ## Il motore: adapter fusi all'avvio
@@ -330,7 +329,7 @@ Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal m
 - Una LoRA non sostituisce l'archivio per i fatti: non si aggiorna e può inventare cose vicine.
 - L'addestratore (fork QVAC patchato) va portato in una ricetta di compilazione e se ne controlla la licenza.
 
-### 40. Addestramento LoRA su GPU (più veloce) (in corso)
+### 40. Addestramento LoRA su GPU (più veloce) (in attesa)
 
 Misurato sul modello vero (23 novembre): con il fork CUDA un passo a contesto 128 passa da 76 a 24-35 secondi (2,2-3,2 volte più veloce), ma il costo cresce con i token: la CPU degli esperti è il limite. Per guadagnare molto servono gli esperti sulla GPU.
 
@@ -351,6 +350,7 @@ Misurato sul modello vero (23 novembre): con il fork CUDA un passo a contesto 12
 - Precisazione dell'utente (23 novembre): caricare un blocco di strati alla volta, calcolare TUTTI i pezzi di testo su quel blocco e conservare i vettori di collegamento tra gli strati; stessa matematica dell'addestramento normale, ma ogni blocco si carica una volta sola per passaggio. Accettato: è l'addestramento con batch pieno, strato per strato. Resta che ogni aggiornamento della LoRA richiede un passaggio completo (i pesi cambiano), quindi il costo è passaggi × tempo di un passaggio.
 - Due modi: (1) batch grande in un solo grafo (contesto lungo o più sequenze), senza codice nuovo se il trainer lo permette; (2) uno schedulatore strato per strato con le attivazioni conservate in RAM, che serve quando il materiale è troppo grande per la VRAM (corpus come la Cabala). Si misura prima (1).
 - Per il metodo dell'utente servono tre cose nel fork: copie separate dei pesi per ogni passo del pianificatore, gradient checkpointing, e gli esperti a blocchi in GPU. Lavoro di ggml; da specificare se le misure lo giustificano.
+- Sospeso dall'utente il 23 novembre: si riprende la settimana prossima (dal 30 novembre). Stato, scoperte e ordine delle prove sono nel diario del 23 novembre.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
