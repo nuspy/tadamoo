@@ -139,6 +139,8 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   plausibile (cambiati insieme GPU, esperti instradati, epoche): prova economica = stesso addestramento in italiano o scala 0,5.
   Il giro «semplice» con /v1/completions non si può fare (il server non ha quell'indirizzo). Il giro con ragionamento ha dato gli stessi
   numeri della chat, non verificato che il ragionamento fosse davvero acceso.
+- Copie grandi cancellate su richiesta dell'utente (23 novembre): la copia GGUF da 87 GB su E: (hash identici a quella su D:, che resta) e la
+  copia fusa degli esperti da 56 GB su D:. Su E: ora 234 GB liberi, su D: 196 GB.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 
