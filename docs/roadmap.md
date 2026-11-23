@@ -332,12 +332,15 @@ Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal m
 
 ### 40. Addestramento LoRA su GPU (più veloce) (in corso)
 
-Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si prova a portarlo sulla GPU.
+Misurato sul modello vero (23 novembre): con il fork CUDA un passo a contesto 128 passa da 76 a 24-35 secondi (2,2-3,2 volte più veloce), ma il costo cresce con i token: la CPU degli esperti è il limite. Per guadagnare molto servono gli esperti sulla GPU.
 
 **Fatto e problemi risolti**
 
 - Letto il codice del fork QVAC: ha già i passi all'indietro su CUDA per esperti (`MUL_MAT_ID_BACK`), GDN, SSM-conv, attenzione, e `out_prod` con dequantizzazione dei pesi quantizzati; ha l'opzione `-pw` per trasferire i pesi mentre calcola quando il modello non entra in VRAM.
 - Fork compilato con CUDA (cartella `build-cuda` nella cartella temporanea, 261 secondi, scheda sm_120). Provato sul modello finto con la dimensione di testa GDN supportata dalla GPU (32; con 8 il kernel GDN su CUDA si ferma: il modello vero ne ha una supportata, da confermare): CPU e GPU danno la stessa perdita passo per passo (5,669 contro 5,670 al primo passo, 5,226 contro 5,229 al 77°), poi si allontanano piano (perdita sui dati di controllo 4,47 contro 4,57 dopo 2 epoche con learning rate 0,01). Passi all'indietro su GPU di esperti, GDN, attenzione: funzionano e vanno nella stessa direzione.
+- Misure (dati in inglese, LoRA su attenzione, GDN ed esperti condivisi, senza esperti instradati; `-ngl 99 --no-op-offload`): esperti tutti su CPU: contesto 128 = 35 s/passo, 256 = 61 s, 384 = 92 s (circa 4 token al secondo, l'epoca dura circa 30 minuti in tutti e tre i casi); esperti degli ultimi 12 strati su GPU (30 GB di VRAM) a contesto 128 = 24 s/passo (5,3 token al secondo). Riferimento: CPU sola 76 s/passo a 128 (1,7 token al secondo). Contesto 512 e 1024: fuori memoria (il fork riserva circa 49 MiB per token di attivazioni, senza gradient checkpointing).
+- Verificato: l'ipotesi «il costo di un passo non dipende dai token» è FALSA finché gli esperti calcolano sulla CPU (il tempo è proporzionale ai token). Il guadagno grande resta quello da misurare con gli esperti a blocchi sulla GPU.
+- Causa dei 68 GiB di prima: il trasferimento dei pesi per operazione (op-offload) tiene vive le copie dalla fase in avanti a quella all'indietro; con `--no-op-offload` non succede. La cache degli esperti del fork (`--moe-cache-mib`) non supporta l'addestramento.
 
 **Decisioni e punti aperti**
 
@@ -345,6 +348,7 @@ Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si 
 - Ordine: compilare il fork con CUDA, provarlo sul modello finto, poi sul modello vero con contesti 128, 512 e 1024 (dopo la prova su Basalt, che occupa la RAM).
 - Precisazione dell'utente (23 novembre): caricare un blocco di strati alla volta, calcolare TUTTI i pezzi di testo su quel blocco e conservare i vettori di collegamento tra gli strati; stessa matematica dell'addestramento normale, ma ogni blocco si carica una volta sola per passaggio. Accettato: è l'addestramento con batch pieno, strato per strato. Resta che ogni aggiornamento della LoRA richiede un passaggio completo (i pesi cambiano), quindi il costo è passaggi × tempo di un passaggio.
 - Due modi: (1) batch grande in un solo grafo (contesto lungo o più sequenze), senza codice nuovo se il trainer lo permette; (2) uno schedulatore strato per strato con le attivazioni conservate in RAM, che serve quando il materiale è troppo grande per la VRAM (corpus come la Cabala). Si misura prima (1).
+- Per il metodo dell'utente servono tre cose nel fork: copie separate dei pesi per ogni passo del pianificatore, gradient checkpointing, e gli esperti a blocchi in GPU. Lavoro di ggml; da specificare se le misure lo giustificano.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 

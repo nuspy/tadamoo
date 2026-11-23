@@ -129,6 +129,10 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 - Ipotesi dell'utente sulla LoRA (23 novembre): il modello ragiona in inglese e poi traduce, quindi l'addestramento va fatto anche in
   inglese e in più forme; un legame imparato con «Città» non viene trovato quando il modello cerca con «city». Aggiunto al progetto della
   scheda Knowledge e in verifica con quattro giri di domande (italiano semplice, inglese chat e semplice, italiano con ragionamento).
+- LoRA su GPU, misure sul modello vero (23 novembre): esperti sulla CPU = circa 4 token al secondo a contesto 128, 256 e 384 (35, 61, 92
+  secondi a passo); esperti di 12 strati su GPU = 24 secondi a passo a 128; CPU sola 76 secondi. Il costo cresce con i token, quindi la mia
+  ipotesi «costo indipendente dai token» era sbagliata. Contesto 512 e 1024 fuori memoria. Lanciato l'addestramento in inglese su GPU (dati
+  `facts_valdoria_en.txt`, solo moduli densi, 4 epoche, circa 1,8 ore stimate).
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 
