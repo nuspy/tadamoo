@@ -737,8 +737,7 @@ class PushToTalkManager:
             log.warning("Push-to-talk avatar richiesto ma avatar_persona vuota: "
                         "avvio senza avatar")
             use_avatar = False
-        voice = self.cfg.default_voice
-        lang = self.cfg.default_lang
+        voice, voice_engine, lang = self.cfg.default_voice, "", self.cfg.default_lang
         if use_avatar:
             # Anche il MOTORE, non solo il nome della voce: le voci clonate
             # esistono con lo stesso nome su Chatterbox, XTTS e CosyVoice, e
@@ -750,6 +749,16 @@ class PushToTalkManager:
             # puo' richiedere minuti); se e' gia' caldo sulla persona, riuso.
             if not self._avatar.is_ready(persona):
                 self._avatar.start_async(persona)
+        elif self.cfg.brain_persona:
+            # Senza avatar la sessione parlava comunque con una voce generica
+            # (cfg.default_voice, spesso un motore legato a una sola lingua):
+            # stessa voce della personalita' scelta, per coerenza con l'avatar
+            # e col test sentence (voice/persona_link.py).
+            from .tadamoo_api import TadamooApi
+            from voice import persona_link
+            voce_persona = persona_link.voice_of(self.cfg.brain_persona, TadamooApi(self.cfg.tadamoo_base_url, self.cfg.tadamoo_token, timeout=5))
+            voice = voce_persona.get("voice") or self.cfg.default_voice
+            voice_engine = (voce_persona.get("engine") or "").strip()
 
         # Il cervello di QUESTA sessione: le due copie condividono i cervelli e il
         # registro degli scambi, il modo e' proprio (lo cambia un comando vocale).
@@ -771,6 +780,7 @@ class PushToTalkManager:
             session = PushToTalkSession(
                 self.cfg, session_brain, in_idx, out_idx, rate,
                 voice, lang, half_duplex=half_duplex,
+                voice_engine=voice_engine,
             )
         with self._lock:
             self._session = session

@@ -165,6 +165,36 @@ def test_the_two_brains_have_separate_hotkeys_taken_from_the_config():
                        ("direct", True, "half", True), ("harness", True, "half", True)]
 
 
+def test_a_session_without_an_avatar_still_speaks_with_the_personas_own_voice(monkeypatch):
+    """Without an avatar the session used to fall back to cfg.default_voice - a generic, often language-locked voice (Kokoro/espeak) that
+    garbles a sentence in any language it was not set up for, unlike the personality's own XTTS voice. Regression for that fix."""
+    from voice import persona_link
+    from callbridge import ptt
+
+    from callbridge import engines
+
+    cfg = Config()
+    cfg.brain_persona = "shan"
+    monkeypatch.setattr(engines, "in_sospensione", lambda: False)
+    monkeypatch.setattr(ptt, "ensure_models_loaded", lambda cfg: True)
+    monkeypatch.setattr(ptt, "negotiate_sample_rate", lambda i, o, rate: rate)
+    monkeypatch.setattr(persona_link, "voice_of", lambda slug, api: {"engine": "xtts", "voice": "Chandra MacFarland"} if slug == "shan" else {})
+
+    made = {}
+
+    class FakeSession:
+        def __init__(self, cfg, brain, in_idx, out_idx, rate, voice, lang, half_duplex=True, voice_engine=""):
+            made["voice"], made["voice_engine"] = voice, voice_engine
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(ptt, "PushToTalkSession", FakeSession)
+    m = ptt.PushToTalkManager(cfg, make_brain(cfg))
+    assert m._start_session_reserved("direct", True)
+    assert (made["voice"], made["voice_engine"]) == ("Chandra MacFarland", "xtts")
+
+
 def test_a_headphones_twin_with_a_key_is_registered_and_listens_all_the_time():
     from callbridge import ptt
 
