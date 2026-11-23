@@ -641,6 +641,10 @@ Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; l
 
 Il 23 novembre «Spegni» non ha spento il server: la conferma comparisce dietro le altre finestre (la finestra principale proprietaria è nascosta), con due clic ne restano due, lo spegnimento gira sul thread della finestra e la blocca, e il server è un servizio Windows (NSSM) che l'app non considera.
 
+**Fatto e problemi risolti**
+
+- Verificato (23 novembre, 20:13): il servizio Windows `TaDaMoo` (NSSM) esegue `Avvia-TaDaMoo.ps1 -PerApp -Standby` con AppExit = Restart e attesa di 10 s. Quando l'utente ha terminato i processi, il servizio ha riavviato il server alle 20:13:31. Con questo servizio, spegnere con un kill non basta: serve fermare il servizio (`Stop-Service TaDaMoo` da amministratore).
+
 **Decisioni e punti aperti**
 
 - Da correggere nel codice (`tools/windows/desktop/MainForm.cs`, `TurnOff`): conferma sempre in primo piano e una sola alla volta; spegnimento fuori dal thread della finestra; gestire il server avviato dal servizio. Non toccare l'app in funzione: la ricompila e riavvia l'utente.
