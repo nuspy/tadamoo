@@ -174,15 +174,16 @@ class ActionsFeed extends ChangeNotifier {
 
 /// The tab: the entries with their buttons and a field for text where the entry takes it, over the Jobs of the agent (a second part of the same tab).
 class ActionsScreen extends StatefulWidget {
-  const ActionsScreen({super.key, required this.feed, required this.jobs});
+  const ActionsScreen({super.key, required this.feed, required this.jobs, this.tasks});
   final ActionsFeed feed;
   final Widget jobs;
+  final Widget? tasks;                                     // the register of the PC's tasks, read only: a third part of the tab when given
   @override
   State<ActionsScreen> createState() => _ActionsScreenState();
 }
 
 class _ActionsScreenState extends State<ActionsScreen> {
-  bool showJobs = false;
+  int part = 0;                                            // 0 the entries, 1 the Jobs, 2 the tasks
 
   @override
   Widget build(BuildContext context) {
@@ -190,18 +191,19 @@ class _ActionsScreenState extends State<ActionsScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: SegmentedButton<bool>(
+          child: SegmentedButton<int>(
             showSelectedIcon: false,
             segments: [
-              ButtonSegment(value: false, label: Text(Texts.t('ac.title')), icon: const Icon(Icons.inbox_outlined)),
-              ButtonSegment(value: true, label: Text(Texts.t('tab.jobs')), icon: const Icon(Icons.schedule_outlined)),
+              ButtonSegment(value: 0, label: Text(Texts.t('ac.title')), icon: const Icon(Icons.inbox_outlined)),
+              ButtonSegment(value: 1, label: Text(Texts.t('tab.jobs')), icon: const Icon(Icons.schedule_outlined)),
+              if (widget.tasks != null) ButtonSegment(value: 2, label: Text(Texts.t('tab.tasks')), icon: const Icon(Icons.checklist_outlined)),
             ],
-            selected: {showJobs},
-            onSelectionChanged: (s) => setState(() => showJobs = s.first),
+            selected: {part},
+            onSelectionChanged: (s) => setState(() => part = s.first),
           ),
         ),
         Expanded(
-          child: showJobs ? widget.jobs : _ActionList(feed: widget.feed),
+          child: part == 1 ? widget.jobs : (part == 2 && widget.tasks != null ? widget.tasks! : _ActionList(feed: widget.feed)),
         ),
       ],
     );

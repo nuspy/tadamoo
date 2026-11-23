@@ -13,6 +13,7 @@ import 'i18n.dart';
 import 'jobs_screen.dart';
 import 'settings.dart';
 import 'settings_screen.dart';
+import 'tasks_screen.dart';
 import 'voice.dart';
 
 class BasaltApp extends StatelessWidget {
@@ -140,7 +141,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ConversationsPane(api: api, settings: widget.settings, voice: widget.voice, agent: false),
       ConversationsPane(api: api, settings: widget.settings, voice: widget.voice, agent: true),
       AvatarScreen(controller: avatarController, active: tab == avatarTab),
-      ActionsScreen(feed: actions, jobs: JobsScreen(api: api)),
+      ActionsScreen(feed: actions, jobs: JobsScreen(api: api), tasks: TasksScreen(api: api)),
       SettingsScreen(settings: widget.settings, voice: widget.voice, route: avatarController.route, hub: avatarController.hub),
     ];
     return Scaffold(
