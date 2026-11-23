@@ -114,6 +114,11 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 - LoRA su GPU, primo risultato (23 novembre): il fork compilato con CUDA funziona sul modello finto con testa GDN da 32: stessa
   perdita di quella su CPU passo per passo (differenza sotto lo 0,1% nei primi 77 passi), poi si allontanano piano. Con testa GDN da 8 il
   kernel CUDA si ferma (supporta 16, 32, 64, 128). Tempo vero ancora da misurare sul modello vero, quando la RAM è libera.
+- Fatto, 23 novembre: il modello remoto si preoccupava del contesto residuo. Verificato che l'harness gli diceva già che la
+  conversazione si compatta (blocco fisso, nota `[harness]`), uguale sul web, sul desktop e su Android (stesse sessioni, tutte con
+  compattazione attiva), ma con parole che invitavano a controllare lo spazio. Ora dice che si compatta da solo e che lo spazio
+  rimasto non è significativo. Commit `55472483`. Vale dal prossimo avvio di TaDaMoo.
+- LoRA su GPU, prima misura vera: si ferma per memoria (72 GiB di buffer di calcolo richiesti sulla GPU). Da risolvere.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 

@@ -6,7 +6,7 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 
 | Stato | Nodi |
 |---|---|
-| fatto | 28 |
+| fatto | 29 |
 | in corso | 1 |
 | in attesa | 4 |
 | non iniziato | 7 |
@@ -340,6 +340,7 @@ Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si 
 - Il backward su GPU del modello vero non è provato; alcuni passi potrebbero ricadere sulla CPU.
 - Il modello è 87 GB e la GPU ha 32 GB: la velocità dipende dal trasferimento dei pesi.
 - Il modello finto è troppo piccolo per misurare la velocità (la GPU ci mette di più della CPU per l'avvio). Il tempo vero si misura sul modello vero, che aspetta la fine della conversione per la prova su Basalt (RAM).
+- Prima misura sul modello vero (contesto 128, pesi in RAM, calcolo su CUDA): si ferma subito con «out of memory»: il fork prova a riservare 72 GiB di buffer di calcolo sulla GPU (probabilmente le matrici degli esperti dequantizzate per il passo all'indietro). Da risolvere prima di avere un tempo: meno moduli addestrati, parte degli strati su GPU, o un buffer per strato.
 
 ## Altri task fatti in questi giorni
 
@@ -557,6 +558,20 @@ Il registro dell'harness è ora anche la mappa dello sviluppo: gruppi, cronologi
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Il diario `docs/task_diary.md` resta scritto a mano (è il racconto dei giorni): da lì in poi le liste dei task si leggono in `docs/roadmap.md`.
+
+### 41. Il modello non si preoccupa più del contesto (fatto)
+
+L'harness ora dice al modello che il contesto si compatta da solo e che quello che resta non è significativo (web, desktop e Android: stessa strada).
+
+**Fatto e problemi risolti**
+
+- Verificato: l'app Android e il web usano le stesse sessioni (`/api/agent/sessions`) e lo stesso blocco fisso «che cosa sei»; tutte le sessioni dell'utente hanno la compattazione attiva. Il modello sapeva già che la conversazione si compatta, ma la frase diceva «hai circa N token di spazio» e lo strumento `self_status` invitava a controllare lo spazio.
+- Cambiato: il blocco dice che l'harness tiene il contesto nella finestra da solo e che lo spazio rimasto non è significativo (non guardarlo, non citarlo alla persona, non accorciare o fermare il lavoro, non proporre una conversazione nuova); stessa frase nella nota `[harness]` e nella descrizione di `self_status`. Commit `55472483`, test aggiunto.
+
+**Decisioni e punti aperti**
+
+- Vale dal prossimo avvio di TaDaMoo (il processo in corso ha il testo vecchio); non l'ho riavviato.
+- Se il modello remoto continua a parlarne, la causa è nel suo modo di rispondere: si guarda il testo delle sue frasi.
 
 ## Altri task da fare, senza riavviare TaDaMoo
 
