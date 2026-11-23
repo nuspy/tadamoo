@@ -7,8 +7,8 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 30 |
-| in attesa | 5 |
-| non iniziato | 6 |
+| in attesa | 9 |
+| non iniziato | 2 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -152,7 +152,7 @@ Il motore ora fonde anche i 512 esperti per livello: nuova copia della sezione e
 - Ricomprimere a 4 bit può perdere parte di una correzione piccola: va misurato sull'adapter vero.
 - La copia occupa quanto la sezione esperti (circa 61 GiB per il pack IQ4_XS): serve spazio accanto all'adapter.
 
-### 11. Caricamento dinamico per sessione (E4) (non iniziato)
+### 11. Caricamento dinamico per sessione (E4) (in attesa)
 
 Una LoRA fusa all'avvio più una seconda, dinamica, caricata durante l'uso in tempo reale. Deciso dall'utente il 23 novembre; da fare in seguito.
 
@@ -162,18 +162,20 @@ Una LoRA fusa all'avvio più una seconda, dinamica, caricata durante l'uso in te
 - Oggi l'adapter si fonde solo all'avvio: per cambiarlo si riavvia il motore.
 - Disegno di partenza: blocco di VRAM fisso in Q8_0 per le famiglie dense, chiave di richiesta che indica l'adapter, identità di conversazione estesa come per i vettori di controllo.
 - La specifica la scrive basalt-3d.
+- Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - 15-18 secondi di rifusione vanno bene per un adapter per sessione, non per un cambio a ogni prompt; con gli esperti sono minuti: serve un'idea diversa (fondere sulla GPU, o tenere pronti pochi adapter già fusi).
 
-### 12. Collegamento a Loader e interfaccia (non iniziato)
+### 12. Collegamento a Loader e interfaccia (in attesa)
 
 Oggi LoRA si usa solo da riga di comando o dal file di configurazione. Nessun pulsante o campo nell'interfaccia.
 
 **Decisioni e punti aperti**
 
 - Non pianificato: si aspetta che la fase 11 sia stabile.
+- Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
@@ -291,7 +293,7 @@ Prova fatta il 23 novembre: l'adapter ha un effetto, ma i fatti arrivano solo in
 
 - Il motore del binario `bin/basalt.exe` dell'albero principale (22 novembre) non fonde gli esperti: va ricompilato (Basalt si può ricompilare). La prova è stata fatta con un albero su D: (`D:\Projects\basalt-lora-test`).
 
-### 19. LoRA per l'harness (non iniziato)
+### 19. LoRA per l'harness (in attesa)
 
 Una LoRA pensata per come TaDaMoo usa il modello: i suoi strumenti e le sue convenzioni.
 
@@ -302,12 +304,13 @@ Una LoRA pensata per come TaDaMoo usa il modello: i suoi strumenti e le sue conv
 **Decisioni e punti aperti**
 
 - Dipende dall'esito della fase 17.
+- Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Idea solo annotata: trasferire una LoRA addestrata su un'architettura a un'altra.
 
-### 38. Creare una LoRA dalla scheda Knowledge (non iniziato)
+### 38. Creare una LoRA dalla scheda Knowledge (in attesa)
 
 Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal modello, un pulsante addestra, verifica finale e attiva. Progetto approvato, codice da scrivere.
 
@@ -322,6 +325,7 @@ Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal m
 - Verifica finale: perplessità con e senza adapter su un testo tenuto da parte e su un controllo generale.
 - Tutti i file di questa funzione su D:. E: ospita il file di paging (fino a 100 GB): se si riempie il computer si blocca.
 - Idea dell'utente (23 novembre): il materiale va scritto in inglese e nella lingua del documento, in più forme (semplice, domanda e risposta, chat): il modello ragiona in inglese e un legame imparato solo con parole italiane non viene trovato da una ricerca con parole inglesi.
+- Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
@@ -605,6 +609,7 @@ In attesa (23 novembre): l'utente vuole provare a farlo con una LoRA; ci si pens
 - Prima: `end_turn_bias` negativo (già nel pannello Chat) con un limite alto e le continuazioni automatiche.
 - Poi: una rampa sul token di fine nel campionatore, senza addestramento.
 - Solo se degrada la qualità: SFT su risposte lunghe generate dal modello stesso.
+- Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre).
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 

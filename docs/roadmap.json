@@ -211,13 +211,14 @@
       "group": "engine",
       "title": "Caricamento dinamico per sessione (E4)",
       "summary": "Una LoRA fusa all'avvio più una seconda, dinamica, caricata durante l'uso in tempo reale. Deciso dall'utente il 23 novembre; da fare in seguito.",
-      "status": "none",
+      "status": "wait",
       "solved": [],
       "decisions": [
         "Deciso dall'utente (23 novembre): una LoRA attiva fusa all'inizio, più una dinamica caricata in tempo reale. La dinamica si fa dopo la LoRA da Knowledge.",
         "Oggi l'adapter si fonde solo all'avvio: per cambiarlo si riavvia il motore.",
         "Disegno di partenza: blocco di VRAM fisso in Q8_0 per le famiglie dense, chiave di richiesta che indica l'adapter, identità di conversazione estesa come per i vettori di controllo.",
-        "La specifica la scrive basalt-3d."
+        "La specifica la scrive basalt-3d.",
+        "Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre)."
       ],
       "risks": [
         "15-18 secondi di rifusione vanno bene per un adapter per sessione, non per un cambio a ogni prompt; con gli esperti sono minuti: serve un'idea diversa (fondere sulla GPU, o tenere pronti pochi adapter già fusi)."
@@ -229,10 +230,11 @@
       "group": "engine",
       "title": "Collegamento a Loader e interfaccia",
       "summary": "Oggi LoRA si usa solo da riga di comando o dal file di configurazione. Nessun pulsante o campo nell'interfaccia.",
-      "status": "none",
+      "status": "wait",
       "solved": [],
       "decisions": [
-        "Non pianificato: si aspetta che la fase 11 sia stabile."
+        "Non pianificato: si aspetta che la fase 11 sia stabile.",
+        "Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre)."
       ],
       "risks": [
         "La stima di VRAM del Loader non sa che un tensore coperto da un adapter costa più byte (passa a Q8_0).",
@@ -371,12 +373,13 @@
       "group": "train",
       "title": "LoRA per l'harness",
       "summary": "Una LoRA pensata per come TaDaMoo usa il modello: i suoi strumenti e le sue convenzioni.",
-      "status": "none",
+      "status": "wait",
       "solved": [
         "Decisioni già prese: dati Pi + OpenCode; insegnare all'adapter gli strumenti propri del progetto."
       ],
       "decisions": [
-        "Dipende dall'esito della fase 17."
+        "Dipende dall'esito della fase 17.",
+        "Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre)."
       ],
       "risks": [
         "Idea solo annotata: trasferire una LoRA addestrata su un'architettura a un'altra."
@@ -630,7 +633,8 @@
       "decisions": [
         "Prima: `end_turn_bias` negativo (già nel pannello Chat) con un limite alto e le continuazioni automatiche.",
         "Poi: una rampa sul token di fine nel campionatore, senza addestramento.",
-        "Solo se degrada la qualità: SFT su risposte lunghe generate dal modello stesso."
+        "Solo se degrada la qualità: SFT su risposte lunghe generate dal modello stesso.",
+        "Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre)."
       ],
       "risks": [
         "Addestrare su sequenze da 16.000-40.000 token non è realistico su questa CPU; il trainer non ha il DPO."
@@ -734,7 +738,7 @@
       "group": "train",
       "title": "Creare una LoRA dalla scheda Knowledge",
       "summary": "Una sotto-scheda LoRA in Knowledge: documenti e testo, materiale preparato dal modello, un pulsante addestra, verifica finale e attiva. Progetto approvato, codice da scrivere.",
-      "status": "none",
+      "status": "wait",
       "solved": [
         "Progetto scritto in `docs/design-lora-knowledge.md`: cosa vede la persona, come si prepara il materiale (riuso di archivi e domande già scritte), costo, memoria, dove stanno i file, quattro fasi.",
         "Decisioni dell'utente del 23 novembre: GGUF di base su D: (mai su E:), il modello locale può tacere per ore, nessun limite di tempo, una LoRA fusa all'avvio (più una dinamica in seguito), verifica della qualità alla fine."
@@ -743,7 +747,8 @@
         "Fase 0: finire la prova su Basalt (task 18) e portare l'addestramento su GPU (task 40): cambia il tetto e la stima.",
         "Verifica finale: perplessità con e senza adapter su un testo tenuto da parte e su un controllo generale.",
         "Tutti i file di questa funzione su D:. E: ospita il file di paging (fino a 100 GB): se si riempie il computer si blocca.",
-        "Idea dell'utente (23 novembre): il materiale va scritto in inglese e nella lingua del documento, in più forme (semplice, domanda e risposta, chat): il modello ragiona in inglese e un legame imparato solo con parole italiane non viene trovato da una ricerca con parole inglesi."
+        "Idea dell'utente (23 novembre): il materiale va scritto in inglese e nella lingua del documento, in più forme (semplice, domanda e risposta, chat): il modello ragiona in inglese e un legame imparato solo con parole italiane non viene trovato da una ricerca con parole inglesi.",
+        "Rimandato al 30 novembre insieme a tutto il filone LoRA (decisione dell'utente, 23 novembre)."
       ],
       "risks": [
         "Oggi l'addestramento è solo su CPU: circa 76 secondi per passo, 5 ore e 33 minuti per 24 fatti.",

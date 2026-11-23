@@ -6,6 +6,8 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 ## 23 novembre
 
 **LoRA su GPU: SOSPESO dall'utente il 23 novembre, da riprendere la settimana prossima (dal 30 novembre).** Stato e scoperte:
+- Tutti i task LoRA sono rimandati al 30 novembre (decisione dell'utente, 23 novembre): 11 (LoRA dinamica per sessione), 12 (LoRA dall'interfaccia),
+  19 (LoRA per l'harness), 32 (risposte più lunghe, da provare con la LoRA), 38 (LoRA dalla scheda Knowledge), 40 (addestramento su GPU).
 - Fatto: addestramento su GPU con il fork QVAC (CUDA) funziona sul modello vero. Con gli esperti sulla CPU un passo a contesto 128 costa
   35 s (4 token al secondo), contro 76 s della CPU sola; con gli esperti di 12 strati su GPU 24 s. Il costo cresce con i token (la mia
   ipotesi «indipendente dai token» era sbagliata). Contesto 512 e 1024 fuori memoria. `--no-op-offload` evita lo scoppio di memoria.
