@@ -1139,6 +1139,7 @@
         save.title = T("sf.tip");
         it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
         it.el.append(it.actsEl);
+        document.dispatchEvent(new CustomEvent("tadamoo:answer", { detail: { text: answerText(it), live: !!it.live, session: sid } }));       // the voice reads it when it is asked to
         if (window.langCheck) {                                                 // check the grammar of the answer in a language with a model; offered after a translation
           const requestOf = () => { for (let k = items.indexOf(it) - 1; k >= 0; k--) if (items[k].kind === "user") return items[k].text || ""; return ""; };
           window.langCheck.mount(it.actsEl, { answer: () => answerText(it), request: requestOf, offer: !!it.live });

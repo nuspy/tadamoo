@@ -1,0 +1,13 @@
+.vcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0; }
+.vcbar[hidden] { display: none; }
+.vcbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; min-width: 48px; padding: 6px 14px; }
+.vcbtn.rec { background: var(--bad, #b3261e); border-color: var(--bad, #b3261e); color: #fff; }
+.vcbtn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg, #fff); }
+.vcchk { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font: 400 14px/1.4 var(--font-sans); }
+.vcchk input { width: 20px; height: 20px; }
+.vclang { display: inline-flex; align-items: center; gap: 8px; font: 400 14px/1.4 var(--font-sans); }
+.vclang select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.vcstate { flex: 1 1 14em; min-width: 0; font: 400 14px/1.4 var(--font-sans); color: var(--fg-3); }
+.vcstate[data-bad="1"] { color: var(--bad, #b3261e); }
+@media (prefers-reduced-motion: no-preference) { .vcbtn.rec { animation: vcpulse 1.4s ease-in-out infinite; } }
+@keyframes vcpulse { 50% { opacity: .75; } }
