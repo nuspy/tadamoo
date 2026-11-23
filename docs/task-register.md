@@ -1,7 +1,10 @@
-# The register of open work
+# The register of open work, and the map of the project's development
 
 What the agent is carrying out **now**, so that it can resume it, organise it and always know what is done and what is missing, without relying on the conversation (which
-can be compacted, cleared or lost). It is **not a history**: a finished task is closed, and closing deletes it (with its subtasks). Nothing of a closed task is kept.
+can be compacted, cleared or lost); and, for the person, the **map of the project's development**: groups of work, each task with its notes, the ones already closed, and the
+whole of it as one file. A task that is done is **closed**: it leaves the open work and goes to the **history** (with its notes and the date), and can be reopened. **Deleting** is
+the person's own act and removes a task or a row of the history for good. What a program reports (an agent run `agent-…`, a target `tg-…`, the parts of a large request `req-…`,
+a plan's line) is not kept: when it ends it is deleted, as before.
 
 ## Where it lives
 
@@ -10,7 +13,9 @@ are seen together. The agent (its tools, from the conversation's own process), t
 process and a lock file across processes), the whole file replaced atomically. `tadamoo/taskboard.py` is the one store of tasks: there is no other journal. The agent runs,
 the target loop and the parts of a large request report to it too (below).
 
-A task has: `id`, `title`, `description`, `state` (`queued`, `running`, `waiting` for the person, `blocked`), `parent` (subtasks to any depth, at most 10 levels), `order` among its
+A task has: `id`, `title`, `description`, `state` (`queued`, `running`, `waiting` for the person, `blocked`; for the development map also `review`, done and to commit, and `decision`, an open decision. The
+agent's tools offer the first four), `group`, `num` (the number of the node, never reused), three notes for the person (`solved`: what was done and the problems that came up, `decisions`: open decisions
+and points, `risks`: problems foreseen and how they would be met), `hidden`, `parent` (subtasks to any depth, at most 10 levels), `order` among its
 siblings, `done` (what is done so far), `missing` (what is still missing), `links` (`session`: the conversation that carries it; `plan`; `files`), who changed it last (`by`:
 `agent` or `user`) and when.
 
@@ -34,7 +39,7 @@ is not one the person added has no register of its own, and its work goes in the
 | `pending`, `queued` | `queued` |
 | `waiting`, `blocked` | `waiting` (for the person) or `blocked` |
 | `failed` | `blocked`, and `result` is what is missing (the reason) |
-| `done`, `closed`, `completed`, `skipped` | the task is **deleted** with its subtasks; ending one that is not there is not an error |
+| `done`, `closed`, `completed`, `skipped` | the task is closed with its subtasks (**deleted** when a program's own, see above); ending one that is not there is not an error |
 | `metadata.title` or `goal` | the title; the other keys are kept in `meta` |
 | `children` | ids of its subtasks, which are put under it whenever they exist, whichever was reported first |
 
@@ -52,7 +57,7 @@ are not news to it. The tools are in the session's own group of the tool list, a
 says when to use them: for long work (several steps, or work that can be interrupted), not for a short question.
 
 Tools: `task_add` (with subtasks), `task_update` (state, text, done, missing, files), `task_subtasks` (the subtasks become exactly this list: rewrite them freely when one is no
-longer current, is wrong or has to be done another way), `task_move`, `task_close`, `task_list` (`mine` or the whole `project`), `task_next`, `task_resume`, `task_link_plan`.
+longer current, is wrong or has to be done another way), `task_move`, `task_close` (closes: the task goes to the history), `task_list` (`mine` or the whole `project`), `task_next`, `task_resume`, `task_link_plan`.
 Resume hands the agent the task with its subtasks, notes and files, and it continues from what is missing; it works after a restart, a cleared conversation or in a new one.
 
 ## The person's side
@@ -69,3 +74,21 @@ Resume hands the agent the task with its subtasks, notes and files, and it conti
 Code: `tadamoo/taskboard.py`, `tadamoo/task_tools.py`, the notes in `tadamoo/session.py` (`_tasks_note`), `/tasks` in `tadamoo/commands.py`. Tests: `tests/test_taskboard.py`,
 `tests/test_task_tools.py`, `tests/test_tasks_command.py`, `tests/test_register_api.py`, `serve/tests/test_tasks_page.py` (a real browser at 360x640, 390x844 and 1280x800),
 `serve/tests/test_slash_commands.py`.
+
+## The map: groups, history, hiding, the roadmap file
+
+- **Groups** are threads of work ("The engine", "Android"): a task belongs to one, and a group says how many of its tasks are open and how many are done. Deleting a group keeps its tasks.
+- **Hiding** a node (with what hangs from it) takes it out of the person's views; **Show hidden nodes** brings it back, marked; **Show** makes it normal. Nothing is lost, and the agent still
+  sees a hidden task (it is real work): hiding is for reading the state, not for dropping a task.
+- **The Tasks tab** has three views of the same register: the **tree** (open tasks, by group), the **spine** (the nodes in order, open and closed, one line each, and the notes of the chosen one
+  in a panel beside or below it) and the **history**. Each node can be marked done, reopened, edited (state, group, the three notes), hidden or deleted (a question first). **This conversation**
+  shows only the tasks the open conversation carries: the Chat has a **Tasks** button next to its other buttons that opens the tab that way.
+- **`docs/roadmap.json`** is the register as one file kept in git (the register itself is in `.tadamoo/`, which git does not see). `python -m tadamoo.roadmap write` (the project's section
+  "Roadmap files" in the tab) writes it, and `docs/roadmap.md`, from the register, and leaves them alone when nothing changed; `load` reads the file into a register (a new clone, or after the file
+  was edited): a node with the same id is updated, the others are made. `render` makes the text again from the file with no register, and `--page FILE` makes the page for the Artifact from
+  `tools/roadmap/page_template.html`. A node is a top-level task that is not a program's, hidden ones left out; its three notes are the page's three lists (one line is one item, `code` and **bold**).
+  So the tab, the text and the published page are one update.
+
+HTTP: `GET /api/register?project=&state=&hidden=1&session=` (with `groups`, `hidden` and `closed` counts), `GET /api/register/history`, and `POST /api/register/` `close`, `delete`, `reopen`, `hide`,
+`show`, `group-add`, `group-rename`, `group-delete`, `roadmap-write`, `roadmap-load` besides the ones above. Shell: `python -m tadamoo.taskboard close | delete | history | roadmap [--import]`.
+Code: `tadamoo/roadmap.py`; tests `tests/test_taskboard_roadmap.py`, `tests/test_roadmap.py`, `serve/tests/test_tasks_page.py` (two real-browser tests at 360x640, 390x844 and 1280x800).
