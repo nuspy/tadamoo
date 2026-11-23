@@ -3,6 +3,96 @@
 Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti dalla lista del 17 novembre e da «Decisioni tue in attesa». Il 17 novembre sono state tolte 7 copie vecchie incollate in fondo al file (sezione «12 novembre» compresa): si leggono con `git show 183b0300:docs/task_diary.md`. Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
+## 23 novembre
+
+**Aggiornamento di notte, secondo giro (task 28, 29, 30 e unione dei rami):**
+- Tutto è unito nel ramo `integration/2026-11-23` (cartella `E:\Projects\basalt-wt\integration`): LoRA esperti, task 27, 31, Android 1-3,
+  riga Providers, e i tre task nuovi. Master NON è stato toccato: il tuo albero principale ha file non committati che si sovrappongono
+  (`serve/web/app.css`, `i18n.js`, `index.html`) e con `i18n.js` e `index.html` l'unione darebbe conflitti. Va unito quando il lavoro
+  delle voci/avatar è committato (o dimmi tu come fare).
+- Task 30 (riassunti a quattro livelli): fatto, commit aa62cfb9. Pannello in Impostazioni > Inferenza, rotta `POST /api/summarize`,
+  nuovo uso `summary_levels` della sessione tecnica. Non provato con il modello vero.
+- Task 28 (verifica grammaticale): fatto, commit 45ca7a13. Elenco lingua → provider locale in Impostazioni > Inferenza, pulsante
+  sotto ogni risposta della Chat, offerta automatica dopo una traduzione. Non provato con un modello ungherese vero.
+- Task 29 (voce in Chat e in Agentic coding): fatto sul web, commit c869258e. Parla, leggi le risposte, conversazione vocale. Non provato con
+  microfono e voce veri (prova in browser con microfono finto).
+- Corretti due scontri di nomi che avevo creato: le chiavi `lc.*` (già del server llama.cpp) e `sl.*` (già 284 chiavi) in `i18n.js`;
+  le mie ora sono `lk.*` e `sm.*`.
+- Test: Flutter 385 verdi (6 saltati); i test nuovi di Python passano; la suite completa di Python sul ramo di integrazione gira in
+  background (risultato da riportare qui).
+- Anche il browser vero sulla riga Providers (360, 390, 1280 px): fatto, commit 234bbbed.
+
+**Aggiornamento di notte (dopo mezzanotte):**
+- Task nuovo: completare il registro dei task dell'harness. L'utente ha accettato i punti 1-6 (cronologia dei chiusi, gruppi,
+  stati nuovi, tre campi di note, vista a spina, un solo dato `docs/roadmap.json`). Il punto 7 (commit e rami, vista telefono)
+  non è ancora accettato. Aggiunto dall'utente: nascondere ed eliminare i nodi come azioni separate, casella «visualizza nodi
+  nascosti», pulsante «visualizza task» con i soli task della sessione aperta. In coda, non iniziato.
+- Fatto, task 27 (istruzioni di unione non salvate): ramo `feat/no-saved-merge-notes`, commit 538e563a.
+- Fatto, task 31 (MarkItDown e salvataggio Markdown): ramo `feat/mobile-parity`, commit d2a9cd44. Android 1-3: commit fc8483ad.
+  Finestra con le tre scelte sul web e nell'app; MarkItDown legge Word, PowerPoint, pagine web, e-book; strumento
+  `convert_to_markdown`. Test verdi (Flutter 391, Python mirati 47 + 359 di pagina).
+- APK compilato (165 MiB, 23 novembre). L'invio in chat è fallito: il limite è 30 MiB. Scaricabile via Tailscale dal telefono.
+- Restano: task 28, 29, 30, unire i rami, provare la riga Providers nel browser vero, prova del LoRA a fine addestramento.
+
+**Aggiornamento di sera (richieste e decisioni dell'utente):**
+- Deciso: le istruzioni di unione degli update NON si salvano, ogni update è indipendente. Oggi il codice le può salvare
+  (casella «ricorda»): va tolto, senza lasciare tracce. In coda, dopo i quattro task in corso.
+- Da ricordare all'utente fra qualche giorno (circa 26-27 novembre): il piano contro le istruzioni nascoste nelle pagine web.
+  Ora è troppo lontano da ciò che si sta facendo.
+- Deciso: PDF e OCR vanno su GPU, non su CPU.
+- Riordino del disco E: lo fa l'utente dalla sessione LTX Studio. MiniMax H3 lo prova l'utente. Tolti dalle mie liste.
+- Task nuovo: MarkItDown nell'harness. Quando arriva un file che si può trasformare in Markdown in modo deterministico, lo
+  trasforma il programma e non il modello (progetti `microsoft/markitdown` e `trsdn/markitdown-mcp`). Da verificare anche se
+  esistono progetti che trasformano il Markdown in PDF, Word e altri formati standard. A fine lavoro con un file Markdown,
+  harness e app Android chiedono: solo il Markdown; solo il file convertito (formato da un menu a tendina); oppure tutti e due.
+- Dark web controllato: Tor non era installato nella copia di sviluppo. Messo a posto (vedi sotto). Le ricerche funzionano.
+- Fatto, Android: messaggi mentre l'harness lavora (guida, in coda, urgente) con «Fai ora» e «Togli»; «Immagini e grafici»
+  (scelta sul telefono, nuova conversazione e conversazione aperta); risposta lunga (nel menu «+», con chip quando è attiva).
+  Ramo `feat/mobile-parity`, non committato. Tutti i test dell'app passano (uno dell'avatar è instabile sotto carico).
+- Fatto, Providers: riga «richieste esterne tramite interfacce OpenAI e Anthropic». Ramo `feat/providers-external-row`,
+  non committato. Resta da vedere in un browser vero.
+
+**Elenco completo dei task (scritto su richiesta dell'utente, sera del 23 novembre).**
+
+In corso adesso:
+- LoRA: motore pronto (esperti fusi all'avvio, test verde), copia del GGUF di addestramento su E: in corso, poi prova
+  di addestramento sui fatti di Valdoria e prova con Basalt.
+- Android 1: messaggi mentre l'harness lavora (guida, in coda, urgente), in Chat e in Agentic coding.
+- Android 2: «Immagini e grafici» sul telefono.
+- Android 3: risposta lunga sul telefono.
+- Providers: riga esplicita «richieste esterne tramite interfacce OpenAI e Anthropic» sotto la lista Functions.
+
+In coda, senza bisogno di riavviare TaDaMoo (da fare dopo i quattro sopra):
+- Verifica grammaticale nella Chat, con menu a tendina per la lingua su cui caricare il modello specializzato.
+  Deve servire soprattutto per le traduzioni: quando il compito è una traduzione, l'harness offre da solo la verifica
+  per la lingua di arrivo. Il codice dentro i testi non va mai passato alla verifica. Era già in lista («per ultima»).
+- Voce in Chat e in vibe coding: parlare senza scrivere, la chat ascolta, esegue e legge la risposta.
+- Riassunti a più livelli tramite la sessione tecnica, nelle impostazioni di inferenza: integrale (toglie solo ciò che
+  non serve), compressione media, alta compressione, executive con solo i punti chiave.
+
+Dopo il riavvio di TaDaMoo (lo fa l'utente): riavviare il servizio voce per il nuovo `/brain/say`; installare Videonews
+da `E:/Projects/skills/Videonews` e togliere i vecchi file del telegiornale da `E:/Projects/basalt`; provare i nuovi
+pulsanti Admin; ricompilare il motore dell'albero principale se è in uso.
+
+Aspettano l'utente al PC (GPU, GUI, voce): le prove di `tests/QUEUE_daytime.md`; la prova SWE-bench (smoke poi dev);
+provare MiniMax H3 come modello video.
+
+Decisioni dell'utente in attesa: riordino del disco E: e avviso alla sessione LTX Studio; se le istruzioni di unione
+degli update restano salvate per gli update dopo; il piano contro le istruzioni nascoste nelle pagine web.
+
+Ancora da progettare: controllo del telefono via adb; caricamento automatico del modello per le funzioni vocali;
+LoRA per l'harness (strumenti di Pi e OpenCode); idea delle risposte lunghe (prima `end_turn_bias` e una rampa sul
+token di fine, poi eventuale addestramento).
+
+Correzione (23 novembre, sera): nella lista di prima avevo messo dark web, OCR/PDF e RAG v2 tra le cose da
+progettare. Era una lettura vecchia degli appunti, sbagliata: il dark web è fatto e unito in `master` (liste dei motori
+dell'utente, ricerca, browser onion), il RAG è fatto e unito (progetti, archivi, ricerca per significato, Docling, procedura
+guidata, impostazioni Knowledge). L'OCR solo su CPU l'utente dice che non serve: tolto.
+
+Osservazione (23 novembre, sera): la sessione «Il fuoco di Rasputin» risulta occupata dalle 17:44 senza nessuna
+azione e il suo processo riprova ogni minuto o due una chiamata a un provider esterno (Qwen). Probabile ciclo di
+tentativi dopo un errore del provider. Da fermare con Stop; non toccata da me.
+
 ## 22 novembre
 
 **Dopo il merge del LoRA (stesso giorno): adapter veri e prova di addestramento.**
@@ -29,13 +119,129 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   SHA-256; il registro è `dl.log` nella stessa cartella.
 - In coda: provare l'addestramento sul modello vero. Da misurare: memoria (il file è 103,7 GiB, la macchina ha
   128 GiB di RAM), velocità su CPU, compilazione con CUDA.
-- Chiesto dall'utente: «ricongiungi tutti i worktree». Fatto solo in parte, di proposito:
-  il worktree `lora-convert` è stato riallineato a `master`; `feat/authenticator`, `exp/chat-display`,
-  `feat/connectors` ed `exp/smart-context` erano già dentro `master`.
-- Decisione in attesa: gli altri 28 worktree stanno sulla cronologia vecchia, quella di prima della riscrittura
-  senza il telegiornale. Non hanno nessun antenato in comune con `master`. Unirli riporterebbe il telegiornale nel
-  repository. Confrontando data e titolo dei commit, a `master` mancano solo i commit del telegiornale e 40 commit
-  di README e righe della comunità tolti dalla riscrittura. Da decidere: cancellarli, tenerli, o altro.
+- Fatto: controllati i nomi dei 1224 tensori del GGUF vero. Sono quelli che lo strumento di addestramento si
+  aspetta.
+- Corretto un mio errore: avevo scritto che le proiezioni sono in Q5_0. Non è vero, nel file non c'è nessun
+  tensore Q5_0. Riletti i tipi: le matrici piccole (attenzione, GDN, esperto condiviso, hyper-connection,
+  embedding) sono in Q8_0; gli esperti `gate` e `up` in Q4_K (un livello in Q5_K); gli esperti `down` in Q5_1
+  (43 livelli) e Q8_0 (5 livelli); la tabella n-gram in IQ4_NL. I `down` hanno righe da 640 valori, che non si
+  dividono per 256: lì i formati «K» non si possono usare e il quantizzatore ripiega su Q5_1 e Q8_0.
+  Per l'addestramento è una buona notizia: Q/K/V/O sono in Q8, uno dei due formati che lo strumento dichiara.
+- Chiesto dall'utente: «ricongiungi tutti i worktree». Il worktree `lora-convert` è stato riallineato a `master`;
+  `feat/authenticator`, `exp/chat-display`, `feat/connectors` ed `exp/smart-context` erano già dentro `master`.
+- Gli altri 28 worktree stavano sulla cronologia vecchia, quella di prima della riscrittura senza il telegiornale.
+  Unirli avrebbe riportato il telegiornale nel repository, quindi non sono stati uniti. Confrontando data e titolo
+  dei commit, a `master` mancavano solo i commit del telegiornale e 40 commit di README e righe della comunità.
+- Fatto, su ordine dell'utente: cancellati 27 di quei 28 worktree (25 cartelle rimosse, 2 voci morte ripulite).
+  Tutti senza modifiche non salvate e fermi da più di 48 ore. I rami sono rimasti tutti: nessun commit perso.
+  Tre profili vocali non tracciati di `agent-a450` sono stati copiati in `E:/Dev/worktrees_kept_2026-11-22`.
+- Fatto, su ordine dell'utente: cancellato anche il worktree del diario di TaDaMoo
+  (`AppData/Roaming/TaDaMoo/journal/worktrees/basalt-dff7ef/b088adb4`), fermo dal 15 novembre e senza modifiche.
+  Il ramo `tadamoo/b088adb4` è rimasto. Il suo `outcomes.jsonl` è copiato in `E:/Dev/worktrees_kept_2026-11-22`.
+- Fatto: ricompilato il motore nell'albero principale (`build-main`), ora che nessun motore era in esecuzione
+  (server in attesa, nessun modello caricato). `bin/basalt.exe` ha `--lora`.
+- Deciso dall'utente: il telegiornale è una skill a sé, non si distribuisce con TaDaMoo su GitHub, meglio come
+  progetto distinto. Oggi il suo codice vive nell'albero principale fuori da git (`tadamoo/newscast`,
+  `docs/newscast`, `skills/plugins/ai-newscast`, `skills/news-research`): la copia su disco è la più recente
+  (38 file uguali all'ultimo commit vecchio, 11 più nuovi, nessuno mancante), ma non ha uno storico suo.
+- Fatto: il telegiornale è un progetto distinto, nome scelto dall'utente «Videonews», creato in
+  `E:/Projects/Videonews` e poi spostato dove ha detto l'utente (vedi sotto). Repository git nuovo, un commit, 64 file, nessun remote.
+  Dentro: telegiornale, ricerca delle notizie, plugin, documenti e test, con gli stessi percorsi che hanno
+  nell'albero di TaDaMoo. È una copia: gli originali sono rimasti dove sono, perché TaDaMoo li usa da lì.
+- Deciso dall'utente: la cartella di sviluppo di Videonews resta sempre separata da quella che TaDaMoo usa.
+  TaDaMoo importa dall'origine nel suo workspace, lì può modificare la copia, e all'update unisce novità e
+  modifiche. Si sviluppa solo in `E:/Projects/Videonews`.
+- Trovato (sola lettura): le copie installate di `ai-newscast` e `news-research` hanno come origine la cartella
+  del programma, non Videonews, e sono ferme al 16 novembre 00:15. Quattro file del plugin sono più nuovi
+  nell'origine.
+- Trovato: il programma vero del telegiornale (`tadamoo/newscast` e `tadamoo/research`) non passa dall'import.
+  I comandi lo eseguono dall'albero di TaDaMoo. Una modifica fatta in Videonews a quei moduli oggi non arriva.
+- Decisione in attesa dell'utente: portare i due pacchetti dentro la cartella del plugin, così viaggiano con
+  l'import; poi installare il plugin da `E:/Projects/Videonews`.
+- Deciso dall'utente: l'origine dentro `E:/Projects/basalt` era un errore vecchio. Le skill nostre stanno tutte in
+  `E:/Projects/skills/`, una cartella per ciascuna. Videonews spostato in `E:/Projects/skills/Videonews` (fatto).
+- Controllato quali sono le versioni più nuove del telegiornale. Il codice più nuovo è quello che era
+  nell'albero di basalt (fino al 16 novembre 16:06), ed è tutto in Videonews: dentro ci sono il correttore
+  ungherese (`hu_editor`) e i tempi d'attesa della voce (`jobtime`). Le copie installate sono più vecchie (16
+  novembre 00:15) in quattro file e non hanno modifiche proprie al codice. Niente da unire nei file.
+- Nell'app il piano del telegiornale ha invece cose solo sue: i valori scelti dall'utente (lingua, edizione,
+  numero di storie, tema) e la storia delle esecuzioni. Vanno tenuti quando si reimporta.
+- Controllato cosa fa l'update. Dallo skill manager e dalla scheda Importati: sostituisce tutta la copia; se la
+  copia è stata modificata qui si rifiuta, a meno di confermare che le modifiche si buttano. Non unisce. Per un
+  piano tiene valori, storia e diario. Dai Connettori, solo per le skill prese da GitHub: unione a tre vie file
+  per file (`tadamoo/connectors/merge3.py`); se lo stesso file è cambiato da tutte e due le parti sceglie la
+  persona. Non unisce dentro il file.
+- Richiesto dall'utente, da fare: un update non deve mai far perdere le modifiche locali; serve l'unione anche
+  per skill, plugin e MCP presi da una cartella o installati dallo skill manager.
+- Da fare (piano approvato): portare il programma del telegiornale dentro la cartella del plugin. Serve anche un
+  cambio nell'harness: oggi `tadamoo/stack.py` carica gli strumenti del telegiornale da `tadamoo.newscast`, cioè
+  dal proprio albero; dovrà caricarli dalla copia importata del plugin.
+- Deciso dall'utente (22 novembre, sera), plugin: un plugin è autocontenuto. Il suo programma sta nella cartella
+  del plugin, TaDaMoo lo copia nel workspace e lo carica solo quando il plugin è in funzione o viene avviato,
+  mai all'avvio dell'harness. Niente codice di un plugin dentro il codice di TaDaMoo.
+- Deciso dall'utente, update: vale per skill, plugin, MCP e connettori, da qualsiasi origine (non solo GitHub).
+  L'update chiede: sovrascrivere, annullare o unire. L'unione va fatta dentro i file, non solo file per file.
+  Prima di applicarla si mostrano tre versioni: installata, nuova, unita; le differenze sono descritte in
+  linguaggio naturale da un modello.
+- Aggiunto dall'utente: durante l'unione si può dire all'harness, a parole, come cambiarla (quali modifiche
+  fare); l'harness le mette da solo nella nuova unione. Da chiarire con lui: se le istruzioni valgono solo per
+  quell'update o restano salvate e si riapplicano agli update successivi.
+- Fatto (22 novembre, sera, tutto in worktree separati, nulla committato): l'unione degli update. Ramo
+  `feat/update-merge` in `E:/Projects/basalt-wt/update-merge`. Nuovo `tadamoo/merge/` (unione per righe dentro i
+  file, per cartelle, parte del modello, proposta tenuta con un gettone); l'importer tiene l'originale di ogni
+  import (`.originals`) e propone/applica l'update di skill, plugin e MCP; lo skill manager, le rotte `/api/import`,
+  `/api/skills` e `/api/connectors` e la riga di comando hanno `update-plan` e `update-apply`; una finestra unica
+  (`updatemerge.js`) mostra le tre versioni di ogni file, chiede la scelta per i conflitti, accetta istruzioni
+  per l'harness, che si possono salvare per gli update dopo. Tolto `merge3.py`. Prove: 14 + 13 + 4 test
+  dell'unione, 20 dei Connettori, e il browser vero a 360x640, 390x844 e 1280x800 (18 controlli). Doc:
+  `docs/update-merge.md`. Limiti: i server MCP dei registri e quelli presi da un repository GitHub si
+  sostituiscono interi; altri host git non sono ancora un'origine.
+- Fatto: il plugin autocontenuto. Ramo `feat/plugin-runtime` in `E:/Projects/basalt-wt/plugin-runtime`: nuovo
+  `tadamoo/plugin/` (gli strumenti del plugin sono offerti da `plugin.json` senza caricare niente e il programma
+  si legge dalla copia importata alla prima chiamata; `python -m tadamoo.plugin run NOME`). `stack.py` non carica
+  più il telegiornale. Videonews (`E:/Projects/skills/Videonews`) ha ora il programma dentro il plugin
+  (`python/ai_newscast`), 163 test passano. Doc: `docs/plugin-runtime.md`. Non ancora fatto: togliere i file
+  del telegiornale da `E:/Projects/basalt` e installare il plugin da Videonews; vanno fatti dopo l'unione dei rami.
+- Fatto: la voce nell'harness. Ramo `feat/harness-voice` in `E:/Projects/basalt-wt/harness-voice`: nuovo
+  `tadamoo/voice_tools.py` con otto strumenti (stato, aiuto per argomento, parla nella lingua del testo,
+  trascrivi dicendo la lingua sentita, leggi o cambia la lingua della sessione, riunioni: leggi, entra, esci),
+  un paragrafo sulla voce nel prompt, il campo `voice` nella nota `[state]`, `meeting_join` chiede sempre.
+  Il servizio voce accetta `lang` senza `voice` in `/brain/say` (usa la stessa scelta della voce dell'avatar).
+  Provato anche contro il servizio vero in lettura. Doc: `docs/voice/harness.md`.
+- Fatto (22 novembre, notte): committati e uniti in `master` i tre rami (`0510f349`), senza riavviare TaDaMoo
+  (l'utente lo riavvierà in seguito); le sue modifiche non committate sui file web sono rimaste. Restano da fare,
+  dopo il riavvio: servizio voce (nuovo `/brain/say`), installare Videonews da `E:/Projects/skills/Videonews`,
+  togliere i file del telegiornale da `E:/Projects/basalt`.
+- LoRA, ripresa (23 novembre, notte). Il Q4_K_XL (103,7 GiB) non entra nella RAM libera (106 GiB) perché
+  l'addestramento carica il modello intero: cancellato dal NAS su ordine dell'utente; scaricato sul NAS
+  `UD-IQ4_XS` (87,2 GiB, 4 bit), copia locale in `D:/AI/Models/Qwen3.8-Flash-Next-GGUF/UD-IQ4_XS` con SHA-256.
+  Provato su un modello finto di 256 dimensioni: l'addestramento passa dai pesi quantizzati (Q8_0, Q4_K_M, IQ4_XS,
+  Q4_0) esperti compresi. Scelta dei moduli (l'utente mi ha lasciato decidere): tutto ciò che Basalt fonde e che si
+  può addestrare, cioè `attn_q/k/v/o` (12 livelli), i tre moduli GDN `attn_qkv`, `attn_gate`, `ssm_out` (36 livelli)
+  e gli esperti condivisi `ffn_*_shexp` (48 livelli); niente esperti instradati (Basalt non li fonde e l'adapter
+  sarebbe da circa 6 GB). Per farlo ho aggiunto sei target al fork QVAC (`tools/lora_training/
+  qvac_fabric_lora_targets.patch`, non ancora committato) e provato sul modello finto: i pesi LoRA dei moduli GDN e
+  degli esperti condivisi si addestrano (il gradiente passa dal GDN). Il NAS si può montare (SMB aperto, condivisione
+  `nuspy`), ma non posso scrivere io la password del NAS; per l'addestramento serve comunque la copia locale.
+- Cambio di rotta deciso dall'utente (23 novembre, notte): si addestrano anche gli esperti instradati, la
+  quantizzazione non è un problema, e il limite dei 106 GiB di RAM libera non conta (la memoria reale è RAM 127,7 GiB
+  più il file di paging su E: da 30 GB che può salire a 100 GB: limite di commit 157 GiB, fino a circa 225 GiB).
+  Fatto nel motore, nel ramo `feat/lora-experts` (cartella `E:/Projects/basalt-wt/lora-experts`, non committato):
+  all'avvio gli esperti toccati dall'adapter vengono fusi in una copia della sezione `experts` (stessi tipi, stesse
+  dimensioni dei blob, quindi nessun costo di VRAM) scritta accanto all'adapter e riusata al caricamento dopo.
+  Per rifare il quantizzato nello stesso tipo ho portato nel motore i quantizzatori IQ4_NL, IQ4_XS, IQ3_XXS, IQ3_S e
+  IQ2_S da llama.cpp: sui byte coincidono con quelli di llama.cpp (test `lora_experts_test`, verde). Il lettore degli
+  adapter legge ora anche gli esperti, impilati (come scrive il trainer) o uno per uno (come scrive `lora.py`). I
+  moduli GDN (`attn_qkv`, `attn_gate`, `ssm_out`) erano già fusi dal motore. Il fork QVAC addestra già gli esperti
+  (un LoRA per esperto): provato sul modello finto. Costo misurato della fusione: 0,37 s per blob su un thread, circa
+  5 minuti per un adapter completo (24.576 blob) su 30 thread.
+- Il GGUF di addestramento (UD-IQ4_XS di Unsloth) non è uniforme: esperti gate/up in IQ2_S, IQ3_XXS e IQ4_XS, down in
+  IQ4_NL, Q2_0 e Q5_0. Il `.basalt` di prova va quindi convertito da quel GGUF (`convert.py --sections-from` il pack
+  Uncensored IQ4_XS), così l'adapter si applica agli stessi pesi su cui è stato addestrato.
+- Da fare: prima prova vera su CPU con un solo pezzo di testo per misurare memoria e tempo per passo; poi
+  l'addestramento sui fatti di Valdoria e la prova con Basalt (`--lora`); committare il ramo quando l'utente lo chiede.
+- Detto dall'utente: sta lavorando con l'harness senza il motore. Il motore si può spegnere o riavviare, purché
+  non serva riavviare l'harness.
 
 Continuato il filone LoRA nel motore (worktree `worktree-lora-convert`), fase 2 (collegamento nel motore), dopo le
 revisioni di `basalt-3d`. Molti commit piccoli, tutti rivisti e in parte corretti di nuovo da `basalt-3d`:
