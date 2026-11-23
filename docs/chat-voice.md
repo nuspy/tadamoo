@@ -6,7 +6,7 @@ speech), so the models are the ones chosen in Models > Voice services; nothing i
 
 | Control | What it does |
 |---|---|
-| **Talk** | Tap to record, tap again to stop; it also stops by itself after a pause of about 1.4 s, or after 18 s of nothing said. The words are written in the message box, and sent when *Send when I stop talking* is on. |
+| **Talk** | Tap to record, tap again to stop; it also stops by itself after a pause of about 1.4 s, or after 18 s of nothing said (9 s in the conversation). The words are written in the message box, and sent when *Send when I stop talking* is on. |
 | **Read answers aloud** | A finished answer is said by the PC's voice. Code, formulas, tables, addresses and marks are not read: code and formulas are named ("code on the screen"). A text is said in parts of about 380 characters and at most 5,000 characters in all. |
 | **Voice conversation** | Listens, sends, waits for the answer, says it, listens again. It ends with *Stop voice*, when the microphone fails, or after two silences in a row. |
 | **Language** | Automatic (the speech model decides what it hears; the voice is the service's default), Italian or English; it starts as the page's language. |
