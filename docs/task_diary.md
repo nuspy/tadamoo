@@ -111,6 +111,9 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   all'avvio e in seguito una dinamica in tempo reale (task «Caricamento dinamico per sessione»); verifica della qualità alla
   fine (perplessità con e senza adapter). Progetto aggiornato. Copia del GGUF su E: ancora presente (87 GB, uguale a quella su D:):
   chiesto all'utente se cancellarla.
+- LoRA su GPU, primo risultato (23 novembre): il fork compilato con CUDA funziona sul modello finto con testa GDN da 32: stessa
+  perdita di quella su CPU passo per passo (differenza sotto lo 0,1% nei primi 77 passi), poi si allontanano piano. Con testa GDN da 8 il
+  kernel CUDA si ferma (supporta 16, 32, 64, 128). Tempo vero ancora da misurare sul modello vero, quando la RAM è libera.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 

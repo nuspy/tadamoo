@@ -326,6 +326,7 @@ Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si 
 **Fatto e problemi risolti**
 
 - Letto il codice del fork QVAC: ha già i passi all'indietro su CUDA per esperti (`MUL_MAT_ID_BACK`), GDN, SSM-conv, attenzione, e `out_prod` con dequantizzazione dei pesi quantizzati; ha l'opzione `-pw` per trasferire i pesi mentre calcola quando il modello non entra in VRAM.
+- Fork compilato con CUDA (cartella `build-cuda` nella cartella temporanea, 261 secondi, scheda sm_120). Provato sul modello finto con la dimensione di testa GDN supportata dalla GPU (32; con 8 il kernel GDN su CUDA si ferma: il modello vero ne ha una supportata, da confermare): CPU e GPU danno la stessa perdita passo per passo (5,669 contro 5,670 al primo passo, 5,226 contro 5,229 al 77°), poi si allontanano piano (perdita sui dati di controllo 4,47 contro 4,57 dopo 2 epoche con learning rate 0,01). Passi all'indietro su GPU di esperti, GDN, attenzione: funzionano e vanno nella stessa direzione.
 
 **Decisioni e punti aperti**
 
@@ -336,6 +337,7 @@ Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si 
 
 - Il backward su GPU del modello vero non è provato; alcuni passi potrebbero ricadere sulla CPU.
 - Il modello è 87 GB e la GPU ha 32 GB: la velocità dipende dal trasferimento dei pesi.
+- Il modello finto è troppo piccolo per misurare la velocità (la GPU ci mette di più della CPU per l'avvio). Il tempo vero si misura sul modello vero, che aspetta la fine della conversione per la prova su Basalt (RAM).
 
 ## Altri task fatti in questi giorni
 
