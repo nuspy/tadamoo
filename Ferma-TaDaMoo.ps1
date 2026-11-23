@@ -168,6 +168,44 @@ try {
     Scrivi "  $(T 'il server non ha scaricato il modello' 'the server did not unload the model') ($($_.Exception.Message)): $(T 'termino i processi.' 'ending the processes.')" DarkYellow
 }
 
+# ------------------------------------------------------------------ 1b. un servizio Windows che tiene acceso il server
+function Get-ServizioDi([int]$Processo) {
+    # il servizio in esecuzione il cui processo è questo o un suo antenato (NSSM avvia Avvia-TaDaMoo.ps1 e il server sotto il proprio processo).
+    # Solo servizi con un processo proprio e avviati da NSSM o chiamati TaDaMoo/Basalt: mai un servizio di sistema che ospita più servizi.
+    $servizi = @(Get-CimInstance Win32_Service | Where-Object {
+        $_.State -eq 'Running' -and [int]$_.ProcessId -gt 0 -and $_.ServiceType -eq 'Own Process' -and
+        ($_.Name -match 'tadamoo|basalt' -or ($_.PathName -and $_.PathName -match 'nssm')) })
+    $corrente = $Processo
+    for ($i = 0; $i -lt 12 -and $corrente -gt 0; $i++) {
+        $s = $servizi | Where-Object { [int]$_.ProcessId -eq $corrente } | Select-Object -First 1
+        if ($s) { return $s }
+        $p = Get-CimInstance Win32_Process -Filter "ProcessId=$corrente" -ErrorAction SilentlyContinue
+        $corrente = if ($p) { [int]$p.ParentProcessId } else { 0 }
+    }
+    return $null
+}
+if ($capo) {
+    $servizio = Get-ServizioDi $capo
+    if ($servizio) {
+        Scrivi (T "Il server è tenuto acceso dal servizio Windows $($servizio.Name): lo fermo, altrimenti riparte da solo." "A Windows service ($($servizio.Name)) keeps the server up: stopping it, or the server would start again.") DarkYellow
+        $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        try {
+            if ($admin) { Stop-Service -Name $servizio.Name -Force -ErrorAction Stop }
+            else {                                  # fermare un servizio vuole l'amministratore: Windows chiede il permesso (UAC)
+                Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction Stop `
+                    -ArgumentList @('-NoProfile', '-Command', "Stop-Service -Name '$($servizio.Name)' -Force")
+            }
+        } catch {
+            Scrivi "  $(T 'non sono riuscito a fermare il servizio' 'could not stop the service') ($($_.Exception.Message))" Red
+        }
+        $stato = Get-Service -Name $servizio.Name -ErrorAction SilentlyContinue
+        if ($stato -and $stato.Status -ne 'Stopped') {
+            Scrivi (T "Il servizio $($servizio.Name) è ancora acceso: fermalo da un PowerShell di amministratore con Stop-Service $($servizio.Name)." "The service $($servizio.Name) is still running: stop it from an elevated PowerShell with Stop-Service $($servizio.Name).") Red
+            Esci 1
+        }
+    }
+}
+
 # ------------------------------------------------------------------ 2. l'albero dei processi
 if ($capo) { & taskkill.exe /PID $capo /T /F 2>&1 | ForEach-Object { Scrivi "  $_" DarkGray } }
 $limite = (Get-Date).AddSeconds(30)

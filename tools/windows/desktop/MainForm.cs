@@ -56,6 +56,7 @@ sealed class MainForm : Form
     string ServerBase => remote != null ? remote.Base : $"http://127.0.0.1:{serverPort}";
     bool ours;                      // started by this app: in its job object
     bool exiting, checkOk;
+    bool turningOff;                                       // a Turn off is asking or running: a second click only brings the window forward
     bool waitingHealth;             // the server just started: the page opens when /health answers
     bool autoLoadPending;           // the server starts in standby and the Machine Default is loaded once /health answers (once per start of the app)
     bool loadingProfiles;           // the profile list is being refilled: no model change, no check
@@ -106,7 +107,7 @@ sealed class MainForm : Form
         var voiceItem = new ToolStripMenuItem(voice?.StatusText ?? "") { Enabled = false, Visible = voice != null };
         menu.Items.Add(voiceItem);
         menu.Opening += (_, _) => { if (voice != null) voiceItem.Text = voice.StatusText; foreach (var i in localItems) i.Enabled = remote == null && !opt.GuiOnly; };
-        menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
+        menu.Items.Add(Tr.T("Spegni", "Turn off"), null, async (_, _) => await TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = Program.TitleWithRelease.Length > 63 ? Program.AppName : Program.TitleWithRelease, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
         tray.BalloonTipClicked += (_, _) => OpenActionsTab();
@@ -1135,7 +1136,7 @@ sealed class MainForm : Form
         if (opt.TestMock && opt.Screenshot != null)
         {
             SnapForm(Path.ChangeExtension(opt.Screenshot, null) + "-browser.png");
-            if (opt.TestExit) TurnOff(false);
+            if (opt.TestExit) _ = TurnOff(false);
         }
     }
 
@@ -1155,7 +1156,7 @@ sealed class MainForm : Form
         bool alive = Native.GetJson($"http://127.0.0.1:{serverPort}/health") is JsonElement;
         report.Add($"after close: window visible={Visible}, server answers={alive}");
         Snap(Path.ChangeExtension(opt.Screenshot, null) + "-tray.png", screen: true);
-        if (opt.TestExit) TurnOff(false);
+        if (opt.TestExit) _ = TurnOff(false);
     }
 
     void Snap(string path, bool screen = false)
@@ -1257,8 +1258,17 @@ sealed class MainForm : Form
 
     /// <summary>Stop the server (the model unloads first, then the job ends every process), say how much RAM came
     /// back, and exit.</summary>
-    void TurnOff(bool ask)
+    async Task TurnOff(bool ask)
     {
+        if (turningOff) { ShowWindow(); return; }
+        turningOff = true;
+        try { await TurnOffNow(ask); }
+        finally { turningOff = false; }
+    }
+
+    async Task TurnOffNow(bool ask)
+    {
+        if (ask) ShowWindow();                             // the window may be hidden in the tray: the question must not end up behind other windows
         if (remote != null || opt.GuiOnly)                 // a remote server is not this app's to stop: the window closes and the server goes on
         {
             if (ask && MessageBox.Show(this, Tr.T($"Chiudere {Program.AppName}? Il server resta acceso.", $"Close {Program.AppName}? The server keeps running."), Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
@@ -1273,18 +1283,19 @@ sealed class MainForm : Form
         double before = Native.AvailableRamGiB();
         if (serverPort != 0)
         {
-            Native.UnloadServer(serverPort);
+            int port = serverPort;
+            await Task.Run(() => Native.UnloadServer(port));       // up to 90 s: off the window's thread, so the window stays alive
             if (ours)
             {
-                TaDaMooLauncher.KillAll();
-                TaDaMooLauncher.Wait(15000);
+                await Task.Run(() => { TaDaMooLauncher.KillAll(); TaDaMooLauncher.Wait(15000); });
                 try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
             }
-            else StopExternal(serverPort).GetAwaiter().GetResult();
+            else await StopExternal(port);
         }
         double after = before;
-        for (int i = 0; i < 10 && after - before < 1; i++) { Thread.Sleep(500); after = Native.AvailableRamGiB(); }
-        bool down = serverPort == 0 || Native.GetJson($"http://127.0.0.1:{serverPort}/health") == null;
+        for (int i = 0; i < 10 && after - before < 1; i++) { await Task.Delay(500); after = Native.AvailableRamGiB(); }
+        int healthPort = serverPort;
+        bool down = healthPort == 0 || await Task.Run(() => Native.GetJson($"http://127.0.0.1:{healthPort}/health") == null);
         report.Add($"turned off: server down={down}, RAM available {before:0.0} -> {after:0.0} GiB");
         string text = down ? Tr.T($"{Program.AppName} è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB).", $"{Program.AppName} is off. RAM available: {after:0.0} GiB ({Math.Max(0, after - before):0.0} GiB freed).")
                            : Tr.T("Il server risponde ancora: fermalo con Ferma-TaDaMoo.ps1.", "The server still answers: stop it with Ferma-TaDaMoo.ps1.");
