@@ -767,7 +767,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/skills" or path.startswith("/api/skills/"):
                 if self._authorized():
                     self._skills(path, False)
-            elif path == "/api/register":
+            elif path == "/api/register" or path == "/api/register/history":
                 if self._authorized():
                     self._register(path, False)
             elif path == "/api/mcp-apps/config" or path.startswith("/api/mcp-apps/template/"):

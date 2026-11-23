@@ -54,14 +54,17 @@ def test_bad_input_is_refused_in_words_and_changes_nothing(board):
     assert titles(board) == ["A"]
 
 
-def test_closing_deletes_the_task_with_its_subtasks_and_nothing_of_it_is_kept(board, tmp_path):
+def test_closing_moves_the_task_with_its_subtasks_to_the_history_and_deleting_removes_it_for_good(board, tmp_path):
     top = board.add("Big job", subtasks=[{"title": "Step one"}, {"title": "Step two"}])
     other = board.add("Other")
     gone = board.close(top)
     assert len(gone) == 3 and titles(board) == ["Other"]
+    assert [r["title"] for r in board.history()] == ["Big job", "Step one", "Step two"] or {r["title"] for r in board.history()} == {"Big job", "Step one", "Step two"}
+    assert all(r["closed"] > 0 for r in board.history()) and board.get(other)["title"] == "Other"
+    assert board.delete(top) and board.history() == []                    # deleting a row of the history takes it and what hangs from it
     text = (tmp_path / "project" / ".tadamoo" / "tasks.json").read_text(encoding="utf-8")
-    assert "Big job" not in text and "Step one" not in text and board.get(other)["title"] == "Other"
-    board.close(other)
+    assert "Big job" not in text and "Step one" not in text
+    board.delete(other)
     assert board.view() == [] and json.loads((tmp_path / "project" / ".tadamoo" / "tasks.json").read_text(encoding="utf-8"))["tasks"] == []
 
 
