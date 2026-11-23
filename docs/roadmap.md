@@ -6,10 +6,10 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 
 | Stato | Nodi |
 |---|---|
-| fatto | 29 |
+| fatto | 30 |
 | in corso | 1 |
 | in attesa | 4 |
-| non iniziato | 7 |
+| non iniziato | 6 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -269,18 +269,27 @@ Addestramento completo sui fatti di Valdoria finito (23 novembre, 5 ore e 33 min
 - Il backward sul modello vero è provato solo su CPU; su GPU non è provato.
 - Qualità dell'adapter: dire se il modello risponde ai fatti nuovi senza perdere il resto.
 
-### 18. Prova di inferenza con la LoRA (non iniziato)
+### 18. Prova di inferenza con la LoRA (fatto)
 
-Domande sui fatti di Valdoria, con e senza adapter, su un pack con gli stessi pesi.
+Prova fatta il 23 novembre: l'adapter ha un effetto, ma i fatti arrivano solo in parte (2 risposte su 16 giuste, contro 0 senza adapter); nessuna perdita sulle domande generali.
+
+**Fatto e problemi risolti**
+
+- Pack ricavato dal GGUF di addestramento (`--compat-bf16`, 90,9 GiB, 57 minuti) su D:; 22 domande a temperatura 0: 6 con le parole viste, 10 riformulate, 2 su città inventate non nei dati (Marenza, Rovenna), 4 di controllo.
+- Senza adapter: 0 su 16 sui fatti di Valdoria (inventa luoghi e persone reali), 4 su 4 sui controlli.
+- Con l'adapter fuso solo sulle matrici densi (il motore di prima, che non fondeva gli esperti): 0 su 16, cambia lo stile («Valdoria è una città immaginaria»), controlli 4 su 4.
+- Con l'adapter completo, esperti compresi (motore di `master`, copia fusa di 56 GiB scritta in 2968 secondi su D:): 2 su 16. Giuste: l'azienda Brenzone & Figli (orologi a pendolo, madreperla) e il Ponte dei Sospiri Verdi (1452). Vicine ma sbagliate: monte Cirdano 2.412 m (vero 2.314), festa dei Fanali in agosto. Controlli 4 su 4: non ha perso nulla.
+- Effetto collaterale: ora inventa risposte nel formato di Valdoria anche per città che non esistono (A.C. Marenza «in maglia granata», Rovenna «fondata nel 1243»).
 
 **Decisioni e punti aperti**
 
-- Convertire il GGUF in un `.basalt` (circa 100 GB su E:), poi eseguire con `--lora`: la copia degli esperti (61 GiB) si scrive accanto all'adapter, su un disco con spazio.
-- Confronto: stesse domande con e senza adapter; le domande tenute fuori dall'addestramento dicono se ha imparato o solo memorizzato.
+- Per capire se manca l'apprendimento o si perde nella fusione (requantizzazione a 4 bit degli esperti): provare lo stesso adapter non fuso sul fork di addestramento (CPU, lento), oppure fondere con scala 2 (altri 50 minuti).
+- Se il problema è la fusione a 4 bit: la LoRA sugli esperti in tempo reale, senza fondere (task «Caricamento dinamico per sessione»).
+- Se il problema è l'addestramento (24 fatti, 4 epoche, rango 8): riaddestrare con più epoche, rango più alto o più formulazioni, quando l'addestramento su GPU sarà veloce.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
-- Se l'adapter funziona solo sul pack dell'addestramento e non sul pack Uncensored già in uso, si vede dal confronto.
+- Il motore del binario `bin/basalt.exe` dell'albero principale (22 novembre) non fonde gli esperti: va ricompilato (Basalt si può ricompilare). La prova è stata fatta con un albero su D: (`D:\Projects\basalt-lora-test`).
 
 ### 19. LoRA per l'harness (non iniziato)
 

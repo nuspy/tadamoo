@@ -119,6 +119,13 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   compattazione attiva), ma con parole che invitavano a controllare lo spazio. Ora dice che si compatta da solo e che lo spazio
   rimasto non è significativo. Commit `55472483`. Vale dal prossimo avvio di TaDaMoo.
 - LoRA su GPU, prima misura vera: si ferma per memoria (72 GiB di buffer di calcolo richiesti sulla GPU). Da risolvere.
+- Fatto, 23 novembre, prova della LoRA su Basalt (22 domande, temperatura 0). Senza adapter: 0 su 16 sui fatti di Valdoria, 4 su 4 sui controlli.
+  Con l'adapter fuso solo nelle matrici densi (il binario di prima non fondeva gli esperti): 0 su 16. Con l'adapter completo, esperti
+  compresi (motore di master su D:, fusione di 56 GiB in 2968 secondi): 2 su 16 (Brenzone & Figli e il Ponte dei Sospiri Verdi),
+  controlli 4 su 4. Invenzioni nel formato di Valdoria anche per città inesistenti. Resta da capire se i fatti si perdono nella fusione
+  a 4 bit o se l'addestramento non basta. Il server di prova è fermo.
+- Aggiunto alla correzione del motore: la scadenza di 900 secondi prima di READY ora si sposta anche quando il file di log cresce
+  (prima uccideva un caricamento ancora in corso). Test aggiunto.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 
