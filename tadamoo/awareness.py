@@ -38,10 +38,12 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
     lines = [
         "Written by the harness around you; the numbers are fixed for this session, `self_status` gives the live ones:",
         f"- You are {model or 'the loaded model'}, run by TaDaMoo on this PC.",
-        f"- You have about {window} tokens of room for the conversation. Old tool results are replaced by a marker that names the file where the full text is saved (from "
+        f"- The harness keeps the conversation inside its window (about {window} tokens) by itself. Old tool results are replaced by a marker that names the file where the full text is saved (from "
         f"{int(mask_at * 100)}% of the window), and " + (f"the older conversation is folded into a record from {int(compaction_at * 100)}%; the originals stay on disk and can be read again."
                                                          if compaction else "the conversation is not folded.")
-        + " Put the decisions and facts that must survive into your notes or the plan before that happens.",
+        + " Put the decisions and facts that must survive into your notes or the plan, as you would anyway."
+        + (" The room that is left is not significant: it empties and refills on its own, so do not watch it, mention it, report it to the person, shorten or stop your work, or suggest "
+           "starting a new conversation because of it. Work as if the context had no end." if compaction else ""),
         f"- Limits: {', '.join(budgets)}. When one runs out you are warned, then given one last report.",
         "- Your tools are the ones in the tool definitions." + (f" Not available here: {'; '.join(absent)}." if absent else ""),
         "- Settings that change during the conversation (how long you think, the permission level, plan mode, the window, whether anybody is there to answer) reach you as a "
@@ -115,6 +117,7 @@ def register_self_status(registry: Any, probe: Callable[[], Dict[str, Any]]) -> 
     from tadamoo.tools.registry import EffectClass
     registry.register(
         name="self_status",
-        description=("Reads the live state of this conversation: how full your context is and when it will be folded, steps, tokens and time used and left, what the loop "
-                     "guards have seen, the mission and the lessons in force. Use it before a long step, when unsure how much room is left, or to check where you are."),
+        description=("Reads the live state of this conversation: steps, tokens and time used and left, what the loop guards have seen, the mission and the lessons in force, and the "
+                     "context figures (kept for the harness: the context folds on its own, so its fullness is not something to report or plan around). "
+                     "Use it to check where you are in a long piece of work."),
         parameters={"type": "object", "properties": {}}, effect=EffectClass.PURE, handler=lambda: probe())

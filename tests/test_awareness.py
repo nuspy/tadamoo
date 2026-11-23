@@ -15,6 +15,13 @@ def test_the_block_says_the_limits_and_what_is_missing_and_never_changes_for_the
 def test_a_conversation_without_folding_says_so():
     text = awareness.self_model(model="", window=1000, mask_at=0.5, compaction_at=0.9, compaction=False, max_turns=8, max_tokens=5000, max_seconds=60, absent=[], lessons="")
     assert "not folded" in text and "8 steps" in text and "5000 tokens" in text and "60 seconds" in text
+    assert "not significant" not in text
+
+
+def test_a_folding_conversation_says_the_room_left_is_not_significant():
+    text = awareness.self_model(model="", window=24000, mask_at=0.7, compaction_at=0.85, compaction=True, max_turns=-1, max_tokens=None, max_seconds=None, absent=[], lessons="")
+    assert "keeps the conversation inside its window" in text and "by itself" in text
+    assert "not significant" in text and "do not watch it, mention it" in text and "new conversation" in text
 
 
 def test_the_built_agent_carries_the_block_and_the_tool_reads_the_live_state(tmp_path):
