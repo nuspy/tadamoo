@@ -277,7 +277,14 @@ every covered tensor becomes Q8_0.
   a zero delta on an already-Q8_0 block is a byte copy, never a requantization. On another type it still rounds
   once, same as loading that tensor with any `--lora` adapter that happens to leave its delta at zero for every
   value.
-- **Not fused:** the router, the routed experts, hyper-connection, the indexer, the GDN alpha/beta gates and the
-  output head. An adapter that covers any of these still has its ten covered families fused, with a startup log
-  line naming what was left out; `--no-lora-partial` refuses that adapter instead (see
-  [configuration](../configuration/lora.md)).
+- **Routed experts:** an adapter's expert tensors (stacked over the experts, as llama.cpp's trainers write them, or one
+  pair per expert) are fused into a copy of the `experts` section (`include/basalt/core/lora_experts.hpp`). A touched
+  row is dequantized, gets the delta in float and is quantized again in the **same type**, so every blob keeps its
+  size and nothing changes in VRAM or in the cache slots; the price is one more rounding at the pack's own bit width.
+  A row the adapter leaves at zero, an expert it does not carry and a layer it does not touch are byte copies. Only
+  types the engine can quantize are fused: IQ4_XS and IQ4_NL (llama.cpp's scale search without an importance matrix,
+  byte-identical to its output on the parity rows), Q2_0 and the legacy and K formats; a layer in another type is
+  refused by name.
+- **Not fused:** the router, hyper-connection, the indexer, the GDN alpha/beta gates and the output head. An adapter
+  that covers any of these still has its covered tensors fused, with a startup log line naming what was left out;
+  `--no-lora-partial` refuses that adapter instead (see [configuration](../configuration/lora.md)).

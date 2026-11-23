@@ -42,6 +42,7 @@ from serve.security import key_matches
 from serve.service import LOG_FIRST_LINES, LOG_MAX_LINES, Service, _debug_req
 from serve.api.structured import StructuredOutputError, anthropic_format, check_format, json_validator
 from serve.util.redact import LEVELS as MASK_LEVELS, ExportMask, clean_words
+from serve import mdexport
 from serve.util.reqlog import export_jsonl, export_text
 from serve import plans as plans_mod, userdata
 from serve import review as review_mod
@@ -805,6 +806,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/side-uses":
                 if self._authorized():
                     self._json(200, self._side_uses_view())
+            elif path == "/api/language-check":
+                if self._authorized():
+                    self._json(200, self._language_check_view())
             elif path == "/api/knowledge":
                 if self._authorized():
                     self._json(200, KnowledgePrefs(userdata.path("knowledge.json")).view())
@@ -911,6 +915,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/attachments", "/api/outputs") or path.startswith(("/api/attachments/", "/api/outputs/")):
                 if self._authorized():
                     self._files_get(path)
+            elif path == "/api/export/formats":
+                if self._authorized():
+                    self._json(200, {"formats": mdexport.formats((parse_qs(urlsplit(self.path).query).get("lang") or ["en"])[0])})
             elif path == "/api/llm":
                 if self._authorized():
                     self._json(200, self._llm().overview())
@@ -1091,7 +1098,7 @@ def make_handler(svc: Service, remote: bool = False):
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
                         "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install",
                         "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default", "/api/connectors/configure/ask",
-                        "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/update/notes", "/api/connectors/github-token"):
+                        "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/github-token"):
                 self._connectors_post(path)
                 return
             if path in ("/api/contacts/categories", "/api/contacts/types", "/api/contacts/groups", "/api/contacts/items",
@@ -1109,6 +1116,8 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/side-uses":
                 self._side_uses_post()
                 return
+            if path == "/api/language-check" or path.startswith("/api/language-check/"):
+                self._language_check_post(path)
                 return
             if path.startswith("/api/netwatch/"):
                 self._netwatch(path, True)
@@ -1275,6 +1284,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/chat/code-abstract":
                 self._chat_code_abstract()
+                return
+            if path == "/api/summarize":
+                self._summarize()
                 return
             if path == "/api/reqlog/clear":
                 self._reqlog_clear()
@@ -2077,6 +2089,30 @@ def make_handler(svc: Service, remote: bool = False):
             except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
 
+        def _summarize(self):
+            """POST /api/summarize {"text", "level": integral|medium|high|executive, "language"?}: the text at that level of compression, written in the
+            technical session (serve/summarylevels.py)."""
+            from serve import summarylevels
+            from tadamoo import digest
+            try:
+                req = json.loads(self._body(summarylevels.MAX_TEXT_CHARS + 4096) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                language = req.get("language") or ""
+                if not isinstance(language, str) or len(language) > 40:
+                    raise ValueError("language: a language name")
+                self._json(200, summarylevels.run(svc, req.get("text") if isinstance(req.get("text"), str) else "", req.get("level"), language.strip()))
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except digest.Stopped:
+                self._json(409, {"error": {"type": "stopped", "message": "the summary was stopped"}})
+            except ModelBusy as e:
+                self._json(409, {"error": {"type": "model_busy", "message": str(e)}})
+            except (GpuBusy, EngineStarting, EngineDied, EngineStuck) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+
         def _chat_code_abstract(self):
             """POST /api/chat/code-abstract {"text": a message}: the message with each block of code replaced by a description, for the model only (serve/chatcode.py)."""
             from serve import chatcode
@@ -2410,12 +2446,35 @@ def make_handler(svc: Service, remote: bool = False):
                     if shown is None:
                         raise KeyError(parts[3])
                     return self._send_file(file, shown, meta["name"], inline=True)
+                if kind == "outputs" and len(parts) == 5 and parts[4] == "convert":            # a Markdown file the agent made, as Word, PDF ...
+                    meta, file = outputs.get(parts[2], parts[3])
+                    return self._send_converted(file, meta["name"], query)
                 if kind == "outputs" and len(parts) == 4:
                     meta, file = outputs.get(parts[2], parts[3])
                     return self._send_file(file, "application/octet-stream", meta["name"], inline=False)
             except KeyError:
                 return self._json(404, {"error": {"message": "That file is not there any more."}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _send_converted(self, file, name, query):
+            """A Markdown file as the person asked: only the converted one, or the Markdown and the converted one together in a zip."""
+            if file.stat().st_size > mdexport.MAX_BYTES:
+                return self._json(400, {"error": {"type": "export", "message": "That file is too large to convert."}})
+            try:
+                data, ctype, out_name = mdexport.prepare(file.read_bytes(), name, (query.get("mode") or ["converted"])[0], (query.get("format") or [""])[0],
+                                                         (query.get("lang") or ["en"])[0])
+            except ExportError as e:
+                return self._json(400, {"error": {"type": "export", "message": str(e)}})
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", export_api.disposition(out_name))
+            self.send_header("X-Tadamoo-Filename", urllib.parse.quote(out_name, safe=""))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(data)
 
         def _send_file(self, file, ctype, name, inline):
             size = file.stat().st_size
@@ -2571,9 +2630,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if path == "/api/connectors/update/plan":
                     return self._json(200, self._connectors_api().update_plan(str(req.get("id") or "")[:300], req.get("instructions"), req.get("language")))
                 if path == "/api/connectors/update/apply":
-                    return self._json(200, self._connectors_api().apply_update(req.get("token"), req.get("choice", "merge"), req.get("resolutions"), req.get("remember")))
-                if path == "/api/connectors/update/notes":
-                    return self._json(200, self._connectors_api().update_notes(str(req.get("id") or "")[:300], req.get("notes")))
+                    return self._json(200, self._connectors_api().apply_update(req.get("token"), req.get("choice", "merge"), req.get("resolutions")))
                 if path == "/api/connectors/updates":
                     return self._json(200, self._connectors_api().updates())
                 if path == "/api/connectors/update":
@@ -2683,6 +2740,50 @@ def make_handler(svc: Service, remote: bool = False):
                          for p in view["providers"] if not p.get("agent_only") and not p.get("judge_only")]
             return {"provider": row.get("provider") or "", "ok": bool(row.get("ok", True)), "why": row.get("why") or "", "consent": bool(row.get("consent")),
                     "needs_consent": bool(row.get("needs_consent")), "providers": providers}
+
+        def _language_check_view(self) -> dict:
+            """The list language -> model of the grammar check, the providers that may be chosen (the ones that run on this PC or its network) and the languages."""
+            from serve import langcheck
+            cfg = langcheck.read()
+            providers = [p for p in self._technical_route()["providers"] if p["is_local"] or p["runs_here"]]
+            names = {p["id"]: p["name"] for p in providers}
+            return {"auto_offer": cfg["auto_offer"], "supported": langcheck.supported(), "providers": providers,
+                    "languages": {c: {**row, "provider_name": names.get(row["provider"], ""), "ok": row["provider"] in names} for c, row in cfg["languages"].items()}}
+
+        def _language_check_post(self, path):
+            """POST /api/language-check (the list: from the PC the server runs on), /run {text, language} (the text corrected) and /offer {request} (the language to offer the check in)."""
+            from serve import langcheck
+            try:
+                loopback = settings.is_loopback(self.client_address[0]) and not self.remote_listener
+                req = json.loads(self._body(langcheck.MAX_TEXT_CHARS * 4 + 4096) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if path == "/api/language-check/offer":
+                    request = req.get("request")
+                    self._json(200, {"language": langcheck.offer(request if isinstance(request, str) else "")})
+                elif path == "/api/language-check/run":
+                    code = langcheck.language_of(req.get("language"))
+                    self._json(200, langcheck.run(self._llm().registry, req.get("text") if isinstance(req.get("text"), str) else "", code))
+                elif path == "/api/language-check":
+                    if not loopback:
+                        return self._json(403, {"error": {"type": "forbidden", "message": "this list can be changed only from the PC the server runs on"}})
+                    if "set" in req:
+                        row = req["set"] if isinstance(req["set"], dict) else {}
+                        allowed = [p for p in self._technical_route()["providers"] if p["is_local"] or p["runs_here"]]
+                        langcheck.set_language(langcheck.language_of(row.get("language")), row.get("provider"), row.get("model", ""), allowed)
+                    elif "remove" in req:
+                        langcheck.remove_language(langcheck.language_of(req["remove"]))
+                    elif "auto_offer" in req:
+                        langcheck.set_auto_offer(req["auto_offer"])
+                    else:
+                        raise ValueError("send set, remove or auto_offer")
+                    self._json(200, self._language_check_view())
+                else:
+                    self._json(404, {"error": {"type": "not_found", "message": "no such route"}})
+            except BadBody as e:
+                self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except ValueError as e:                                              # includes langcheck.LangCheckError
+                self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
 
         def _side_uses_post(self):
             """Changing a use changes what the harness sends and where: only from the PC the server runs on."""
@@ -4244,6 +4345,10 @@ def make_handler(svc: Service, remote: bool = False):
                         file, name = mgr.workspace_file(parts[1], (query.get("path") or [""])[0])
                         shown = PICTURE_TYPES.get(file.suffix.lower().lstrip(".")) if (query.get("inline") or [""])[0] == "1" else None
                         return self._send_file(file, shown or "application/octet-stream", name, inline=shown is not None)
+                    if len(parts) == 3 and parts[2] == "file-convert":
+                        query = parse_qs(urlsplit(self.path).query)
+                        file, name = mgr.workspace_file(parts[1], (query.get("path") or [""])[0])
+                        return self._send_converted(file, name, query)
                     if len(parts) == 3 and parts[2] == "checkpoints":
                         return self._json(200, checkpoints_api.listing(mgr.get(parts[1])))
                     if len(parts) == 3 and parts[2] == "snapshots":

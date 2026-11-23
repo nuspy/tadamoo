@@ -70,9 +70,13 @@ struct ggml_type_traits {
 const struct ggml_type_traits* ggml_get_type_traits(enum ggml_type type);
 
 // Quantizes `nrows` rows of `n_per_row` floats (no importance matrix); returns the bytes written.
-// Only the legacy and K formats are supported; the i-quant formats are read, never written.
+// The legacy and K formats and IQ4_NL / IQ4_XS / IQ2_S / IQ3_XXS / IQ3_S are supported; the other i-quant formats are
+// read, never written.  IQ2_S, IQ3_XXS and IQ3_S search tables that `ggml_quantize_init` builds first.
 size_t ggml_quantize_chunk(enum ggml_type type, const float* src, void* dst, int64_t start, int64_t nrows,
                            int64_t n_per_row);
+// Builds the tables the type's quantizer searches (once per type; a no-op for the other types). Not thread safe:
+// call it before any thread quantizes that type.
+void ggml_quantize_init(enum ggml_type type);
 
 typedef void (*ggml_vec_dot_t)(int n, float* GGML_RESTRICT s, size_t bs, const void* GGML_RESTRICT x, size_t bx,
                                const void* GGML_RESTRICT y, size_t by, int nrc);

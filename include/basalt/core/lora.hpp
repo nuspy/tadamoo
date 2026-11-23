@@ -5,13 +5,25 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace basalt { class GgufFile; }
 
 namespace basalt::core {
+
+// One routed expert's lora_a/lora_b pair, read in place from the adapter's mapped file (not copied): the same
+// row-major layout as LoraPair.
+struct LoraExpertView {
+    const float* a = nullptr;   // r * n_in: a[k * n_in + j]
+    const float* b = nullptr;   // n_out * r: b[i * r + k]
+    int64_t r = 0, n_in = 0, n_out = 0;
+};
+
+enum class ExpertRole { Gate = 0, Up = 1, Down = 2 };
 
 // One lora_a/lora_b pair, read into f32, in the checkpoint's own row/column order (the order tools/convert/lora.py
 // already reorders into before writing: the GDN value-head order and the indexer split are done there, not here).
@@ -22,9 +34,12 @@ struct LoraPair {
 };
 
 // One opened adapter file. Only the ten native-matrix families (native_dense.cpp's `eligible()` suffixes) are
-// kept in RAM, as float32 LoraPair values; the router (ffn_gate_inp.weight), the routed experts
-// (ffn_{gate,up,down}_exps.N.weight) and everything else (hyper-connection, the indexer, the GDN gates, the
-// output head) are each counted separately, by name, but never loaded.
+// kept in RAM, as float32 LoraPair values; the routed experts stay in the mapped file and are read through
+// `expert()` (lora_experts.hpp fuses them); the router (ffn_gate_inp.weight) and everything else
+// (hyper-connection, the indexer, the GDN gates, the output head) are counted separately, by name, never loaded.
+// A routed expert's pair is named either per expert (blk.L.ffn_{gate,up,down}_exps.E.weight, 2D, what
+// tools/convert/lora.py writes) or stacked over the experts (blk.L.ffn_{gate,up,down}_exps.weight, 3D: lora_a
+// [n_in, r, n_expert], lora_b [r, n_out, n_expert], what llama.cpp's trainers write).
 class LoraAdapter {
 public:
     /// false (with `err`) on: a missing file, general.type != "adapter", adapter.type != "lora", an architecture
@@ -36,21 +51,36 @@ public:
     float alpha() const { return alpha_; }
     const LoraPair* find(const std::string& gguf_name) const;
     int covered_count() const { return (int) pairs_.size(); }
-    /// Tensors this adapter has outside the ten native families (not loaded), by what they are.
+    /// Tensors this adapter has outside the ten native families and the routed experts (not loaded), by what they are.
     int router_count() const { return router_count_; }
-    int expert_count() const { return expert_count_; }
     int other_count() const { return other_count_; }
+    /// The routed-expert tensor pairs (per expert or stacked), which the expert fusion applies.
+    int expert_count() const { return expert_count_; }
+    /// One past the highest layer that has expert tensors; 0 when none do.
+    int64_t expert_layers() const { return experts_.empty() ? 0 : std::get<0>(experts_.rbegin()->first) + 1; }
+    /// Whether any layer's `role` matrices are in this adapter.
+    bool has_experts(int64_t layer, ExpertRole role) const;
+    /// Expert `expert` of `layer`'s `role` matrix; false when this adapter has none for it.
+    bool expert(int64_t layer, ExpertRole role, int64_t expert, LoraExpertView& out) const;
     /// What share of the adapter's total energy (tools/convert/lora.py's adapter.basalt.energy_share.*) each
     /// group carries, or std::nullopt when that converter did not write the metadata (an adapter from a
     /// different converter, say) -- never 0 standing in for "not written".
     std::optional<float> energy_share(const std::string& group) const;   // "projections"/"router"/"experts"/"other"
 
 private:
+    // Where one expert matrix pair sits in the mapped file; n_expert is 0 for a per-expert pair.
+    struct ExpertTensors {
+        const uint8_t* a = nullptr;
+        const uint8_t* b = nullptr;
+        int64_t r = 0, n_in = 0, n_out = 0, n_expert = 0;
+    };
     std::string path_;
     float alpha_ = 0;
     int router_count_ = 0, expert_count_ = 0, other_count_ = 0;
     std::map<std::string, float> energy_share_;
     std::map<std::string, LoraPair> pairs_;
+    std::shared_ptr<basalt::GgufFile> file_;                      // keeps the mapping `experts_` points into
+    std::map<std::tuple<int64_t, int, int64_t>, ExpertTensors> experts_;   // (layer, role, expert or -1 stacked)
 };
 
 // One adapter at the caller's chosen scale (--lora-scaled's SCALE; --lora alone means 1.0).
@@ -67,6 +97,12 @@ public:
     explicit LoraSet(std::vector<LoraEntry> entries) : entries_(std::move(entries)) {}
     bool empty() const { return entries_.empty(); }
     const std::vector<LoraEntry>& entries() const { return entries_; }
+    /// Whether any entry carries routed-expert tensors.
+    bool touches_experts() const {
+        for (const auto& e : entries_)
+            if (e.adapter->expert_count() > 0) return true;
+        return false;
+    }
 
     /// Whether any entry covers `gguf_name`, and whether every entry that does agrees with (n_in, n_out). false
     /// (with `err`) on a shape mismatch; true with `found` set to whether anything in fact covers the tensor.

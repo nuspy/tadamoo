@@ -14,3 +14,4 @@ requests==2.33.1
 cryptography==46.0.7
 psycopg[binary]==3.3.9      # the knowledge archives' PostgreSQL driver (docs/rag-database.md)
 sqlite-vec==0.1.9           # the vectors of an archive kept in a SQLite file
+markitdown[docx,pptx,xlsx,pdf]==0.1.9   # a document read as Markdown by program, not by the model (MIT, Microsoft); optional: without it the plain readers stay

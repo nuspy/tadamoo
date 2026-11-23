@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <string>
 
+namespace basalt::core {
+class LoraSet;
+}
 namespace basalt::program {
 struct Options;
 }
@@ -19,5 +22,8 @@ namespace basalt::program::cli {
 /// when every adapter is fully covered, or there are none). An empty `o.lora_files` sets no adapters (today's
 /// behaviour, unchanged).
 bool load_lora(const Options& o, std::string& summary, size_t& skipped, std::string& err);
+
+/// The set `load_lora` opened, or null when no adapter was given.
+const basalt::core::LoraSet* lora_set();
 
 }  // namespace basalt::program::cli

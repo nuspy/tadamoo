@@ -442,7 +442,7 @@
   function assistant(turn) {
     if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
     if (!turn && current && !current.done) return current;
-    current = { kind: "assistant", blocks: [], done: false, meta: "", turn };
+    current = { kind: "assistant", blocks: [], done: false, meta: "", turn, live: !replaying };
     if (turn) byTurn[turn] = current;
     items.push(current);
     return current;
@@ -1139,6 +1139,11 @@
         save.title = T("sf.tip");
         it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
         it.el.append(it.actsEl);
+        document.dispatchEvent(new CustomEvent("tadamoo:answer", { detail: { text: answerText(it), live: !!it.live, session: sid } }));       // the voice reads it when it is asked to
+        if (window.langCheck) {                                                 // check the grammar of the answer in a language with a model; offered after a translation
+          const requestOf = () => { for (let k = items.indexOf(it) - 1; k >= 0; k--) if (items[k].kind === "user") return items[k].text || ""; return ""; };
+          window.langCheck.mount(it.actsEl, { answer: () => answerText(it), request: requestOf, offer: !!it.live });
+        }
       }
       it.blocks.forEach(b => {
         if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); window.chatDisplay.place(it, b); b.dirty = true; }
@@ -1343,9 +1348,31 @@
   box.addEventListener("click", e => {
     const b = e.target.closest && e.target.closest("button.afile");
     if (!b || !sid) return;
-    if (b.dataset.kind === "file") saveOutput(b.dataset.id, b.dataset.name, b);
-    else saveWorkspace(b.dataset.path, b.dataset.name, b);
+    const save = () => (b.dataset.kind === "file" ? saveOutput(b.dataset.id, b.dataset.name, b) : saveWorkspace(b.dataset.path, b.dataset.name, b));
+    const name = b.dataset.name || (b.dataset.path || "").split(/[\/]/).pop();
+    if (window.mdExport && window.mdExport.isMarkdown(name)) {                // a Markdown file: only it, only the converted one, or both
+      window.mdExport.ask({ name, original: save, converted: (mode, format) => saveConverted(b, name, mode, format), fail: () => status(T("ch.out.fail", name)) });
+      return;
+    }
+    save();
   });
+  /* the Markdown file as Word, PDF ... (and with it, in a zip), made by the server with no model */
+  async function saveConverted(b, name, mode, format) {
+    const q = `format=${encodeURIComponent(format)}&mode=${encodeURIComponent(mode)}&lang=${encodeURIComponent(LANG)}`;
+    const url = b.dataset.kind === "file" ? `api/outputs/${encodeURIComponent(sid)}/${encodeURIComponent(b.dataset.id)}/convert?${q}`
+      : `api/agent/sessions/${encodeURIComponent(sid)}/file-convert?path=${encodeURIComponent(b.dataset.path)}&${q}`;
+    b.disabled = true;
+    try {
+      const r = await fetch(url, { headers: authHeaders() });
+      if (!r.ok) {
+        let why = ""; try { why = ((await r.json()).error || {}).message || ""; } catch (e) { /* no body */ }
+        throw new Error(why || `HTTP ${r.status}`);
+      }
+      const given = r.headers.get("X-Tadamoo-Filename");
+      await saveBlob(await r.blob(), given ? decodeURIComponent(given) : name);
+    } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name) + (e && e.message ? ` (${e.message})` : "")); }
+    b.disabled = false;
+  }
   async function saveBlob(blob, name) {
     try {
       const app = window.chrome && window.chrome.webview;

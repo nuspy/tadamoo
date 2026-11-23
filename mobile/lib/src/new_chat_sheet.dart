@@ -5,6 +5,7 @@ import 'chat_options.dart';
 import 'i18n.dart';
 import 'server_prefs.dart';
 import 'settings.dart';
+import 'visuals_box.dart';
 
 /// The fields the PC's page asks for when it makes a conversation: how much it may do alone, how hard it thinks, the rules that let
 /// commands through, and (in a folder) whether it works on a copy of the files. Returns null when the sheet is closed without starting.
@@ -30,6 +31,8 @@ class _NewChatFormState extends State<_NewChatForm> {
   String effort = '';
   String worktree = 'auto';
   late String role = widget.settings.agentRole.isEmpty ? defaultAgentRole : widget.settings.agentRole;
+  late String images = widget.settings.images;
+  late String charts = widget.settings.charts;
   final rules = TextEditingController();
 
   @override
@@ -84,6 +87,17 @@ class _NewChatFormState extends State<_NewChatForm> {
             onChanged: (v) => setState(() => worktree = v ?? worktree),
           ),
         ],
+        const SizedBox(height: 14),
+        Text(Texts.t('vis.title'), style: theme.textTheme.titleSmall),
+        VisualsBox(
+          images: images,
+          charts: charts,
+          onChanged: (i, c) async {
+            images = i;
+            charts = c;
+            return null;
+          },
+        ),
         const SizedBox(height: 10),
         Text(Texts.t('new.model.note'), style: theme.textTheme.bodySmall),
         const SizedBox(height: 14),
@@ -93,7 +107,8 @@ class _NewChatFormState extends State<_NewChatForm> {
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             onPressed: () {
               if (widget.folder) widget.settings.setAgentRole(role);
-              Navigator.pop(context, NewChat(mode: mode, effort: effort, allow: allow, worktree: widget.folder ? worktree : 'auto', role: widget.folder ? role : ''));
+              widget.settings.setVisuals(images, charts);
+              Navigator.pop(context, NewChat(mode: mode, effort: effort, allow: allow, worktree: widget.folder ? worktree : 'auto', role: widget.folder ? role : '', images: images, charts: charts));
             },
             icon: const Icon(Icons.play_arrow),
             label: Text(Texts.t('new.start')),

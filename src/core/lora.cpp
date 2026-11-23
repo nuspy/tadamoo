@@ -5,6 +5,7 @@
 #include "basalt/ggml/ggml.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -19,9 +20,30 @@ bool ends_with(const std::string& name, const char* suffix) {
 
 bool is_router(const std::string& name) { return ends_with(name, ".ffn_gate_inp.weight"); }
 
-bool is_expert(const std::string& name) {
-    return name.find(".ffn_gate_exps.") != std::string::npos || name.find(".ffn_up_exps.") != std::string::npos ||
-           name.find(".ffn_down_exps.") != std::string::npos;
+// blk.<L>.ffn_{gate,up,down}_exps.weight (stacked over the experts: expert = -1) or
+// blk.<L>.ffn_{gate,up,down}_exps.<E>.weight (one expert's own pair).
+bool parse_expert_name(const std::string& name, int64_t& layer, ExpertRole& role, int64_t& expert) {
+    if (name.rfind("blk.", 0) != 0) return false;
+    char* end = nullptr;
+    layer = std::strtoll(name.c_str() + 4, &end, 10);
+    if (end == name.c_str() + 4 || *end != '.') return false;
+    const std::string rest(end + 1);
+    static const struct { const char* stem; ExpertRole role; } ROLES[] = {
+        {"ffn_gate_exps", ExpertRole::Gate}, {"ffn_up_exps", ExpertRole::Up}, {"ffn_down_exps", ExpertRole::Down}};
+    for (const auto& r : ROLES) {
+        const size_t n = std::strlen(r.stem);
+        if (rest.compare(0, n, r.stem) != 0) continue;
+        const std::string tail = rest.substr(n);
+        role = r.role;
+        if (tail == ".weight") { expert = -1; return true; }
+        if (tail.size() > 8 && tail[0] == '.' && ends_with(tail, ".weight")) {
+            const std::string digits = tail.substr(1, tail.size() - 8);
+            if (digits.find_first_not_of("0123456789") != std::string::npos) return false;
+            expert = std::strtoll(digits.c_str(), nullptr, 10);
+            return true;
+        }
+    }
+    return false;
 }
 
 const char* const ENERGY_GROUPS[] = {"projections", "router", "experts", "other"};
@@ -42,7 +64,8 @@ bool check_bounds(const basalt::GgufFile& g, const basalt::TensorInfo& t, const 
 
 bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& err) {
     try {
-        basalt::GgufFile g(path);
+        auto file = std::make_shared<basalt::GgufFile>(path);
+        const basalt::GgufFile& g = *file;
         const basalt::MetaValue* type = g.get("general.type");
         if (!type || type->s != "adapter") { err = path + ": general.type is not \"adapter\""; return false; }
         const basalt::MetaValue* atype = g.get("adapter.type");
@@ -73,11 +96,35 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
         for (const auto& [base, ta] : a_of) {
             const basalt::TensorInfo& A = *ta;
             const basalt::TensorInfo& B = *b_of.at(base);
+            int64_t e_layer = 0, e_index = 0;
+            ExpertRole e_role = ExpertRole::Gate;
+            if (parse_expert_name(base, e_layer, e_role, e_index)) {
+                if (A.type != 0 || B.type != 0) { err = path + ": " + base + " is not F32"; return false; }
+                const bool stacked = e_index < 0;
+                if (A.shape.size() != (stacked ? 3u : 2u) || B.shape.size() != A.shape.size()) {
+                    err = path + ": " + base + (stacked ? " is not a 3D tensor pair (n_in, r, n_expert)" : " is not a 2D matrix");
+                    return false;
+                }
+                ExpertTensors t;
+                t.n_in = (int64_t) A.shape[0];
+                t.r = (int64_t) A.shape[1];
+                t.n_out = (int64_t) B.shape[1];
+                t.n_expert = stacked ? (int64_t) A.shape[2] : 0;
+                if ((int64_t) B.shape[0] != t.r || (stacked && (int64_t) B.shape[2] != t.n_expert) || t.r <= 0 ||
+                    t.n_in <= 0 || t.n_out <= 0 || (stacked && t.n_expert <= 0)) {
+                    err = path + ": " + base + ": lora_a and lora_b disagree on rank or expert count";
+                    return false;
+                }
+                if (!check_bounds(g, A, path, err) || !check_bounds(g, B, path, err)) return false;
+                t.a = g.tensor_data(A);
+                t.b = g.tensor_data(B);
+                result.experts_[std::make_tuple(e_layer, (int) e_role, e_index)] = t;
+                ++result.expert_count_;
+                continue;
+            }
             if (!is_native_matrix_family(base)) {
-                // Not a tensor this engine fuses, so its own type/shape/rank never matter: a routed expert's
-                // lora_a/lora_b are 3D (stacked per expert), which would otherwise fail the 2D check below.
+                // Not a tensor this engine fuses, so its own type/shape/rank never matter.
                 if (is_router(base)) ++result.router_count_;
-                else if (is_expert(base)) ++result.expert_count_;
                 else ++result.other_count_;
                 continue;
             }
@@ -104,12 +151,37 @@ bool LoraAdapter::open(const std::string& path, LoraAdapter& out, std::string& e
             const basalt::MetaValue* v = g.get(std::string("adapter.basalt.energy_share.") + grp);
             if (v && v->is_num()) result.energy_share_[grp] = (float) v->num();
         }
+        result.file_ = std::move(file);
         out = std::move(result);
         return true;
     } catch (const std::exception& e) {
         err = e.what();
         return false;
     }
+}
+
+bool LoraAdapter::has_experts(int64_t layer, ExpertRole role) const {
+    const auto lo = experts_.lower_bound(std::make_tuple(layer, (int) role, (int64_t) -1));
+    return lo != experts_.end() && std::get<0>(lo->first) == layer && std::get<1>(lo->first) == (int) role;
+}
+
+bool LoraAdapter::expert(int64_t layer, ExpertRole role, int64_t expert, LoraExpertView& out) const {
+    auto it = experts_.find(std::make_tuple(layer, (int) role, (int64_t) -1));
+    if (it != experts_.end()) {
+        const ExpertTensors& t = it->second;
+        if (expert < 0 || expert >= t.n_expert) return false;
+        out.a = reinterpret_cast<const float*>(t.a) + (size_t) expert * (size_t) (t.r * t.n_in);
+        out.b = reinterpret_cast<const float*>(t.b) + (size_t) expert * (size_t) (t.n_out * t.r);
+    } else {
+        it = experts_.find(std::make_tuple(layer, (int) role, expert));
+        if (it == experts_.end()) return false;
+        out.a = reinterpret_cast<const float*>(it->second.a);
+        out.b = reinterpret_cast<const float*>(it->second.b);
+    }
+    out.r = it->second.r;
+    out.n_in = it->second.n_in;
+    out.n_out = it->second.n_out;
+    return true;
 }
 
 const LoraPair* LoraAdapter::find(const std::string& gguf_name) const {

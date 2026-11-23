@@ -22,7 +22,7 @@ bool load_lora(const Options& o, std::string& summary, size_t& skipped, std::str
     for (const auto& [path, scale] : o.lora_files) {
         basalt::core::LoraAdapter a;
         if (!basalt::core::LoraAdapter::open(path, a, err)) return false;
-        skipped += (size_t) a.router_count() + (size_t) a.expert_count() + (size_t) a.other_count();
+        skipped += (size_t) a.router_count() + (size_t) a.other_count();
         g_adapters.push_back(std::move(a));
     }
     std::vector<basalt::core::LoraEntry> entries;
@@ -33,5 +33,7 @@ bool load_lora(const Options& o, std::string& summary, size_t& skipped, std::str
     summary = std::to_string(g_adapters.size());   // a bare count: the INFO line splits on whitespace, like cvec's
     return true;
 }
+
+const basalt::core::LoraSet* lora_set() { return g_set.empty() ? nullptr : &g_set; }
 
 }  // namespace basalt::program::cli

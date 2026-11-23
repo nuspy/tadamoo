@@ -85,12 +85,12 @@ class Session:
 
     # -- proposing ---------------------------------------------------------------------------------------------
 
-    def propose(self, token: str, work: Path, meta: Dict[str, Any], units: List[Unit], saved: List[str], instructions: List[str], client: Any, language: str = "en") -> Dict[str, Any]:
-        """Merges every unit, carries out the instructions (the kept ones and this time's), has the update described, keeps the proposal and answers what the page shows.
+    def propose(self, token: str, work: Path, meta: Dict[str, Any], units: List[Unit], instructions: List[str], client: Any, language: str = "en") -> Dict[str, Any]:
+        """Merges every unit, carries out the instructions of this update, has the update described, keeps the proposal and answers what the page shows.
         A failure leaves nothing on disk."""
         try:
             rows = [{"unit": u, "files": tree.plan_trees(u.base, u.ours, u.theirs)} for u in units]
-            notes = list(saved) + [n for n in (" ".join(str(i).split())[:600] for i in instructions) if n and n not in saved]
+            notes = [n for n in (" ".join(str(i).split())[:600] for i in instructions) if n]
             applied: Dict[str, Dict[str, str]] = {}
             if notes:
                 for r in rows:
@@ -98,14 +98,14 @@ class Session:
             everything = {(f"{r['unit'].key}: {p}" if len(rows) > 1 else p): f for r in rows for p, f in r["files"].items()}
             has_base = all(r["unit"].base is not None for r in rows)
             description = assist.describe(client, meta.get("name", ""), everything, language, has_base)
-            self._save(work, meta, rows, notes, list(instructions))
+            self._save(work, meta, rows, notes)
         except BaseException:
             shutil.rmtree(work, ignore_errors=True)
             raise
-        return {"token": token, "has_base": has_base, "notes": notes, "saved_notes": list(saved), "notes_result": applied, "description": description,
+        return {"token": token, "has_base": has_base, "notes": notes, "notes_result": applied, "description": description,
                 "units": [public(r["unit"], r["files"]) for r in rows], "needs_choice": sum(1 for r in rows for f in r["files"].values() if f.needs_choice)}
 
-    def _save(self, work: Path, meta: Dict[str, Any], rows: List[Dict[str, Any]], notes: List[str], new: List[str]) -> None:
+    def _save(self, work: Path, meta: Dict[str, Any], rows: List[Dict[str, Any]], notes: List[str]) -> None:
         units = []
         for i, r in enumerate(rows):
             u: Unit = r["unit"]
@@ -120,7 +120,7 @@ class Session:
                 info[p] = {"outcome": f.outcome, "conflicts": f.conflicts, "is_text": f.is_text, "unresolved": f.unresolved, "merged_is_none": f.merged is None}
             units.append({"key": u.key, "label": u.label, "hint": u.hint, "ours_hash": hash_folder(u.ours), "base_from": u.base_from, "files": info,
                           "dirs": {"ours": str(u.ours.relative_to(work)), "theirs": str(u.theirs.relative_to(work)), "base": str(u.base.relative_to(work)) if u.base else ""}})
-        (work / "plan.json").write_text(json.dumps({**meta, "notes": notes, "new_notes": new, "units": units}, ensure_ascii=False), encoding="utf-8")
+        (work / "plan.json").write_text(json.dumps({**meta, "notes": notes, "units": units}, ensure_ascii=False), encoding="utf-8")
 
     def load(self, token: str) -> Tuple[Dict[str, Any], Path, List[Dict[str, Any]]]:
         if not isinstance(token, str) or not token.isalnum():

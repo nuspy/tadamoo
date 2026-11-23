@@ -92,6 +92,7 @@ USES: Tuple[Use, ...] = (
     Use("plan_wait", needs_session=True, params=(Param("max_per_hour", 12, 1, 120), Param("timeout_s", 20, 3, 120, False)), prompt="serve.plan_wait:SYSTEM"),
     Use("interruption", needs_session=True, prompt="voice.callbridge.interruption:SYSTEM"),
     Use("voice_reply"),
+    Use("summary_levels", params=(Param("chunk_tokens", 10000, 2000, 24000),)),
 )
 BY_ID: Dict[str, Use] = {u.id: u for u in USES}
 

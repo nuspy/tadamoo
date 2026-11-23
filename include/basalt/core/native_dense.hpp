@@ -46,8 +46,9 @@ public:
     static void set_layer_range(int lb, int le);
     /// The adapters to fuse into the next `load` (process-wide, like set_layer_range; nullptr: fuse nothing, the
     /// behaviour before this existed). When an adapter in `set` touches a tensor outside the ten native-matrix
-    /// families -- this engine cannot apply it -- and `allow_partial` is true, the ten families it does cover are
-    /// still fused and the rest is logged as a warning naming the counts and the known energy shares. When
+    /// families and the routed experts (the router, say) -- this engine cannot apply it -- and `allow_partial` is
+    /// true, what it does cover is still fused and the rest is logged as a warning naming the counts and the known
+    /// energy shares. When
     /// `allow_partial` is false, that adapter is refused instead (`err` gets the same text) and the static state
     /// is left unchanged so a caller that ignores the error cannot silently load with it.
     static bool set_lora(const LoraSet* set, bool allow_partial, std::string& err);

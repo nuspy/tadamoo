@@ -10,7 +10,7 @@
     python -m tadamoo.skillmanager enable NAME | disable NAME
     python -m tadamoo.skillmanager update NAME [--check] [--overwrite-local]
     python -m tadamoo.skillmanager update-plan NAME [--instruction TEXT ...]    the update merged with what you changed; prints the three versions, changes nothing
-    python -m tadamoo.skillmanager update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged ...] [--remember]
+    python -m tadamoo.skillmanager update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged ...]
     python -m tadamoo.skillmanager models NAME [--check]                        download (or only check) the models of an installed skill
 
 Only what is named is installed: no command installs, imports or downloads a skill that was not asked for. The state is in the user data folder (TADAMOO_DATA, else the
@@ -105,7 +105,7 @@ def run(args: argparse.Namespace, out=print) -> int:
         out(json.dumps(res, ensure_ascii=False, indent=1))
         return 0
     if cmd == "update-apply":
-        res = mgr.update_apply(args.token, args.choice, dict(r.rsplit("=", 1) for r in args.resolve), args.remember)
+        res = mgr.update_apply(args.token, args.choice, dict(r.rsplit("=", 1) for r in args.resolve))
         out(json.dumps(res, ensure_ascii=False, indent=1))
         return 0
     if cmd == "models":
@@ -190,7 +190,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     ma.add_argument("token")
     ma.add_argument("--choice", choices=("merge", "overwrite", "cancel"), default="merge")
     ma.add_argument("--resolve", action="append", default=[], metavar="FILE=ours|theirs|merged")
-    ma.add_argument("--remember", action="store_true", help="keep the instructions for the next updates")
     mo = sub.add_parser("models")
     mo.add_argument("name")
     mo.add_argument("--check", action="store_true", help="only check what is there")

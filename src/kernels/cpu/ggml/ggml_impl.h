@@ -98,3 +98,12 @@ static inline ggml_fp16_t ggml_compute_fp32_to_fp16(float f) {
 
 #define GGML_FP16_TO_FP32(x) GGML_COMPUTE_FP16_TO_FP32(x)
 #define GGML_FP32_TO_FP16(x) GGML_COMPUTE_FP32_TO_FP16(x)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+// ggml_quants_iq.c: the IQ2_S / IQ3_XXS / IQ3_S writers ggml_quantize_chunk routes to.
+size_t ggml_quantize_iq_rows(enum ggml_type type, const float * src, void * dst, int64_t nrow, int64_t n_per_row);
+#ifdef __cplusplus
+}
+#endif

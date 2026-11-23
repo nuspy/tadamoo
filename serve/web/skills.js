@@ -81,7 +81,6 @@
       UpdateMerge.open({ title: name, errText: why,
         load: instructions => call("POST", "api/skills/update/plan", { name: r.name, instructions, language: LANG }),
         apply: body => call("POST", "api/skills/update/apply", body),
-        notes: { set: notes => call("POST", "api/skills/update/notes", { name: r.name, notes }) },
         done: async text => { say(text); await refresh(); tell(origin); } });
     }
     async function start(path, payload) {

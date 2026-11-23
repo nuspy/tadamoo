@@ -41,3 +41,26 @@
 .sud[data-off="1"] .sud-use { opacity: .55; }
 .sud[data-off="1"] .sud-use * { pointer-events: auto; }
 @media (max-width: 520px) { .sud-h { padding: 8px 12px; } .sud-body { padding: 10px 12px 14px; } }
+
+.slbox { display: flex; flex-direction: column; gap: 8px; }
+.slbox textarea { width: 100%; min-height: 120px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; resize: vertical; box-sizing: border-box; }
+.slbox select, .slbox input[type=text] { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; box-sizing: border-box; }
+.slbox .btn { min-height: 44px; display: inline-flex; align-items: center; }
+.slrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+#sl-note[data-bad="1"] { color: var(--bad, #b3261e); }
+
+.lkbox { display: flex; flex-direction: column; gap: 8px; }
+.lklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.lkname { font-weight: 600; min-width: 8em; }
+.lkmodel { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.lkbad { color: var(--bad, #b3261e); }
+.lkform { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.lkbox select, .lkbox input[type=text], .lkpanel select { width: 100%; min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; box-sizing: border-box; }
+.lkbox .btn, .lkpanel .btn, .lkbtn { min-height: 44px; }
+.lkpanel { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.lkpanel textarea { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; box-sizing: border-box; resize: vertical; }
+.lkfield { display: flex; flex-direction: column; gap: 4px; }
+.lkactions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lknote { margin: 0; }
+.lknote[data-bad="1"] { color: var(--bad, #b3261e); }

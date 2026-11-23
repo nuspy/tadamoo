@@ -154,18 +154,16 @@ bool NativeDense::set_lora(const LoraSet* set, bool allow_partial, std::string& 
         };
         for (const auto& entry : set->entries()) {
             const LoraAdapter& a = *entry.adapter;
-            if (a.router_count() || a.expert_count() || a.other_count()) {
+            if (a.router_count() || a.other_count()) {
                 const std::string detail = a.path() + ": touches " + std::to_string(a.router_count()) +
-                      " router, " + std::to_string(a.expert_count()) + " expert and " +
-                      std::to_string(a.other_count()) +
-                      " other tensor(s) outside the ten families this engine fuses; energy share router=" +
-                      share_text(a, "router") + " experts=" + share_text(a, "experts") + " other=" +
-                      share_text(a, "other");
+                      " router and " + std::to_string(a.other_count()) +
+                      " other tensor(s) outside the ten families and the routed experts this engine fuses; "
+                      "energy share router=" + share_text(a, "router") + " other=" + share_text(a, "other");
                 if (!allow_partial) {
                     err = detail;
                     return false;
                 }
-                basalt::log::warn("basalt lora", "%s; fusing the ten covered families only, the rest of this "
+                basalt::log::warn("basalt lora", "%s; fusing the covered tensors only, the rest of this "
                                      "adapter's update is not applied",
                              detail.c_str());
             }

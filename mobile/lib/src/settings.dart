@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_engines.dart';
+import 'long_answer.dart';
 import 'secret_store.dart';
 
 /// What the app knows about the server and about the person's preferences. Kept on the phone only.
@@ -81,6 +84,11 @@ class AppSettings extends ChangeNotifier {
   /// The role the person last chose for conversations in a folder ('' until they choose one).
   String get agentRole => _prefs.getString('agentRole') ?? '';
 
+  /// How present pictures and charts are in new conversations ('' = not at all, else one of `visualLevels`): the phone's own choice,
+  /// kept here because the server keeps it only with each conversation.
+  String get images => _prefs.getString('visImages') ?? '';
+  String get charts => _prefs.getString('visCharts') ?? '';
+
   bool get configured => address.trim().isNotEmpty && key.trim().isNotEmpty;
 
   /// The server's base address: `http://name[:port]` or `https://name[:port]`, or just `name[:port]` (taken as http; a name or an IP address with no port is the scheme's own port, 80 or 443).
@@ -144,6 +152,52 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setAgentRole(String value) async {
     await _prefs.setString('agentRole', value);
+    notifyListeners();
+  }
+
+  /// What the person last chose to save of a Markdown file (`md`, `converted` or `both`) and the format of the converted one.
+  String get mdMode => _prefs.getString('mdMode') ?? '';
+  String get mdFormat => _prefs.getString('mdFormat') ?? '';
+
+  Future<void> setMdSave(String mode, String format) async {
+    await _prefs.setString('mdMode', mode);
+    await _prefs.setString('mdFormat', format);
+  }
+
+  /// What the person last chose for the Long answer button.
+  LongAnswerOptions get longAnswer => LongAnswerOptions.decode(_prefs.getString('longAnswer') ?? '');
+
+  Future<void> setLongAnswer(LongAnswerOptions value) async {
+    await _prefs.setString('longAnswer', jsonEncode(value.toJson()));
+    notifyListeners();
+  }
+
+  /// The conversations where the Long answer stays on until the person turns it off (the other way it is armed, once, is not kept).
+  Map<String, dynamic> _longOn() {
+    try {
+      final v = jsonDecode(_prefs.getString('longAnswerOn') ?? '{}');
+      return v is Map<String, dynamic> ? v : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  bool longOn(String sid) => sid.isNotEmpty && _longOn()[sid] == true;
+
+  Future<void> setLongOn(String sid, bool on) async {
+    if (sid.isEmpty) return;
+    final map = _longOn()..remove(sid);
+    if (on) map[sid] = true;
+    final ids = map.keys.toList();
+    for (final id in ids.take((ids.length - maxLongOnKept).clamp(0, ids.length))) {
+      map.remove(id);
+    }
+    await _prefs.setString('longAnswerOn', jsonEncode(map));
+  }
+
+  Future<void> setVisuals(String images, String charts) async {
+    await _prefs.setString('visImages', images);
+    await _prefs.setString('visCharts', charts);
     notifyListeners();
   }
 

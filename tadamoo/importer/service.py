@@ -19,7 +19,7 @@ from .updates import Updater
 
 KINDS = ("skill", "plugin", "mcp", "plan")
 ROW_FIELDS = ("kind", "name", "version", "description", "source", "imported_at", "updated_at", "hash", "files", "bytes", "parent", "parts", "reused", "dependencies",
-              "forms", "runs", "needs_keys", "steps", "last_reimport", "adopted", "merge_notes")
+              "forms", "runs", "needs_keys", "steps", "last_reimport", "adopted")
 
 
 @dataclass
@@ -83,25 +83,6 @@ class Importer:
 
     def drop_original(self, txn: Txn, kind: str, name: str) -> None:
         txn.remove_dir(self.originals(kind, name))
-
-    def merge_notes(self, kind: str, name: str) -> List[str]:
-        """What the person told the merge to do on every update of this one, as they wrote it."""
-        entry = self.manifest.load().get(f"{kind}:{name}") or {}
-        return [str(n.get("text") if isinstance(n, dict) else n) for n in entry.get("merge_notes", []) if n]
-
-    def set_merge_notes(self, kind: str, name: str, notes: List[str]) -> List[str]:
-        with Lock():
-            items = self.manifest.load()
-            entry = items.get(f"{kind}:{name}")
-            if entry is None:
-                raise Problem("not_imported", f"'{str(name)[:60]}' is not imported.")
-            clean = [" ".join(str(n).split())[:600] for n in notes if str(n).strip()][:20]
-            if clean:
-                entry["merge_notes"] = [{"text": t, "at": now_iso()} for t in clean]
-            else:
-                entry.pop("merge_notes", None)
-            self.manifest.save(items)
-            return clean
 
     # -- an update that keeps what the person changed ---------------------------------------------------------
 

@@ -5,7 +5,7 @@
     python -m tadamoo.importer import KIND PATH [--server NAME] [--with-dependencies] [--adopt]
     python -m tadamoo.importer reimport KIND NAME [--yes] [--overwrite-local] [--with-dependencies]
     python -m tadamoo.importer update-plan KIND NAME [--source PATH] [--instruction TEXT]
-    python -m tadamoo.importer update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged] [--remember]
+    python -m tadamoo.importer update-apply TOKEN [--choice merge|overwrite|cancel] [--resolve FILE=ours|theirs|merged]
     python -m tadamoo.importer delete KIND NAME
     python -m tadamoo.importer enable|disable NAME
     python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run] [--update]
@@ -54,7 +54,6 @@ def main(argv=None) -> int:
     ua.add_argument("token")
     ua.add_argument("--choice", choices=("merge", "overwrite", "cancel"), default="merge")
     ua.add_argument("--resolve", action="append", default=[], metavar="FILE=ours|theirs|merged", help="what to do with a file both sides changed in the same place")
-    ua.add_argument("--remember", action="store_true", help="keep the instructions for the next updates")
     de = sub.add_parser("delete")
     de.add_argument("kind", choices=KINDS)
     de.add_argument("name")
@@ -82,7 +81,7 @@ def main(argv=None) -> int:
         elif a.cmd == "update-plan":
             out = imp.update_plan(a.kind, a.name, source=a.source or None, instructions=a.instruction)
         elif a.cmd == "update-apply":
-            out = imp.update_apply(a.token, a.choice, resolutions=dict(r.rsplit("=", 1) for r in a.resolve), remember=a.remember)
+            out = imp.update_apply(a.token, a.choice, resolutions=dict(r.rsplit("=", 1) for r in a.resolve))
         elif a.cmd == "delete":
             out = imp.delete(a.kind, a.name)
         elif a.cmd in ("enable", "disable"):

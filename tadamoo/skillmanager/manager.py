@@ -475,14 +475,14 @@ class SkillManager:
             return self.imp.update_plan(entry["kind"], name, source=str(path), instructions=list(instructions or []), language=language,
                                         **_plugin_opts(entry["kind"], source.get("type") == "builtin"))
 
-    def update_apply(self, token: str, choice: str = "merge", resolutions: Any = None, remember: bool = False) -> Dict[str, Any]:
+    def update_apply(self, token: str, choice: str = "merge", resolutions: Any = None) -> Dict[str, Any]:
         """Does what the person chose for a proposed update: `merge` (with a choice for every conflict), `overwrite` or `cancel`."""
         with Lock():
             self.sync()
             name = self.imp.update_target(token)[1]
             entry = self._entry(name)
             with self._visible(name):
-                out = self.imp.update_apply(token, choice, resolutions=resolutions, remember=remember)
+                out = self.imp.update_apply(token, choice, resolutions=resolutions)
             if out.get("status") in ("merged", "replaced"):
                 self._record(name, entry["kind"], (self.choices.load().get(name) or {}).get("source") or {})
         if out.get("status") in ("merged", "replaced"):
