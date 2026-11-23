@@ -5,6 +5,17 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 ## 23 novembre
 
+**Unione in master (notte del 23 novembre, su tua richiesta «Unisci e committa tutto»):**
+- Prima ho committato il lavoro che avevi non committato nell'albero principale, in cinque commit (sotto-schede Voce/Avatar, voce
+  e profili XTTS, strumenti LoRA, shim RTX Video, diario). Lasciati fuori i file di runtime `basalt.pid`, `basalt_config.json*` e
+  `unsloth_compiled_cache/`. Poi ho unito `integration/2026-11-23` in master: commit 1d53c470, nessun conflitto. Niente è stato pubblicato.
+- Prove sull'albero unito: 124 test passati; la prova della voce con microfono finto è fallita una volta sotto carico del PC
+  (addestramento e suite in parallelo) e da sola passa. La suite completa di Python sul ramo di integrazione è ancora in corso.
+- L'APK compilato prima dell'unione corrisponde al codice unito (la cartella `mobile/` è identica); i task 28-30 sono solo web.
+- Il modello di correzione ungherese installato è OpenEuroLLM-Hungarian (architettura gemma3, 8,15 GB, licenza CC BY-NC-SA 4.0,
+  non commerciale). Era già usato dal telegiornale; la verifica della Chat non ha ancora nessun modello collegato. Proposto un confronto
+  con EuroLLM-22B e Gemma 3 su testi ungheresi veri: da avviare solo su tua richiesta.
+
 **Aggiornamento di notte, secondo giro (task 28, 29, 30 e unione dei rami):**
 - Tutto è unito nel ramo `integration/2026-11-23` (cartella `E:\Projects\basalt-wt\integration`): LoRA esperti, task 27, 31, Android 1-3,
   riga Providers, e i tre task nuovi. Master NON è stato toccato: il tuo albero principale ha file non committati che si sovrappongono
