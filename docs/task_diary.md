@@ -96,6 +96,16 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 - Nuovo incarico, 23 novembre: progettare la creazione di una LoRA dalla scheda Knowledge (sotto-scheda LoRA, documenti e
   testo, materiale preparato dal modello, tutto automatico). Progetto scritto in `docs/design-lora-knowledge.md`, nessun
   codice. Aspetta quattro risposte dell'utente.
+- Punto 7 del registro (link a commit e rami, vista per telefono): approvato dall'utente. Condizione: non ricompilare
+  l'app in funzione (TaDaMoo sta facendo compiti): codice e prove in un ramo, server di prova su una porta a parte,
+  niente eseguibile e niente APK. In coda.
+- Il problema maggiore, per l'utente: l'addestramento LoRA è lunghissimo anche con pochi dati. Idea sua: caricare in GPU
+  una parte dei pesi alla volta, addestrare tutti i pezzi su quella parte e unire i risultati. Valutata: i gradienti
+  passano anche dai pesi congelati, quindi ogni parte vorrebbe comunque un passaggio completo del modello; meglio far
+  scorrere i pesi strato per strato dentro ogni passo, con molti token per passo. Il fork QVAC ha già i passi
+  all'indietro CUDA (esperti, GDN, SSM, attenzione) e `-pw` per trasferire i pesi mentre calcola. In corso: compilo il
+  fork con CUDA (cartella `build-cuda` nella cartella temporanea); poi prova sul modello finto e, dopo la prova su Basalt
+  (che occupa la RAM), sul modello vero con contesti 128, 512 e 1024.
 - Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
   perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
 

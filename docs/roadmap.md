@@ -7,9 +7,10 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 28 |
+| in corso | 1 |
 | decisione aperta | 1 |
 | in attesa | 4 |
-| non iniziato | 5 |
+| non iniziato | 6 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -316,6 +317,24 @@ Una sotto-scheda LoRA in Knowledge: si danno documenti e testo, un modello prepa
 - Una LoRA non sostituisce l'archivio per i fatti: non si aggiorna e può inventare cose vicine.
 - L'addestratore (fork QVAC patchato) va portato in una ricetta di compilazione e se ne controlla la licenza.
 
+### 40. Addestramento LoRA su GPU (più veloce) (in corso)
+
+Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si prova a portarlo sulla GPU.
+
+**Fatto e problemi risolti**
+
+- Letto il codice del fork QVAC: ha già i passi all'indietro su CUDA per esperti (`MUL_MAT_ID_BACK`), GDN, SSM-conv, attenzione, e `out_prod` con dequantizzazione dei pesi quantizzati; ha l'opzione `-pw` per trasferire i pesi mentre calcola quando il modello non entra in VRAM.
+
+**Decisioni e punti aperti**
+
+- Idea dell'utente: caricare in GPU una parte dei pesi per volta, addestrare tutti i pezzi su quella parte, salvare e unire. Valutata: i gradienti passano anche dai pesi congelati, quindi ogni parte richiederebbe comunque un passaggio completo del modello. La forma giusta è far scorrere i pesi strato per strato dentro ogni passo (il fork lo sa fare), con molti token per passo.
+- Ordine: compilare il fork con CUDA, provarlo sul modello finto, poi sul modello vero con contesti 128, 512 e 1024 (dopo la prova su Basalt, che occupa la RAM).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Il backward su GPU del modello vero non è provato; alcuni passi potrebbero ricadere sulla CPU.
+- Il modello è 87 GB e la GPU ha 32 GB: la velocità dipende dal trasferimento dei pesi.
+
 ## Altri task fatti in questi giorni
 
 ### 20. Android: messaggi mentre l'harness lavora (fatto)
@@ -561,6 +580,19 @@ Due idee ancora da progettare.
 
 - adb: tocca, leggi lo schermo, scorri, senza installare nulla; canale separato dalla app Flutter, più fragile se cambia l'interfaccia di un'app.
 - Voce: oggi non esiste un caricamento automatico del modello quando una funzione vocale ne ha bisogno; costa tempo e VRAM, da decidere insieme.
+
+### 39. Registro: link a commit e rami, vista per telefono (non iniziato)
+
+Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; la scheda Tasks si vede anche nell'app Android, in sola lettura.
+
+**Decisioni e punti aperti**
+
+- Approvato dall'utente. Condizione: non ricompilare l'app in funzione (TaDaMoo sta facendo compiti): il codice si scrive e si prova in un ramo, con un server di prova su una porta a parte; niente eseguibile, niente APK.
+- Prima parte: nome del ramo e commit nel registro e nella scheda Tasks (copia, apri le modifiche). Seconda parte: la scheda Tasks in Flutter, solo lettura.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Non scrivere il file dei task del progetto Basalt prima del riavvio di TaDaMoo.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 

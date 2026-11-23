@@ -740,6 +740,43 @@
     "L'addestratore (fork QVAC patchato) va portato in una ricetta di compilazione e se ne controlla la licenza."
    ],
    "branch": false
+  },
+  {
+   "id": "rm39",
+   "num": 39,
+   "group": "todo",
+   "title": "Registro: link a commit e rami, vista per telefono",
+   "summary": "Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; la scheda Tasks si vede anche nell'app Android, in sola lettura.",
+   "status": "none",
+   "solved": [],
+   "decisions": [
+    "Approvato dall'utente. Condizione: non ricompilare l'app in funzione (TaDaMoo sta facendo compiti): il codice si scrive e si prova in un ramo, con un server di prova su una porta a parte; niente eseguibile, niente APK.",
+    "Prima parte: nome del ramo e commit nel registro e nella scheda Tasks (copia, apri le modifiche). Seconda parte: la scheda Tasks in Flutter, solo lettura."
+   ],
+   "risks": [
+    "Non scrivere il file dei task del progetto Basalt prima del riavvio di TaDaMoo."
+   ],
+   "branch": false
+  },
+  {
+   "id": "rm40",
+   "num": 40,
+   "group": "train",
+   "title": "Addestramento LoRA su GPU (più veloce)",
+   "summary": "Il problema maggiore: su CPU 76 secondi per passo, ore anche con pochi dati. Si prova a portarlo sulla GPU.",
+   "status": "run",
+   "solved": [
+    "Letto il codice del fork QVAC: ha già i passi all'indietro su CUDA per esperti (`MUL_MAT_ID_BACK`), GDN, SSM-conv, attenzione, e `out_prod` con dequantizzazione dei pesi quantizzati; ha l'opzione `-pw` per trasferire i pesi mentre calcola quando il modello non entra in VRAM."
+   ],
+   "decisions": [
+    "Idea dell'utente: caricare in GPU una parte dei pesi per volta, addestrare tutti i pezzi su quella parte, salvare e unire. Valutata: i gradienti passano anche dai pesi congelati, quindi ogni parte richiederebbe comunque un passaggio completo del modello. La forma giusta è far scorrere i pesi strato per strato dentro ogni passo (il fork lo sa fare), con molti token per passo.",
+    "Ordine: compilare il fork con CUDA, provarlo sul modello finto, poi sul modello vero con contesti 128, 512 e 1024 (dopo la prova su Basalt, che occupa la RAM)."
+   ],
+   "risks": [
+    "Il backward su GPU del modello vero non è provato; alcuni passi potrebbero ricadere sulla CPU.",
+    "Il modello è 87 GB e la GPU ha 32 GB: la velocità dipende dal trasferimento dei pesi."
+   ],
+   "branch": false
   }
  ]
 }
