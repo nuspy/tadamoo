@@ -6,9 +6,9 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 
 | Stato | Nodi |
 |---|---|
-| fatto | 30 |
-| in attesa | 9 |
-| non iniziato | 3 |
+| fatto | 31 |
+| in attesa | 11 |
+| non iniziato | 1 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -624,9 +624,15 @@ Due idee ancora da progettare.
 - adb: tocca, leggi lo schermo, scorri, senza installare nulla; canale separato dalla app Flutter, più fragile se cambia l'interfaccia di un'app.
 - Voce: oggi non esiste un caricamento automatico del modello quando una funzione vocale ne ha bisogno; costa tempo e VRAM, da decidere insieme.
 
-### 39. Registro: link a commit e rami, vista per telefono (non iniziato)
+### 39. Registro: link a commit e rami, vista per telefono (fatto)
 
 Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; la scheda Tasks si vede anche nell'app Android, in sola lettura.
+
+**Fatto e problemi risolti**
+
+- Fatto (23 novembre sera, commit f0a13eaa e 60b4b487): ogni task del registro porta il ramo git e i commit (campi `git_branch` e `commits`, aggiornabili da `/api/register/update`; i commit si scartano se non sono id esadecimali). Nella scheda Tasks del web ramo e commit sono collegamenti alla pagina del `origin` del progetto (senza credenziali, schema http/https mantenuto), testo semplice se il progetto non ha un remoto. Passano anche nel file `docs/roadmap.json` e nel testo `docs/roadmap.md`, e un file che non ne parla non cancella quelli del registro.
+- Android: il registro è la terza parte, in sola lettura, della scheda Azioni (la barra in basso resta di 5 voci): per ogni progetto i task aperti con stato, fatto e mancante, ramo e commit che aprono la pagina del remoto. Nessun pulsante di modifica.
+- Provato: 48 test del registro e della mappa, la scheda Tasks in un browser vero a tre larghezze (con il controllo dei collegamenti), 388 test dell'app Android (tre nuovi). Non provato su un telefono vero.
 
 **Decisioni e punti aperti**
 
@@ -637,17 +643,30 @@ Punto 7 del registro, approvato il 23 novembre: ogni task porta ramo e commit; l
 
 - Non scrivere il file dei task del progetto Basalt prima del riavvio di TaDaMoo.
 
-### 42. App desktop: «Spegni» dall'icona nella barra (non iniziato)
+### 42. App desktop: «Spegni» dall'icona nella barra (in attesa)
 
 Il 23 novembre «Spegni» non ha spento il server: la conferma comparisce dietro le altre finestre (la finestra principale proprietaria è nascosta), con due clic ne restano due, lo spegnimento gira sul thread della finestra e la blocca, e il server è un servizio Windows (NSSM) che l'app non considera.
 
 **Fatto e problemi risolti**
 
 - Verificato (23 novembre, 20:13): il servizio Windows `TaDaMoo` (NSSM) esegue `Avvia-TaDaMoo.ps1 -PerApp -Standby` con AppExit = Restart e attesa di 10 s. Quando l'utente ha terminato i processi, il servizio ha riavviato il server alle 20:13:31. Con questo servizio, spegnere con un kill non basta: serve fermare il servizio (`Stop-Service TaDaMoo` da amministratore).
+- Corretto nel codice (23 novembre sera, commit 663a8559): «Spegni» porta la finestra in primo piano prima di chiedere, un secondo clic non apre una seconda conferma, lo spegnimento gira fuori dal thread della finestra (non la congela più) e `Ferma-TaDaMoo.ps1` ferma il servizio Windows che tiene acceso il server (con la richiesta di permesso di Windows se serve), solo se ha un processo proprio ed è NSSM o chiamato TaDaMoo/Basalt. Compila. Il riconoscimento del servizio è provato in sola lettura su un altro servizio NSSM; lo spegnimento vero non è provato.
 
 **Decisioni e punti aperti**
 
-- Da correggere nel codice (`tools/windows/desktop/MainForm.cs`, `TurnOff`): conferma sempre in primo piano e una sola alla volta; spegnimento fuori dal thread della finestra; gestire il server avviato dal servizio. Non toccare l'app in funzione: la ricompila e riavvia l'utente.
+- Da provare dall'app installata: icona nella barra, Spegni, risposta Yes, e il server (servizio) deve restare spento.
+
+### 43. Idee da DeerFlow (da decidere) (in attesa)
+
+Studio del codice di bytedance/deer-flow (docs/study-deerflow.md): dove fa meglio di noi e cosa potremmo imparare. Nessuna idea è stata avviata.
+
+**Fatto e problemi risolti**
+
+- Letto il codice (23 novembre sera) e confrontato con il nostro: otto punti dove fanno meglio, di cui quattro verificati nel codice (release con controllo delle versioni, un AGENTS.md per modulo, contratti JSON condivisi, errori dei fornitori con Retry-After e interruttore) e uno (citazioni dei subagenti) verificato come assente da noi; tre solo plausibili con la prova economica scritta nel documento.
+
+**Decisioni e punti aperti**
+
+- Da decidere quali adottare. In ordine di costo: 1 controllo delle versioni più CHANGELOG (e allineare pubspec, VERSION e note), 2 AGENTS.md per modulo, 3 contratti JSON condivisi, poi le idee da misurare (Retry-After e interruttore, citazioni dei subagenti, riparazione della cronologia, compattazione a pezzi, segno «letto» nei messaggi).
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 

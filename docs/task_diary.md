@@ -5,6 +5,16 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 ## 23 novembre
 
+**Studio di DeerFlow (23 novembre sera, su tua richiesta).** Letto il codice di bytedance/deer-flow e confrontato con il nostro: `docs/study-deerflow.md`.
+  Fanno meglio: controllo delle versioni nelle release (da noi VERSION, pubspec e note non coincidono), un AGENTS.md per modulo, contratti JSON condivisi
+  tra server e client, Retry-After e interruttore per i fornitori esterni, citazioni dei subagenti controllate. Siamo pari o avanti su cicli, sovrascritture,
+  compattazione, obiettivi e abilità. Nodo 43 nella mappa, da decidere.
+
+**Task 39 e 42 fatti (23 novembre sera).** 42, «Spegni» dall'icona: conferma in primo piano e una sola, spegnimento che non congela la finestra,
+  e `Ferma-TaDaMoo.ps1` che ferma il servizio NSSM che tiene acceso il server (commit 663a8559); lo spegnimento vero resta da provare dall'app installata.
+  39, registro: ogni task porta ramo e commit (collegamenti al remoto nella scheda Tasks e nel file della mappa) e l'app Android mostra il registro in
+  sola lettura come terza parte della scheda Azioni (commit f0a13eaa e 60b4b487). Provati: test del registro, scheda in browser vero, 388 test Android.
+
 **Difetto trovato (23 novembre sera): «Spegni» dall'icona nella barra non spegne.** La conferma compare dietro le altre finestre (la finestra
   principale è nascosta), due clic la aprono due volte, dopo il Yes l'altra finestra si congela; il server non si è fermato. Il server gira come
   servizio Windows NSSM (`TaDaMoo`, avvio automatico), che l'app non gestisce. Causa del congelamento solo plausibile (spegnimento sul thread della
