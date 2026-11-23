@@ -614,8 +614,8 @@
    "num": 32,
    "group": "todo",
    "title": "Risposte più lunghe",
-   "summary": "Il modello chiude le risposte da solo, anche con limiti alti. Prima prove senza addestramento.",
-   "status": "decision",
+   "summary": "In attesa (23 novembre): l'utente vuole provare a farlo con una LoRA; ci si pensa più avanti.",
+   "status": "wait",
    "solved": [
     "Valutato il testo di Gemini: diagnosi plausibile, numeri non misurati; l'ID del token di fine è sbagliato per questo modello (qui 248044/248046)."
    ],
@@ -710,14 +710,36 @@
    "title": "Decisioni e promemoria",
    "summary": "Cose che spettano a te o che ti ricordo.",
    "status": "wait",
-   "solved": [],
+   "solved": [
+    "Riordino del disco E:: punto chiuso il 23 novembre; lo fa la sessione LTX Studio, non c'è altro da fare qui."
+   ],
    "decisions": [
-    "Riordino del disco E:: lo fai dalla sessione LTX Studio, non da qui.",
-    "Piano contro le istruzioni nascoste nelle pagine web: te lo ricordo intorno al 26-27 novembre.",
+    "Piano contro le istruzioni nascoste nelle pagine web: promemoria confermato per il 26-27 novembre.",
     "OCR e PDF: confermato su GPU, non su CPU."
    ],
    "risks": [],
    "branch": true
+  },
+  {
+   "id": "rm38",
+   "num": 38,
+   "group": "train",
+   "title": "Creare una LoRA dalla scheda Knowledge",
+   "summary": "Una sotto-scheda LoRA in Knowledge: si danno documenti e testo, un modello prepara il materiale, un pulsante addestra e attiva. Progetto scritto, niente codice.",
+   "status": "decision",
+   "solved": [
+    "Progetto scritto in `docs/design-lora-knowledge.md`: cosa vede la persona, come si prepara il materiale (riuso di archivi e domande già scritte), costo, memoria, dove stanno i file, quattro fasi."
+   ],
+   "decisions": [
+    "Fase 0: finire la prova su Basalt (task 18) e misurare il costo di un passo a contesto 128, 512 e 1024: cambia il tetto e la stima.",
+    "Da decidere con te: tenere il GGUF di base (87 GB) su disco; il modello locale tace durante l'addestramento; tetto di ore; una sola LoRA attiva per progetto."
+   ],
+   "risks": [
+    "Oggi l'addestramento è solo su CPU: circa 76 secondi per passo, 5 ore e 33 minuti per 24 fatti.",
+    "Una LoRA non sostituisce l'archivio per i fatti: non si aggiorna e può inventare cose vicine.",
+    "L'addestratore (fork QVAC patchato) va portato in una ricetta di compilazione e se ne controlla la licenza."
+   ],
+   "branch": false
   }
  ]
 }

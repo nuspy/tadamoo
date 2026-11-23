@@ -90,14 +90,20 @@ Ultimo aggiornamento: 22 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 - Nota: la prova completa dei test Python sul ramo di integrazione è stata fermata a metà (poteva scontrarsi con il
   file d'uso dei modelli del TaDaMoo in funzione). Da rifare isolata, con `TADAMOO_DATA` su una cartella temporanea.
 
+- Decisioni dell'utente, 23 novembre mattina: «Risposte più lunghe» resta in attesa (vuole provare con una LoRA, ci si
+  pensa); il riordino del disco E: è chiuso (lo fa la sessione LTX Studio); confermato il promemoria del 26-27
+  novembre sulle istruzioni nascoste nelle pagine web; le sue prove le farà dopo che ho finito le mie.
+- Nuovo incarico, 23 novembre: progettare la creazione di una LoRA dalla scheda Knowledge (sotto-scheda LoRA, documenti e
+  testo, materiale preparato dal modello, tutto automatico). Progetto scritto in `docs/design-lora-knowledge.md`, nessun
+  codice. Aspetta quattro risposte dell'utente.
+- Prova della LoRA su Basalt, via dell'utente alle 05:00: conversione del GGUF in `.basalt` su D: (con `--compat-bf16`,
+  perché il GGUF di Unsloth ha le matrici hyper-connection in Q8_0), poi 22 domande senza e con adapter.
+
 **Elenco completo dei task (scritto su richiesta dell'utente, sera del 23 novembre).**
 
 In corso adesso:
-- LoRA: motore pronto, addestramento finito (vedi sopra); resta la prova con Basalt, che aspetta il via dell'utente.
-- Android 1: messaggi mentre l'harness lavora (guida, in coda, urgente), in Chat e in Agentic coding.
-- Android 2: «Immagini e grafici» sul telefono.
-- Android 3: risposta lunga sul telefono.
-- Providers: riga esplicita «richieste esterne tramite interfacce OpenAI e Anthropic» sotto la lista Functions.
+- LoRA: motore pronto, addestramento finito (vedi sopra); prova con Basalt in corso.
+- Android 1-3 e Providers: fatti e uniti in `master` (vedi sopra); Android non provato su un telefono vero.
 
 In coda, senza bisogno di riavviare TaDaMoo (da fare dopo i quattro sopra):
 - Verifica grammaticale nella Chat, con menu a tendina per la lingua su cui caricare il modello specializzato.

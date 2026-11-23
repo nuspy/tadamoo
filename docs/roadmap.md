@@ -8,7 +8,7 @@ _Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 |---|---|
 | fatto | 28 |
 | decisione aperta | 1 |
-| in attesa | 3 |
+| in attesa | 4 |
 | non iniziato | 5 |
 
 ## Il motore: adapter fusi all'avvio
@@ -297,6 +297,25 @@ Una LoRA pensata per come TaDaMoo usa il modello: i suoi strumenti e le sue conv
 
 - Idea solo annotata: trasferire una LoRA addestrata su un'architettura a un'altra.
 
+### 38. Creare una LoRA dalla scheda Knowledge (decisione aperta)
+
+Una sotto-scheda LoRA in Knowledge: si danno documenti e testo, un modello prepara il materiale, un pulsante addestra e attiva. Progetto scritto, niente codice.
+
+**Fatto e problemi risolti**
+
+- Progetto scritto in `docs/design-lora-knowledge.md`: cosa vede la persona, come si prepara il materiale (riuso di archivi e domande già scritte), costo, memoria, dove stanno i file, quattro fasi.
+
+**Decisioni e punti aperti**
+
+- Fase 0: finire la prova su Basalt (task 18) e misurare il costo di un passo a contesto 128, 512 e 1024: cambia il tetto e la stima.
+- Da decidere con te: tenere il GGUF di base (87 GB) su disco; il modello locale tace durante l'addestramento; tetto di ore; una sola LoRA attiva per progetto.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Oggi l'addestramento è solo su CPU: circa 76 secondi per passo, 5 ore e 33 minuti per 24 fatti.
+- Una LoRA non sostituisce l'archivio per i fatti: non si aggiorna e può inventare cose vicine.
+- L'addestratore (fork QVAC patchato) va portato in una ricetta di compilazione e se ne controlla la licenza.
+
 ## Altri task fatti in questi giorni
 
 ### 20. Android: messaggi mentre l'harness lavora (fatto)
@@ -516,9 +535,9 @@ Il registro dell'harness è ora anche la mappa dello sviluppo: gruppi, cronologi
 
 ## Altri task da fare, senza riavviare TaDaMoo
 
-### 32. Risposte più lunghe (decisione aperta)
+### 32. Risposte più lunghe (in attesa)
 
-Il modello chiude le risposte da solo, anche con limiti alti. Prima prove senza addestramento.
+In attesa (23 novembre): l'utente vuole provare a farlo con una LoRA; ci si pensa più avanti.
 
 **Fatto e problemi risolti**
 
@@ -570,8 +589,11 @@ Servono GPU libera, finestre vere, un telefono vero.
 
 Cose che spettano a te o che ti ricordo.
 
+**Fatto e problemi risolti**
+
+- Riordino del disco E:: punto chiuso il 23 novembre; lo fa la sessione LTX Studio, non c'è altro da fare qui.
+
 **Decisioni e punti aperti**
 
-- Riordino del disco E:: lo fai dalla sessione LTX Studio, non da qui.
-- Piano contro le istruzioni nascoste nelle pagine web: te lo ricordo intorno al 26-27 novembre.
+- Piano contro le istruzioni nascoste nelle pagine web: promemoria confermato per il 26-27 novembre.
 - OCR e PDF: confermato su GPU, non su CPU.
