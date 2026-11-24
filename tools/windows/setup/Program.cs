@@ -526,8 +526,30 @@ sealed class Installer
             }
             catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere ", "Warning: cannot write ") + profile + ": " + e.Message); }
         }
+        WindowsTerminalProfiles(module);
         log.Line(Tr.T("Se PowerShell 5.1 non carica il profilo, serve: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned (non lo cambio io).",
                       "If Windows PowerShell does not load the profile, it needs: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned (the setup does not change it)."));
+    }
+
+    void WindowsTerminalProfiles(string module)
+    {
+        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file, so the person's settings.json is not touched.
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows Terminal", "Fragments", "TaDaMoo");
+        string file = Path.Combine(dir, "tadamoo.json");
+        if (o.DryRun) { log.Line("would write the Windows Terminal profiles in " + file); return; }
+        try
+        {
+            string run = "Import-Module '" + module.Replace("'", "''") + "'; Enable-TaDaMooPrefix";
+            var profiles = new object[]
+            {
+                new { name = "PowerShell 7 + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d03}", commandline = "pwsh.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{574e775e-4f2a-5b96-ac1e-a2962a402336}.png", hidden = false },
+                new { name = "Windows PowerShell + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d04}", commandline = "powershell.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png", hidden = false },
+            };
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(file, JsonSerializer.Serialize(new { profiles }, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+            log.Line(Tr.T("Profili di Windows Terminal scritti in ", "Windows Terminal profiles written in ") + file);
+        }
+        catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere i profili di Windows Terminal: ", "Warning: cannot write the Windows Terminal profiles: ") + e.Message); }
     }
 
     void Compile()
