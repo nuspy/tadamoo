@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from docx.oxml.ns import qn
+from lxml import etree
 
 from tadamoo.tools import docx_runs as dr
+from tadamoo.tools import docx_parts
 from tadamoo.tools.docx_runs import EditError
 from tadamoo.tools.docx_schemas import (CREATE_PARAMS, CREATE_TEXT, EDIT_PARAMS, EDIT_TEXT, OUTLINE_PARAMS, OUTLINE_TEXT, READ_PARAMS,
                                         READ_TEXT)
@@ -51,6 +53,14 @@ def comments_of(doc: Any) -> List[Any]:
         return list(doc.part.part_related_by(RT.COMMENTS).comments)
     except KeyError:
         return []
+
+
+XPATH_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006"}
+
+
+def _xpath(element: Any, expression: str) -> List[Any]:
+    """An XPath over the document with the prefixes this module uses; python-docx's own `xpath` does not know `mc`, which fails as soon as a match is tested."""
+    return etree._Element.xpath(element, expression, namespaces=XPATH_NS)
 
 
 def _preview(text: str, n: int = PREVIEW) -> str:
@@ -285,12 +295,12 @@ class DocxTools:
         safe = self._existing(path, "docx_outline")
         doc = self._open(safe, path)
         body = Body(doc)
-        n_img = len(doc.element.body.xpath(".//w:drawing")) + len(doc.element.body.xpath(".//w:pict[not(ancestor::mc:Fallback)]"))
+        n_img = len(_xpath(doc.element.body, ".//w:drawing")) + len(_xpath(doc.element.body, ".//w:pict[not(ancestor::mc:Fallback)]"))
         n_comments = len(comments_of(doc))
         ins, dels = _tracked_counts(doc)
         tracked = f"{ins} insertions, {dels} deletions" if ins or dels else "none"
         head = [f"{path}: {len(body.paras)} paragraphs, {len(body.tables)} tables, {n_img} images, {n_comments} comments, tracked changes: {tracked}",
-                "Addresses count from 1 over the body: paragraphs pN, tables tN, cells tN.rR.cC. Headers, footers, footnotes and text boxes are not listed."]
+                "Addresses count from 1 over the body: paragraphs pN, tables tN, cells tN.rR.cC. Headers, footers, footnotes and text boxes are listed below; change them with replace_text and target headers, footers, footnotes, endnotes, textboxes or everywhere."]
         sections: List[Dict[str, Any]] = [{"level": 0, "title": None, "first": None, "pars": [], "tables": []}]
         t_no = p_no = 0
         for child in body.body:
@@ -308,7 +318,7 @@ class DocxTools:
                 rows, cols = body.grid(child)
                 first = " | ".join(_preview(body.cell_text(tc), 24) for tc in body.cells(body.rows(child)[0])) if rows else ""
                 sections[-1]["tables"].append(f"t{t_no} {rows}x{cols}, after p{p_no}: {_preview(first)}")
-        lines = list(head)
+        lines = list(head) + docx_parts.describe(doc)
         for sec in sections:
             pars = sec["pars"]
             span = f" (p{pars[0]}-p{pars[-1]})" if len(pars) > 1 else f" (p{pars[0]})" if pars else ""
@@ -329,7 +339,13 @@ class DocxTools:
 
     def read(self, path: str, target: str) -> str:
         safe = self._existing(path)
-        body = Body(self._open(safe, path))
+        doc = self._open(safe, path)
+        body = Body(doc)
+        scope = str(target).strip().lower()
+        if scope in docx_parts.SCOPES:
+            pars = docx_parts.Parts(doc).paragraphs(scope)
+            shown = [f"{scope} {n}: {dr.text_of(p)}" for n, p in enumerate(pars, 1) if dr.text_of(p).strip()]
+            return "\n".join(shown) or f"No text in {scope}."
         kind, nums = body.parse(target)
         out: List[str] = []
         if kind == "par":
@@ -567,6 +583,7 @@ class _Session:
     def __init__(self, doc: Any, track: bool) -> None:
         self.doc = doc
         self.body = Body(doc)
+        self.parts = docx_parts.Parts(doc)
         self.track = bool(track)
         self.rev = dr.Revisions(doc.element)
         self.gone: set = set()
@@ -665,6 +682,7 @@ class _Session:
         self.gone.add(p)
 
     def finish(self) -> None:
+        self.parts.finish()
         for el in self.removals:
             if el.getparent() is not None:
                 el.getparent().remove(el)
@@ -684,7 +702,13 @@ class _Session:
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise EditError("'count' is how many occurrences to replace (default 1; 0 for all of them)")
         target = item.get("target", "all")
-        pars = [self._live(p) for p in self.body.paragraphs_in(target)]
+        scope = str(target).strip().lower()
+        if scope == "everywhere":
+            pars = [self._live(p) for p in self.body.paragraphs_in("all")] + self.parts.paragraphs("extras")
+        elif scope in docx_parts.SCOPES:
+            pars = self.parts.paragraphs(scope)
+        else:
+            pars = [self._live(p) for p in self.body.paragraphs_in(target)]
         total = sum(dr.text_of(p).count(find) for p in pars)
         if not total:
             joined = "\n".join(dr.text_of(p) for p in pars)
