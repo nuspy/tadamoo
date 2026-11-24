@@ -215,6 +215,7 @@ class PptxTools:
 
     def edit(self, path: str, edits: List[Dict[str, Any]], output: str = "", overwrite: bool = False) -> Dict[str, Any]:
         safe = self._existing(path, "pptx_edit")
+        output = io.copy_for(self.sandbox, "pptx_edit", path, output)
         target = io.target_of(self.sandbox, path, output, "pptx_edit", ".pptx", overwrite)
         blocked = io.guard(self.sandbox, "pptx_edit", output or path, target)
         if blocked:
@@ -464,8 +465,8 @@ EDIT_TEXT = (
     "replace, count (default 1; 0 = all)} keeps the formatting and works across runs, in shapes, tables and notes; set_text {target sN.shM, text} (a new line is a new paragraph; "
     "the first run's formatting is kept); set_cell {target sN.shM.rR.cC, text}; set_notes {slide, text}; add_slide {layout (name or number), title, body: [bullets], notes, position?}; "
     "delete_slide {slide}; move_slide {slide, to}; insert_picture {slide, image (a file of the workspace), left_cm?, top_cm?, width_cm?, height_cm?, alt?}; add_textbox {slide, text, "
-    "left_cm?, top_cm?, width_cm?, height_cm?, size?}; delete_shape {target}. Charts, SmartArt, media and animations are kept as they are (their text is not searched). Use `output` to "
-    "write a new file and keep the original. Find the addresses with pptx_outline / pptx_read first.")
+    "left_cm?, top_cm?, width_cm?, height_cm?, size?}; delete_shape {target}. Charts, SmartArt, media and animations are kept as they are (their text is not searched). The original is "
+    "never written: the result is a copy (name.edited.pptx, or the `output` you name); edit that copy to go on. Find the addresses with pptx_outline / pptx_read first.")
 CREATE_TEXT = (
     "Creates a new PowerPoint presentation (.pptx), 16:9, from slides with a title, bullets and notes. Use it for a new deck (\"crea una presentazione con...\"). It refuses to replace "
     "an existing file unless overwrite=true; to change an existing one use pptx_edit.")
@@ -483,7 +484,7 @@ EDIT_PARAMS = {"type": "object", "properties": {
         "body": {"type": "array", "items": {"type": "string"}}, "notes": {"type": "string"}, "position": {"type": "integer"},
         "image": {"type": "string"}, "alt": {"type": "string"}, "left_cm": {"type": "number"}, "top_cm": {"type": "number"}, "width_cm": {"type": "number"},
         "height_cm": {"type": "number"}, "size": {"type": "number"}}, "required": ["kind"]}},
-    "output": {"type": "string", "description": "Write the result to this new .pptx and keep the original"},
+    "output": {"type": "string", "description": "The new .pptx to write (default name.edited.pptx); the original is never written"},
     "overwrite": {"type": "boolean", "description": "Allow output to replace an existing file (default false)"}}, "required": ["path", "edits"]}
 CREATE_PARAMS = {"type": "object", "properties": {
     "path": {"type": "string", "description": "Relative path of the new .pptx file"},

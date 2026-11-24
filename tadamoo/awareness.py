@@ -46,8 +46,8 @@ def editing_line(names) -> str:
     else:
         parts.append("There are no tools here to change a PDF in place: offer to change the source file, or to make a new one.")
     parts.append(
-        "Never read a file as text and write it back with `write_file` or through Markdown: that loses styles, formulas and layout. Look first (the outline), change in one call, work on a copy "
-        "unless the person asked to change the original, read the result back, and say what could not be changed. If the PDF came from a file the person still has, change that file instead. "
+        "Never read a file as text and write it back with `write_file` or through Markdown: that loses styles, formulas and layout. Look first (the outline), change in one call, the tools always write a copy "
+        "(name.edited.ext; go on with that copy and offer it with publish_output_file), read the result back, and say what could not be changed. If the PDF came from a file the person still has, change that file instead. "
         "The skill `document-editing` has the details.")
     return "- Changing documents that already exist: " + " ".join(parts)
 

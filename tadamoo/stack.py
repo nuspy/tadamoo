@@ -35,7 +35,8 @@ from tadamoo.side import side_context, side_extra, side_extra_for, use as side_u
 from tadamoo.prompt_blocks import instruction_blocks
 from tadamoo.project_profile import clean_list
 from tadamoo.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, RolePolicy, valid as valid_role
-from tadamoo.skills import SkillCatalog, guidelines_cut_notice, read_project_guidelines, register_skill_tool
+from tadamoo.guidelines import files as guidelines_in_cascade, merged as merge_guidelines, read as read_guidelines
+from tadamoo.skills import SkillCatalog, guidelines_cut_notice, register_skill_tool
 from tadamoo.tools import create_standard_tool_registry
 from tadamoo.tools.registry import TOOL_CALL_NOTE
 
@@ -674,6 +675,8 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
                 raise FileNotFoundError("that output file is not there") from None
         return sandbox.resolve_safe(path, "analyze_image")
     register_vision_tool(registry, index, reader, cfg.endpoint, cfg.api_key, client)
+    from tadamoo.document_ask import register_document_ask
+    register_document_ask(registry, reader, client)
     builder.pin("capabilities", _capabilities_summary(index, cfg))
     return index
 
@@ -843,7 +846,12 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if secrets.vault is not None and secrets.vault.note():
         builder.pin("vault", secrets.vault.note())
     notices: List[str] = []
-    guide_file, guidelines, guide_cut = read_project_guidelines(workspace)
+    guide_files = guidelines_in_cascade(workspace, data)          # the person's own file, the repository's folders down to the working folder
+    guide_file = guide_files[-1] if guide_files else None
+    guidelines, guide_cut = "", 0
+    if guide_files:
+        guide_items, guide_cut = read_guidelines(guide_files)
+        guidelines = merge_guidelines(guide_items, technical if technical is not None else client, data)
     if guidelines:
         if guide_cut:
             notices.append(guidelines_cut_notice(guide_file.name, guide_cut))
@@ -899,6 +907,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.attachment_tools import register_attachment_tools
         from tadamoo.attachments import AttachmentStore, OutputStore
         from tadamoo.integrations.call_api_client import CallAPICallClient
+        attachments = AttachmentStore(Path(cfg.attachments_dir))
+        sandbox.attachment_files = lambda att_id: (attachments.named_path(cfg.run_id, att_id), str(attachments.get(cfg.run_id, att_id).get("name") or att_id))
         register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id,
                                   lambda p: sandbox.resolve_safe(p, "publish_output_file"),
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))

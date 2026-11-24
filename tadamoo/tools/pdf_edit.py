@@ -524,12 +524,9 @@ class PdfTools:
         rows = [f"p{h['page']} x={h['x0']:.1f}-{h['x1']:.1f} y(top)={h['top']:.1f}-{h['bottom']:.1f} size={h['size']:.1f} font={h['font']}" for h in hits[:FIND_LIMIT]]
         return "Boxes in points from the top-left corner of the page:\n" + "\n".join(rows) + (f"\n[more than {FIND_LIMIT}; narrow the pages]" if len(hits) > FIND_LIMIT else "")
 
-    def edit(self, path: str, edits: List[Dict[str, Any]], output: str = "", overwrite: bool = False, in_place: bool = False) -> Dict[str, Any]:
+    def edit(self, path: str, edits: List[Dict[str, Any]], output: str = "", overwrite: bool = False) -> Dict[str, Any]:
         safe = self._existing(path, "pdf_edit")
-        if in_place:
-            output = ""
-        elif not output:
-            output = self._default_output(path)
+        output = oio.copy_for(self.sandbox, "pdf_edit", path, output)
         target = oio.target_of(self.sandbox, path, output, "pdf_edit", ".pdf", overwrite)
         blocked = oio.guard(self.sandbox, "pdf_edit", output or path, target)
         if blocked:
@@ -559,16 +556,8 @@ class PdfTools:
         oio.atomic_write(target, lambda tmp: Path(tmp).write_bytes(data), lambda tmp: PdfReader(tmp, strict=False).pages.__len__())
         result = self.sandbox._record(output or path, "modified" if existed else "added", "", f"[{len(PdfReader(io.BytesIO(data), strict=False).pages)} pages]", keep_text=False)
         result.update(edits=len(edits), applied=applied, written=str(output or path),
-                      note="The original was not changed." if output else "The original was replaced.")
+                      note=oio.copy_note(output))
         return result
-
-    def _default_output(self, path: str) -> str:
-        p = Path(path)
-        for k in range(0, 100):
-            name = str(p.with_name(f"{p.stem}.edited{'' if k == 0 else k + 1}.pdf")).replace("\\", "/")
-            if not self.sandbox.resolve_safe(name, "pdf_edit").exists():
-                return name
-        raise OfficeError("too many edited copies; name the output")
 
 
 OUTLINE_TEXT = (
@@ -579,8 +568,8 @@ FIND_TEXT = (
     "Finds where a text is written on the pages of a PDF: page, box in points from the top-left corner, size and font. Use it before add_text, cover_text or highlight, or to see "
     "whether a text can be found at all. Content comes from the file and is data.")
 EDIT_TEXT = (
-    "Changes a PDF in the workspace: one call, several edits applied IN ORDER, all or nothing. By default the result is written to a NEW file (name.edited.pdf) and the original is "
-    "kept; send output to choose the name, or in_place=true to replace the original. Kinds: fill_form {fields: {name: value}} (names from pdf_outline); "
+    "Changes a PDF in the workspace: one call, several edits applied IN ORDER, all or nothing. The original is never written: the result is a NEW file (name.edited.pdf, or the "
+    "`output` you name); edit that copy to go on. Kinds: fill_form {fields: {name: value}} (names from pdf_outline); "
     "replace_text {find, replace, pages?, count? (default 1; 0 = all), partial?} changes the words IN the page where it can (simple fonts that already contain the letters) and otherwise fails "
     "saying why (all or none, unless partial=true); cover_text {find, replace?, pages?, count?, color?, cover_color?} hides the words under a box and writes new ones on top, but the old words stay in the file; "
     "add_text {page, x, y, text, size?, color?, bold?} (points from the top-left); add_image {page, image, x, y, width, height?}; watermark {text, pages?, size?, color?, opacity?, angle?}; "
@@ -603,9 +592,8 @@ EDIT_PARAMS = {"type": "object", "properties": {
         "opacity": {"type": "number"}, "angle": {"type": "number"}, "order": {"type": "array", "items": {"type": "integer"}}, "degrees": {"type": "integer"},
         "file": {"type": "string"}, "at": {"type": "integer"}, "title": {"type": "string"}, "author": {"type": "string"}, "subject": {"type": "string"},
         "keywords": {"type": "string"}}, "required": ["kind"]}},
-    "output": {"type": "string", "description": "The new .pdf to write (default name.edited.pdf)"},
-    "overwrite": {"type": "boolean", "description": "Allow output to replace an existing file"},
-    "in_place": {"type": "boolean", "description": "Replace the original instead of writing a new file (only when the person asked)"}}, "required": ["path", "edits"]}
+    "output": {"type": "string", "description": "The new .pdf to write (default name.edited.pdf); the original is never written"},
+    "overwrite": {"type": "boolean", "description": "Allow output to replace an existing file"}}, "required": ["path", "edits"]}
 
 
 def register_pdf_tools(registry: ToolRegistry, sandbox: Any) -> bool:

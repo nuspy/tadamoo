@@ -3,6 +3,7 @@ cannot leave a half-written file behind."""
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -15,8 +16,31 @@ class OfficeError(ValueError):
     """A request the tool cannot carry out; the text is what the model is told."""
 
 
+ATTACHMENT = "attachment:"
+
+
+def attached(sandbox: Any, path: str) -> Optional[tuple]:
+    """(the stored file, its own name) for `attachment:<id>`, a file the person attached; None for any other path. The stored file is only read:
+    an edit of it writes a copy in the workspace."""
+    if not str(path).startswith(ATTACHMENT):
+        return None
+    find = getattr(sandbox, "attachment_files", None)
+    if find is None:
+        raise OfficeError("No file is attached to this conversation.")
+    try:
+        return find(str(path)[len(ATTACHMENT):].strip())
+    except (KeyError, OSError):
+        raise FileNotFoundError(f"There is no attachment '{str(path)[len(ATTACHMENT):].strip()}'; list_attachments gives the ids.") from None
+
+
+def source_of(sandbox: Any, path: str, tool: str) -> Path:
+    """The file a tool opens: an attached file by `attachment:<id>`, else a path of the workspace."""
+    found = attached(sandbox, path)
+    return found[0] if found else sandbox.resolve_safe(path, tool)
+
+
 def existing(sandbox: Any, path: str, tool: str, suffixes: Iterable[str], what: str) -> Path:
-    safe = sandbox.resolve_safe(path, tool)
+    safe = source_of(sandbox, path, tool)
     if safe.suffix.lower() not in tuple(suffixes):
         raise OfficeError(f"'{path}' is not {what}.")
     if not safe.is_file():
@@ -24,8 +48,34 @@ def existing(sandbox: Any, path: str, tool: str, suffixes: Iterable[str], what: 
     return safe
 
 
+COPY = re.compile(r"\.edited\d*$")
+
+
+def copy_for(sandbox: Any, tool: str, path: str, output: Optional[str]) -> str:
+    """The file a writing tool writes. The original is never written: `output` names the copy, else it is `name.edited.ext` (`name.edited2.ext`
+    and on when that exists). A file that is itself such a copy is the working copy and is written in place (the empty string)."""
+    if output:
+        return output
+    found = attached(sandbox, path)
+    p = Path(Path(found[1]).name) if found else Path(path)      # a copy of an attached file goes in the workspace under its own name
+    if COPY.search(p.stem) and not found:
+        return ""
+    for k in range(100):
+        name = str(p.with_name(f"{p.stem}.edited{'' if k == 0 else k + 1}{p.suffix}")).replace("\\", "/")
+        if not sandbox.resolve_safe(name, tool).exists():
+            return name
+    raise OfficeError("too many edited copies; name the output")
+
+
+def copy_note(output: str) -> str:
+    """What the answer says about where the result is."""
+    return (f"The original is as it was; the result is the copy '{output}'. Go on with that copy (path='{output}') and, when it is done, "
+            "offer it to the person with publish_output_file." if output else
+            "This file is a working copy made by an earlier edit; the original is as it was.")
+
+
 def target_of(sandbox: Any, path: str, output: Optional[str], tool: str, suffix: str, exists_ok: bool) -> Path:
-    """Where the result goes: `output` when given (never over a file that exists unless `exists_ok`), else the file itself."""
+    """Where the result goes: `output` when given (never over a file that exists unless `exists_ok`), else the file itself (a working copy)."""
     if not output:
         return sandbox.resolve_safe(path, tool)
     safe = sandbox.resolve_safe(output, tool)

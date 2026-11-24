@@ -413,11 +413,12 @@ def manifest(meta: Dict[str, Any], text: Optional[str], note: str, tools: bool =
     if text is not None:
         if meta.get("family") == "data":
             return f"{base}: a table, {len(_lines(text))} lines. For a value, a count or a total use query_attachment (SQL); read_attachment shows lines, not rows."
-        return f"{base}: {len(_lines(text))} lines. Read it with read_attachment, search it with search_attachment."
+        return (f"{base}: {len(_lines(text))} lines. Read it with read_attachment, search it with search_attachment, or put it all in front of the model "
+                f"with ask_document(path='attachment:{meta['id']}', question=...) when it fits the window.")
     if note == "needs_pdf":
         return f"{base}: cannot be read yet, no PDF reader is installed. Ask the person to approve a PDF skill or to install pypdf, then read it again."
     if note == "pdf_without_text":
-        return f"{base}: has no text layer (a scan). Read it with read_document(path='attachment:{meta['id']}'), or look at a page with analyze_image."
+        return f"{base}: has no text layer (a scan). Ask it with ask_document(path='attachment:{meta['id']}', question=...) (the model looks at the pages), or read it with read_document(path='attachment:{meta['id']}') (OCR)."
     if note == "image":
         return f"{base}: an image. Look at it with analyze_image(path='attachment:{meta['id']}', question=...)."
     if note == "media":

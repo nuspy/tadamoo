@@ -14,22 +14,22 @@ from tadamoo.tools import create_standard_tool_registry  # noqa: E402
 def env(tmp_path):
     ws = tmp_path / "ws"
     registry, sandbox = create_standard_tool_registry(ws)
-    make_doc(ws / "a.docx")
+    make_doc(ws / "a.edited.docx")
     (ws / "fig.png").write_bytes(PNG)
     return registry, ws
 
 
 def edit(env, edits, **kw):
-    return env[0].execute("docx_edit", {"path": "a.docx", "edits": edits, **kw})
+    return env[0].execute("docx_edit", {"path": "a.edited.docx", "edits": edits, **kw})
 
 
 def texts(ws):
-    return [p.text for p in Document(str(ws / "a.docx")).paragraphs]
+    return [p.text for p in Document(str(ws / "a.edited.docx")).paragraphs]
 
 
 def test_a_picture_goes_after_the_paragraph_that_discusses_it_with_its_numbered_caption_and_alt_text(env):
     edit(env, [{"kind": "insert_picture", "after": "p4", "image": "fig.png", "caption": "Map of the plasmid (source: patent.pdf, p. 2)", "alt": "A plasmid map", "width_cm": 8}])
-    doc = Document(str(env[1] / "a.docx"))
+    doc = Document(str(env[1] / "a.edited.docx"))
     par = [p.text for p in doc.paragraphs]
     assert par[4] == "" and par[5] == "Figure 1 - Map of the plasmid (source: patent.pdf, p. 2)" and par[3] == "Second para with a price of 10 euro."
     shape = doc.inline_shapes[0]
@@ -41,7 +41,7 @@ def test_two_pictures_of_one_call_and_one_already_in_the_document_are_numbered_i
     edit(env, [{"kind": "insert_picture", "after": "end", "image": "fig.png", "caption": "First"}, {"kind": "insert_picture", "before": "p1", "image": "fig.png", "caption": "Second", "width_cm": 99}])
     par = texts(env[1])
     assert "Figure 1 - First" in par and "Figure 2 - Second" in par
-    doc = Document(str(env[1] / "a.docx"))
+    doc = Document(str(env[1] / "a.edited.docx"))
     assert max(s.width.cm for s in doc.inline_shapes) <= 16.6
     edit(env, [{"kind": "insert_picture", "after": "p2", "image": "fig.png", "caption": "Third"}, {"kind": "insert_picture", "after": "p2", "image": "fig.png", "caption": "Plain", "numbered": False}])
     par = texts(env[1])
@@ -50,7 +50,7 @@ def test_two_pictures_of_one_call_and_one_already_in_the_document_are_numbered_i
 
 def test_a_picture_can_be_a_tracked_insertion(env):
     edit(env, [{"kind": "insert_picture", "after": "p4", "image": "fig.png", "caption": "Tracked"}], track_changes=True)
-    with zipfile.ZipFile(env[1] / "a.docx") as z:
+    with zipfile.ZipFile(env[1] / "a.edited.docx") as z:
         xml = z.read("word/document.xml").decode("utf-8")
     assert xml.count(f"<{'w:ins'}") >= 2 and "Figure 1 - Tracked" in xml and "w:drawing" in xml
 
@@ -59,7 +59,7 @@ def test_what_is_not_a_usable_picture_or_place_is_refused_and_nothing_is_written
     ws = env[1]
     (ws / "x.webp").write_bytes(b"RIFFxxxxWEBP")
     (ws / "x.png").write_bytes(PNG)
-    before = (ws / "a.docx").read_bytes()
+    before = (ws / "a.edited.docx").read_bytes()
     for bad, word in (({"kind": "insert_picture", "after": "p1", "image": "x.webp"}, "WebP"), ({"kind": "insert_picture", "after": "p1", "image": "nothing.png"}, "no picture"),
                       ({"kind": "insert_picture", "after": "p1"}, "relative path"), ({"kind": "insert_picture", "image": "fig.png"}, "exactly one"),
                       ({"kind": "insert_picture", "after": "p1", "image": "fig.png", "width_cm": -2}, "more than 0"), ({"kind": "insert_picture", "after": "t1.r1.c1", "image": "fig.png"}, "cell"),
@@ -68,7 +68,7 @@ def test_what_is_not_a_usable_picture_or_place_is_refused_and_nothing_is_written
             edit(env, [bad])
     with pytest.raises(Exception):
         edit(env, [{"kind": "insert_picture", "after": "p1", "image": "../outside.png"}])
-    assert (ws / "a.docx").read_bytes() == before
+    assert (ws / "a.edited.docx").read_bytes() == before
 
 
 def test_a_new_document_can_hold_pictures_between_its_blocks(env):

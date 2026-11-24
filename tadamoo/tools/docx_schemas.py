@@ -17,7 +17,7 @@ READ_TEXT = (
 
 EDIT_TEXT = (
     "Changes a Word document (.docx) in the workspace: one call, several edits, applied together; if any edit cannot be applied nothing is written "
-    "and the answer lists what failed. Use it for \"modifica il documento Word\", \"correggi la tabella\", \"inserisci un paragrafo dopo il capitolo 2\", "
+    "and the answer lists what failed. The original is never written: the result is a copy (name.edited.docx, or the `output` you name); edit that copy to go on. Use it for \"modifica il documento Word\", \"correggi la tabella\", \"inserisci un paragrafo dopo il capitolo 2\", "
     "\"rivedi con le modifiche tracciate\", \"cambia X in Y nel contratto\". Find the addresses with docx_outline / docx_read first. "
     "IMPORTANT: every address (p12, t2, t2.r3.c1, row numbers) refers to the document as it was BEFORE this call, so the edits of one call never "
     "shift each other (the text a replace_text finds is the text as the earlier edits of the call left it); after the call, read again before editing more. "
@@ -90,6 +90,8 @@ EDIT_PARAMS = {
             },
         },
         "track_changes": {"type": "boolean", "description": "Write the changes as Word tracked changes by TaDaMoo (default false)"},
+        "output": {"type": "string", "description": "The new .docx to write (default name.edited.docx); the original is never written"},
+        "overwrite": {"type": "boolean", "description": "Allow output to replace an existing file (default false)"},
     },
     "required": ["path", "edits"],
 }

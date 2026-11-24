@@ -133,8 +133,16 @@ the Markdown of the pages asked for with `<!-- page N -->` markers and `pages_to
 changed file or a new reader is read again. The description of the tool tells the model to use it for scanned PDFs, images of text, Word, Excel and
 PowerPoint files and for "read / OCR this document" in any language, and the self-description says so too.
 
+## `ask_document`
+
+The other way to read a document (`tadamoo/document_ask.py`, `PURE`, `untrusted`). `ask_document(path, question, pages="")` takes a file of the
+workspace or `attachment:<id>`, sends it to the loaded model as one `file` part of a call of its own (the server reads it: a PDF page by page, a
+scanned page also as its picture, Word, Excel and PowerPoint as text) and returns only the model's answer, so the document never enters the
+conversation. It is quickest for a document that fits the window and the way to look at a scan; for a longer one it takes a range of pages, or the
+document is read in pieces (`read_attachment`, `read_document`). Tables of many rows go to `query_attachment`. The attachment manifest names it.
+
 ## Tests
 
-`tests/test_rag_ingest.py` (cleaning, blocks, cutting with a real excerpt of Docling's Markdown of a patent in `tests/data/`, flags, citations,
+`tests/test_document_ask.py` (the file part and its pages, the media types, the refusals), `tests/test_rag_ingest.py` (cleaning, blocks, cutting with a real excerpt of Docling's Markdown of a patent in `tests/data/`, flags, citations,
 versions), `tests/test_rag_docling.py` (the worker with stand-in workers, the fall-back, the job, `read_document`, the state note) and one check of
 the real worker on a two-page PDF with the CPU environment, skipped when it is not there.

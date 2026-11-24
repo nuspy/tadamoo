@@ -14,7 +14,7 @@ read a file as text, change the text and write it back (`write_file`, a Markdown
 
 1. **Look.** `docx_outline` / `xlsx_outline` / `pptx_outline` / `pdf_outline` say what the file holds and where. Read the exact place before changing it (`docx_read`, `xlsx_read`, `pptx_read`; `pdf_find` for text on a page).
 2. **Change.** One call of `*_edit` with every edit of the job. All edits apply or none: if the answer lists failures, nothing was written; correct the edits and send them again.
-3. **Keep the original.** Send `output` with a new name (a PDF does it by itself, `name.edited.pdf`). Change the original in place only when the person asked for it.
+3. **Work on a copy, never on the original.** The editing tools never write the file you name: the result is a new file (`name.edited.ext`, or the `output` you give). To go on, pass that copy's path, not the original's. When the work is done, offer the copy to the person with `publish_output_file`, so it shows in the chat as a link.
 4. **Check.** Read the changed place again with the `*_read` tool (or `pdf_find`) and tell the person what changed and where the result is.
 
 ## Word (.docx)

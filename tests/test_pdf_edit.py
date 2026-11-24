@@ -65,15 +65,15 @@ def test_the_outline_and_the_finder_describe_the_pages(tools):
     assert "p1 x=" in found and "size=12.0" in found and "not in the text layer" in t.find("o.pdf", "nothing here")
 
 
-def test_a_price_is_replaced_in_place_and_the_original_is_kept(tools):
+def test_a_price_is_replaced_in_a_copy_and_the_original_is_kept(tools):
     t, path, tmp = tools
     before = path.read_bytes()
     out = t.edit("o.pdf", [{"kind": "replace_text", "find": "1,200.00", "replace": "1,500.00"}])
     assert path.read_bytes() == before and out["written"] == "o.edited.pdf" and "1 of 1" in out["applied"][0]
     new = text(tmp / "o.edited.pdf")
     assert "1,500.00" in new and "1,200.00" not in new and "Warranty 24 months." in new and len(PdfReader(str(tmp / "o.edited.pdf")).pages) == 3
-    t.edit("o.pdf", [{"kind": "replace_text", "find": "Warranty", "replace": "Guarantee"}], in_place=True)
-    assert "Guarantee 24 months." in text(path)
+    again = t.edit("o.edited.pdf", [{"kind": "replace_text", "find": "Warranty", "replace": "Guarantee"}])     # the working copy goes on in place
+    assert again["written"] == "o.edited.pdf" and "Guarantee 24 months." in text(tmp / "o.edited.pdf") and path.read_bytes() == before
 
 
 def test_a_replacement_that_cannot_be_made_in_place_says_why_and_cover_text_leaves_the_old_words(tools):

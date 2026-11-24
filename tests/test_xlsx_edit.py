@@ -28,21 +28,21 @@ def make(path: Path, formulas=True) -> Path:
 
 @pytest.fixture
 def tools(tmp_path):
-    make(tmp_path / "b.xlsx")
-    return XlsxTools(Sandbox(tmp_path)), tmp_path / "b.xlsx"
+    make(tmp_path / "b.edited.xlsx")
+    return XlsxTools(Sandbox(tmp_path)), tmp_path / "b.edited.xlsx"
 
 
 def test_the_outline_and_the_reader_show_values_and_formulas(tools):
     t, _ = tools
-    out = t.outline("b.xlsx")
+    out = t.outline("b.edited.xlsx")
     assert "2 sheets" in out and "Budget" in out and "4 rows" not in out and "item | qty | price | total" in out and "3 formulas" not in out and "4 formulas" in out
-    assert "D2==B2*C2" in t.read("b.xlsx", "Budget", "A1:D3").replace(" → None", "") or "=B2*C2" in t.read("b.xlsx", "Budget", "A1:D3")
-    assert "bolt" in t.read("b.xlsx", "1", "A1:B3") and "Prices valid" in t.read("b.xlsx", "notes", "A1:A1")
+    assert "D2==B2*C2" in t.read("b.edited.xlsx", "Budget", "A1:D3").replace(" → None", "") or "=B2*C2" in t.read("b.edited.xlsx", "Budget", "A1:D3")
+    assert "bolt" in t.read("b.edited.xlsx", "1", "A1:B3") and "Prices valid" in t.read("b.edited.xlsx", "notes", "A1:A1")
 
 
 def test_edits_apply_in_order_and_keep_the_formulas(tools):
     t, path = tools
-    out = t.edit("b.xlsx", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 12},
+    out = t.edit("b.edited.xlsx", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 12},
                             {"kind": "append_rows", "sheet": "Budget", "rows": [["washer", 5, 0.1, "=B6*C6"]]},
                             {"kind": "set_format", "sheet": "Budget", "range": "A1:D1", "bold": True, "fill": "DDDDDD"},
                             {"kind": "find_replace", "find": "March", "replace": "April"},
@@ -58,39 +58,39 @@ def test_one_bad_edit_changes_nothing(tools):
     t, path = tools
     before = path.read_bytes()
     with pytest.raises(OfficeError, match="Nothing was changed"):
-        t.edit("b.xlsx", [{"kind": "set_cell", "cell": "A1", "value": "x"}, {"kind": "set_cell", "sheet": "Nope", "cell": "A1", "value": 1}, {"kind": "fly"}])
+        t.edit("b.edited.xlsx", [{"kind": "set_cell", "cell": "A1", "value": "x"}, {"kind": "set_cell", "sheet": "Nope", "cell": "A1", "value": 1}, {"kind": "fly"}])
     assert path.read_bytes() == before
 
 
 def test_a_row_shift_is_refused_where_formulas_would_point_at_the_wrong_cells(tools, tmp_path):
     t, _ = tools
     with pytest.raises(OfficeError, match="formulas, merged cells or tables"):
-        t.edit("b.xlsx", [{"kind": "insert_rows", "sheet": "Budget", "at": 2}])
-    make(tmp_path / "plain.xlsx", formulas=False)
-    ws = load_workbook(tmp_path / "plain.xlsx")["Budget"]
-    t.edit("plain.xlsx", [{"kind": "insert_rows", "sheet": "Budget", "at": 2}])
-    assert load_workbook(tmp_path / "plain.xlsx")["Budget"]["A3"].value == "bolt" and ws.max_row == 5
+        t.edit("b.edited.xlsx", [{"kind": "insert_rows", "sheet": "Budget", "at": 2}])
+    make(tmp_path / "plain.edited.xlsx", formulas=False)
+    ws = load_workbook(tmp_path / "plain.edited.xlsx")["Budget"]
+    t.edit("plain.edited.xlsx", [{"kind": "insert_rows", "sheet": "Budget", "at": 2}])
+    assert load_workbook(tmp_path / "plain.edited.xlsx")["Budget"]["A3"].value == "bolt" and ws.max_row == 5
 
 
 def test_renaming_or_deleting_a_sheet_that_formulas_use_is_refused(tools, tmp_path):
     t, _ = tools
-    wb = load_workbook(tmp_path / "b.xlsx")
+    wb = load_workbook(tmp_path / "b.edited.xlsx")
     wb["Notes"]["B1"] = "=Budget!A2"
-    wb.save(tmp_path / "b.xlsx")
+    wb.save(tmp_path / "b.edited.xlsx")
     with pytest.raises(OfficeError, match="formulas refer to the sheet"):
-        t.edit("b.xlsx", [{"kind": "rename_sheet", "sheet": "Budget", "new_name": "Costs"}])
+        t.edit("b.edited.xlsx", [{"kind": "rename_sheet", "sheet": "Budget", "new_name": "Costs"}])
     with pytest.raises(OfficeError, match="formulas refer to the sheet"):
-        t.edit("b.xlsx", [{"kind": "delete_sheet", "sheet": "Budget"}])
+        t.edit("b.edited.xlsx", [{"kind": "delete_sheet", "sheet": "Budget"}])
 
 
 def test_output_keeps_the_original_and_never_replaces_a_file_unasked(tools, tmp_path):
     t, path = tools
     before = path.read_bytes()
-    t.edit("b.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 99}], output="copy.xlsx")
+    t.edit("b.edited.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 99}], output="copy.xlsx")
     assert path.read_bytes() == before and load_workbook(tmp_path / "copy.xlsx")["Budget"]["B2"].value == 99
     with pytest.raises(OfficeError, match="already exists"):
-        t.edit("b.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 1}], output="copy.xlsx")
-    t.edit("b.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 1}], output="copy.xlsx", overwrite=True)
+        t.edit("b.edited.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 1}], output="copy.xlsx")
+    t.edit("b.edited.xlsx", [{"kind": "set_cell", "cell": "B2", "value": 1}], output="copy.xlsx", overwrite=True)
     assert load_workbook(tmp_path / "copy.xlsx")["Budget"]["B2"].value == 1
 
 
@@ -112,3 +112,32 @@ def test_a_workbook_is_created_from_rows(tools, tmp_path):
     assert ws["A1"].font.bold and ws["A3"].value == "=A2+B2" and ws.freeze_panes == "A2"
     with pytest.raises(OfficeError, match="already exists"):
         t.create("new.xlsx", [{"name": "Data", "rows": [["a"]]}])
+
+
+def test_the_original_is_never_written_and_the_copy_goes_on_in_place(tools):
+    t, _ = tools
+    tmp_path = _.parent
+    make(tmp_path / "orig.xlsx")
+    before = (tmp_path / "orig.xlsx").read_bytes()
+    out = t.edit("orig.xlsx", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 5}])
+    assert out["written"] == "orig.edited.xlsx" and (tmp_path / "orig.xlsx").read_bytes() == before
+    assert load_workbook(tmp_path / "orig.edited.xlsx")["Budget"]["B2"].value == 5
+    t.edit("orig.edited.xlsx", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 6}])      # a working copy is written in place
+    assert load_workbook(tmp_path / "orig.edited.xlsx")["Budget"]["B2"].value == 6
+    assert t.edit("orig.xlsx", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 7}])["written"] == "orig.edited2.xlsx"
+    assert (tmp_path / "orig.xlsx").read_bytes() == before
+
+
+def test_an_attached_file_is_read_by_its_id_and_edited_into_a_copy_in_the_workspace(tools, tmp_path_factory):
+    t, _ = tools
+    tmp_path = _.parent
+    stored = tmp_path_factory.mktemp("store") / "named.xlsx"
+    make(stored)
+    t.sandbox.attachment_files = lambda att_id: (stored, "Prices 2026.xlsx")
+    assert "Budget" in t.outline("attachment:abc")
+    out = t.edit("attachment:abc", [{"kind": "set_cell", "sheet": "Budget", "cell": "B2", "value": 5}])
+    assert out["written"] == "Prices 2026.edited.xlsx"
+    assert load_workbook(tmp_path / "Prices 2026.edited.xlsx")["Budget"]["B2"].value == 5
+    assert load_workbook(stored)["Budget"]["B2"].value != 5
+    with pytest.raises(Exception):
+        t.edit("attachment:abc", [{"kind": "set_cell", "cell": "A1", "value": 1}], output="Prices 2026.edited.xlsx")

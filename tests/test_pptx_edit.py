@@ -38,8 +38,8 @@ def make(path: Path) -> Path:
 
 @pytest.fixture
 def tools(tmp_path):
-    make(tmp_path / "d.pptx")
-    return PptxTools(Sandbox(tmp_path)), tmp_path / "d.pptx"
+    make(tmp_path / "d.edited.pptx")
+    return PptxTools(Sandbox(tmp_path)), tmp_path / "d.edited.pptx"
 
 
 def table_id(t):
@@ -49,15 +49,15 @@ def table_id(t):
 
 def test_the_outline_and_the_reader_name_every_address(tools):
     t, _ = tools
-    out = t.outline("d.pptx")
+    out = t.outline("d.edited.pptx")
     assert "2 slides" in out and "s1 [Title and Content] Offer 2026" in out and "table 3x2" in out and "(has notes)" in out
     sid = table_id(tools)
-    assert "Valve | 1,200.00" in t.read("d.pptx", "s2") and t.read("d.pptx", f"s2.sh{sid}.r2.c2") == "1,200.00" and "Mention" in t.read("d.pptx", "s2.notes")
+    assert "Valve | 1,200.00" in t.read("d.edited.pptx", "s2") and t.read("d.edited.pptx", f"s2.sh{sid}.r2.c2") == "1,200.00" and "Mention" in t.read("d.edited.pptx", "s2.notes")
 
 
 def test_a_replacement_across_runs_keeps_the_bold_and_reaches_tables_and_notes(tools):
     t, path = tools
-    out = t.edit("d.pptx", [{"kind": "replace_text", "find": "1,200.00", "replace": "1,500.00", "count": 0}])
+    out = t.edit("d.edited.pptx", [{"kind": "replace_text", "find": "1,200.00", "replace": "1,500.00", "count": 0}])
     assert "3 of 3" in out["applied"][0]
     prs = Presentation(str(path))
     runs = prs.slides[0].placeholders[1].text_frame.paragraphs[0].runs
@@ -68,7 +68,7 @@ def test_a_replacement_across_runs_keeps_the_bold_and_reaches_tables_and_notes(t
 
 def test_slides_are_added_moved_deleted_and_get_notes_in_order(tools):
     t, path = tools
-    t.edit("d.pptx", [{"kind": "add_slide", "layout": "Title and Content", "title": "Terms", "body": ["30 days", "24 months"], "notes": "say it slowly"},
+    t.edit("d.edited.pptx", [{"kind": "add_slide", "layout": "Title and Content", "title": "Terms", "body": ["30 days", "24 months"], "notes": "say it slowly"},
                       {"kind": "move_slide", "slide": 3, "to": 1}, {"kind": "delete_slide", "slide": 3}, {"kind": "set_notes", "slide": 1, "text": "new notes"}])
     prs = Presentation(str(path))
     assert [s.shapes.title.text_frame.text for s in prs.slides] == ["Terms", "Offer 2026"]
@@ -81,13 +81,13 @@ def test_shapes_are_set_deleted_and_added(tools, tmp_path):
     (tmp_path / "logo.png").write_bytes(PNG)
     prs = Presentation(str(path))
     body_id = [sh.shape_id for sh in prs.slides[0].shapes if sh.placeholder_format.idx == 1][0]
-    t.edit("d.pptx", [{"kind": "set_text", "target": f"s1.sh{body_id}", "text": "First line\nSecond line"},
+    t.edit("d.edited.pptx", [{"kind": "set_text", "target": f"s1.sh{body_id}", "text": "First line\nSecond line"},
                       {"kind": "insert_picture", "slide": 1, "image": "logo.png", "width_cm": 2, "alt": "logo"},
                       {"kind": "add_textbox", "slide": 2, "text": "Valid 30 days", "size": 12}])
     prs = Presentation(str(path))
     assert [p.text for p in prs.slides[0].placeholders[1].text_frame.paragraphs] == ["First line", "Second line"]
     assert any(sh.shape_type == 13 for sh in prs.slides[0].shapes) and prs.slides[1].shapes[-1].text_frame.text == "Valid 30 days"
-    t.edit("d.pptx", [{"kind": "delete_shape", "target": f"s1.sh{body_id}"}])
+    t.edit("d.edited.pptx", [{"kind": "delete_shape", "target": f"s1.sh{body_id}"}])
     assert all(sh.shape_id != body_id for sh in Presentation(str(path)).slides[0].shapes)
 
 
@@ -95,9 +95,9 @@ def test_one_bad_edit_changes_nothing_and_output_keeps_the_original(tools, tmp_p
     t, path = tools
     before = path.read_bytes()
     with pytest.raises(OfficeError, match="Nothing was changed"):
-        t.edit("d.pptx", [{"kind": "replace_text", "find": "Offer", "replace": "Quote"}, {"kind": "delete_slide", "slide": 9}, {"kind": "replace_text", "find": "zzz", "replace": "y"}])
+        t.edit("d.edited.pptx", [{"kind": "replace_text", "find": "Offer", "replace": "Quote"}, {"kind": "delete_slide", "slide": 9}, {"kind": "replace_text", "find": "zzz", "replace": "y"}])
     assert path.read_bytes() == before
-    t.edit("d.pptx", [{"kind": "replace_text", "find": "Offer", "replace": "Quote"}], output="copy.pptx")
+    t.edit("d.edited.pptx", [{"kind": "replace_text", "find": "Offer", "replace": "Quote"}], output="copy.pptx")
     assert path.read_bytes() == before and Presentation(str(tmp_path / "copy.pptx")).slides[0].shapes.title.text_frame.text == "Quote 2026"
 
 

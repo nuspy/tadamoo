@@ -210,6 +210,7 @@ class XlsxTools:
 
     def edit(self, path: str, edits: List[Dict[str, Any]], output: str = "", overwrite: bool = False) -> Dict[str, Any]:
         safe = self._existing(path, "xlsx_edit")
+        output = io.copy_for(self.sandbox, "xlsx_edit", path, output)
         target = io.target_of(self.sandbox, path, output, "xlsx_edit", ".xlsx", overwrite)
         blocked = io.guard(self.sandbox, "xlsx_edit", output or path, target)
         if blocked:
@@ -237,8 +238,9 @@ class XlsxTools:
         existed = target.exists()
         io.atomic_write(target, lambda tmp: wb.save(tmp), lambda tmp: load_workbook(tmp).close())
         result = self.sandbox._record(output or path, "modified" if existed else "added", old_dump if existed and target == safe else "", dump(wb), keep_text=False)
-        result.update(edits=len(edits), applied=applied,
-                      note="Formulas are stored without their results: Excel calculates them when the file is opened, so a reader that does not calculate shows them empty.")
+        result.update(edits=len(edits), applied=applied, written=str(output or path),
+                      note="Formulas are stored without their results: Excel calculates them when the file is opened, so a reader that does not calculate shows them empty. "
+                           + io.copy_note(output))
         return result
 
     def _apply(self, wb: Any, item: Dict[str, Any]) -> str:
@@ -466,7 +468,7 @@ EDIT_TEXT = (
     "set_width {sheet?, column, width}; add_sheet {name, position?}; rename_sheet {sheet, new_name}; delete_sheet {sheet}; insert_rows / delete_rows {sheet?, at, count?}; "
     "insert_cols / delete_cols {sheet?, at (letter), count?}. A string starting with = is a formula; numbers stay numbers. Row and column shifts, and renaming or deleting a sheet, "
     "are refused when formulas, merged cells or tables would end up pointing at the wrong cells. Workbooks with charts, pivot tables or macros are refused whole. Formula "
-    "results are calculated by Excel when the file is opened. Use `output` to write a new file and keep the original (recommended unless the person asked to change the file). "
+    "results are calculated by Excel when the file is opened. The original is never written: the result is a copy (name.edited.xlsx, or the `output` you name); edit that copy to go on. "
     "Find the cells with xlsx_outline / xlsx_read first.")
 CREATE_TEXT = (
     "Creates a new Excel workbook (.xlsx) from sheets of rows: bold frozen header row, widths fitted. Use it for a new spreadsheet (\"crea un file Excel con...\"). It refuses to "
@@ -492,7 +494,7 @@ EDIT_PARAMS = {"type": "object", "properties": {
         "number_format": {"type": "string"}, "wrap": {"type": "boolean"}, "horizontal": {"type": "string"},
         "column": {"type": "string"}, "width": {"type": "number"}, "name": {"type": "string"}, "position": {"type": "integer"}, "new_name": {"type": "string"},
         "at": {"description": "insert/delete rows: the row number; columns: the letter"}}, "required": ["kind"]}},
-    "output": {"type": "string", "description": "Write the result to this new .xlsx and keep the original"},
+    "output": {"type": "string", "description": "The new .xlsx to write (default name.edited.xlsx); the original is never written"},
     "overwrite": {"type": "boolean", "description": "Allow output to replace an existing file (default false)"}}, "required": ["path", "edits"]}
 CREATE_PARAMS = {"type": "object", "properties": {
     "path": {"type": "string", "description": "Relative path of the new .xlsx file"},

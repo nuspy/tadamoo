@@ -67,26 +67,26 @@ def build(path: Path) -> Path:
 
 @pytest.fixture
 def tools(tmp_path):
-    build(tmp_path / "offer.docx")
-    return DocxTools(Sandbox(tmp_path)), tmp_path / "offer.docx"
+    build(tmp_path / "offer.edited.docx")
+    return DocxTools(Sandbox(tmp_path)), tmp_path / "offer.edited.docx"
 
 
 def test_the_outline_lists_what_the_file_keeps_outside_the_body(tools):
     t, _ = tools
-    out = t.outline("offer.docx")
+    out = t.outline("offer.edited.docx")
     assert "headers:" in out and "Offer 2026-114" in out and "footers:" in out and "footnotes:" in out and "textboxes:" in out and "Valid until" in out
 
 
 def test_each_part_can_be_read_by_its_name(tools):
     t, _ = tools
-    assert "DRAFT" in t.read("offer.docx", "headers") and "Confidential" in t.read("offer.docx", "footers")
-    assert "1,200.00" in t.read("offer.docx", "footnotes") and "Valid until" in t.read("offer.docx", "textboxes")
-    assert "separator" not in t.read("offer.docx", "footnotes")
+    assert "DRAFT" in t.read("offer.edited.docx", "headers") and "Confidential" in t.read("offer.edited.docx", "footers")
+    assert "1,200.00" in t.read("offer.edited.docx", "footnotes") and "Valid until" in t.read("offer.edited.docx", "textboxes")
+    assert "separator" not in t.read("offer.edited.docx", "footnotes")
 
 
 def test_a_replacement_in_every_part_keeps_the_formatting_and_the_other_parts(tools):
     t, path = tools
-    out = t.edit("offer.docx", [{"kind": "replace_text", "target": "everywhere", "find": "DRAFT", "replace": "FINAL", "count": 0},
+    out = t.edit("offer.edited.docx", [{"kind": "replace_text", "target": "everywhere", "find": "DRAFT", "replace": "FINAL", "count": 0},
                                 {"kind": "replace_text", "target": "footnotes", "find": "1,200.00", "replace": "1,500.00"},
                                 {"kind": "replace_text", "target": "all", "find": "1,200.00", "replace": "1,500.00"}])
     assert out["edits"] == 3
@@ -104,5 +104,5 @@ def test_a_text_that_is_nowhere_in_the_part_says_so_and_changes_nothing(tools):
     t, path = tools
     before = path.read_bytes()
     with pytest.raises(EditError, match="not in footers"):
-        t.edit("offer.docx", [{"kind": "replace_text", "target": "footers", "find": "nothing like this", "replace": "x"}])
+        t.edit("offer.edited.docx", [{"kind": "replace_text", "target": "footers", "find": "nothing like this", "replace": "x"}])
     assert path.read_bytes() == before

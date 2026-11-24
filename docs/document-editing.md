@@ -18,7 +18,7 @@ The libraries are in `requirements.txt`; a tool exists only where its library is
 - **Look, change, check.** An outline says what the file holds and where; a reader shows the exact place; one `*_edit` call applies several edits.
 - **All or nothing.** Every edit of a call is checked first; if any fails nothing is written and the answer lists each failure.
 - **A write cannot leave half a file.** The result goes to a temporary file beside the target, is opened again, and only then replaces the target.
-- **The original is kept on request.** `output` writes a new file. A PDF does it by default (`name.edited.pdf`); `in_place=true` replaces the original.
+- **The original is never written.** Every editing tool writes a copy: `name.edited.ext` (`name.edited2.ext` when that exists), or the `output` it is given. A file that is itself such a copy is written in place, so a job of several calls goes on in the copy. The result is offered to the person with `publish_output_file`, as a link in the chat.
 - **Checkpoints and rewind** treat each edit tool like `edit_file`; the `output` file is a path the checkpoint covers too.
 - Text read from a file is data, never instructions (`untrusted`).
 

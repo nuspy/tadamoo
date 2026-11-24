@@ -253,7 +253,8 @@ class DocxTools:
     # -- files ---------------------------------------------------------------------------------------------------------
 
     def _existing(self, path: str, tool: str = "docx_read") -> Path:
-        safe = self.sandbox.resolve_safe(path, tool)
+        from tadamoo.tools import office_io as io
+        safe = io.source_of(self.sandbox, path, tool)
         if safe.suffix.lower() != ".docx":
             raise EditError(f"'{path}' is not a .docx file. These tools open Word documents saved as .docx (not .doc, .docm or .odt).")
         if not safe.is_file():
@@ -371,14 +372,19 @@ class DocxTools:
 
     # -- docx_edit ------------------------------------------------------------------------------------------------------------
 
-    def edit(self, path: str, edits: List[Dict[str, Any]], track_changes: bool = False) -> Dict[str, Any]:
+    def edit(self, path: str, edits: List[Dict[str, Any]], track_changes: bool = False, output: str = "", overwrite: bool = False) -> Dict[str, Any]:
+        from tadamoo.tools import office_io as io
         safe = self._existing(path, "docx_edit")
-        blocked = self.sandbox._owner_block(path, safe, append=False)
+        output = io.copy_for(self.sandbox, "docx_edit", path, output)
+        try:
+            target = io.target_of(self.sandbox, path, output, "docx_edit", ".docx", overwrite)
+        except io.OfficeError as exc:
+            raise EditError(str(exc)) from None
+        blocked = io.guard(self.sandbox, "docx_edit", output or path, target)
         if blocked:
             return blocked
         if not isinstance(edits, list) or not edits:
             raise EditError("'edits' must be a non-empty list of edit objects, each with a 'kind'.")
-        self.sandbox._guard_git("docx_edit", path, safe)
         doc = self._open(safe, path)
         old_dump = text_dump(doc)
         session = _Session(doc, track_changes)
@@ -397,10 +403,11 @@ class DocxTools:
             raise EditError(f"Nothing was changed: {len(problems)} of {len(edits)} edits cannot be applied; the file is as it was.\n- " + "\n- ".join(shown)
                             + "\nAddresses refer to the document as it is now (before this call); read it again with docx_read if unsure.")
         session.finish()
-        self._save(doc, safe)
-        result = self.sandbox._record(path, "modified", old_dump, text_dump(doc), keep_text=False)
-        result.update(edits=len(edits), applied=applied, tracked=bool(track_changes),
-                      note="Paragraph and table numbers may have changed; run docx_outline or docx_read again before editing further.")
+        existed = target.exists()
+        self._save(doc, target)
+        result = self.sandbox._record(output or path, "modified" if existed else "added", old_dump if existed and target == safe else "", text_dump(doc), keep_text=False)
+        result.update(edits=len(edits), applied=applied, tracked=bool(track_changes), written=str(output or path),
+                      note="Paragraph and table numbers may have changed; run docx_outline or docx_read again before editing further. " + io.copy_note(output))
         return result
 
     # -- docx_create ----------------------------------------------------------------------------------------------------------
