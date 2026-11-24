@@ -405,9 +405,11 @@ def data_summary(name: str, kind: str, text: str) -> str:
     return "\n\n".join(out) or "Empty."
 
 
-def manifest(meta: Dict[str, Any], text: Optional[str], note: str) -> str:
-    """One line for the model: what the file is and how to read it, without its content."""
+def manifest(meta: Dict[str, Any], text: Optional[str], note: str, tools: bool = True) -> str:
+    """One line for the model: what the file is and how to read it, without its content. `tools` is False in a conversation with no tools: only what the message shows is there."""
     base = f'{meta["name"]} ({meta["kind"]}, {meta["size"]} bytes, id {meta["id"]})'
+    if text is not None and not tools:
+        return f"{base}: {len(_lines(text))} lines. This conversation has no file tools: what is shown above is all there is of it. Say so if the question needs more."
     if text is not None:
         if meta.get("family") == "data":
             return f"{base}: a table, {len(_lines(text))} lines. For a value, a count or a total use query_attachment (SQL); read_attachment shows lines, not rows."
@@ -432,7 +434,7 @@ def _block_prefix(text: str, limit: int) -> Optional[str]:
     return first if first and len(first) <= limit else None
 
 
-def compose_message(store: AttachmentStore, session: str, ids: List[str], question: str, window_tokens: int = 32768) -> Tuple[str, bool]:
+def compose_message(store: AttachmentStore, session: str, ids: List[str], question: str, window_tokens: int = 32768, tools: bool = True) -> Tuple[str, bool]:
     """The message the model gets: the documents first, each in its own block with where it came from and what part is shown, then the
     question. Returns (message, documents_were_inlined). Large files are shown by their manifest and read in pieces."""
     budget = int(window_tokens * INLINE_TOKEN_SHARE * CHARS_PER_TOKEN)
@@ -447,14 +449,14 @@ def compose_message(store: AttachmentStore, session: str, ids: List[str], questi
         text, note = store.text(session, att_id)
         source = meta["name"].replace("<", "").replace(">", "")
         if text is None:
-            docs.append(f'<document index="{n}"><source>{source}</source><note>{manifest(meta, None, note)}</note></document>')
+            docs.append(f'<document index="{n}"><source>{source}</source><note>{manifest(meta, None, note, tools)}</note></document>')
             continue
         lines = _lines(text)
         shape = f"<schema>{data_summary(meta['name'], meta['kind'], text)}</schema>" if meta["family"] == "data" and len(text) > 8000 else ""
         room = max(0, budget - used)
-        if len(text) <= room and not shape:
+        if len(text) <= room and (not shape or not tools):             # a table with no tools to ask it is shown as far as the room goes
             shown, label = text, "all"
-        elif shape:
+        elif shape and tools:
             shown, label = "", "none"
         else:
             limit = max(0, min(room, budget // 2))
@@ -470,7 +472,7 @@ def compose_message(store: AttachmentStore, session: str, ids: List[str], questi
         inlined = inlined or bool(shown)
         body = _fence(meta["name"], shown) if shown else ""
         docs.append(f'<document index="{n}"><source>{source}</source><type>{meta["kind"]}</type><shown>{label}</shown>{shape}'
-                    f'<document_content>{body}</document_content><note>{manifest(meta, text, "")}</note></document>')
+                    f'<document_content>{body}</document_content><note>{manifest(meta, text, "", tools)}</note></document>')
     msg = "<documents>\n" + "\n".join(docs) + "\n</documents>\n\n" + question.strip()
     if used > QUOTES_OVER_TOKENS * CHARS_PER_TOKEN:
         msg += "\n\nThe documents are long: first copy the passages that matter to this request into <quotes> tags, then answer from them."

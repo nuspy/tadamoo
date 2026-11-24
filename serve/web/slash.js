@@ -26,7 +26,7 @@
   const server = (name, rest) => { if (!needChat()) return; note(T("sl.running")); A().runOnServer(name, rest); };
   const openSettings = () => { if ($("#chatset").hidden) $("#cs-open").click(); $("#cs-perm").scrollIntoView({ block: "nearest" }); };
   const MODE_NAMES = { plan: "plan", read: "read_only", read_only: "read_only", readonly: "read_only", ask: "default", default: "default", auto: "auto", automatic: "auto" };
-  const EFFORT_NAMES = { none: "none", off: "none", low: "low", medium: "medium", high: "", auto: "", default: "" };
+  const EFFORT_NAMES = { none: "none", off: "none", low: "low", medium: "medium", high: "", auto: "", default: "", xhigh: "xhigh", max: "max" };
   const sel = $("#effort");
   const effortLabel = () => sel.options[sel.selectedIndex].text;
 
@@ -34,7 +34,7 @@
     { name: "help", alias: ["?"], run: () => { note(T("sl.help.start"), helpNode); } },
     { name: "clear", alias: ["new", "reset"], run: () => { $("#new-chat").click(); } },
     { name: "model", run: () => { const m = $("#chat-model").textContent.trim(); note(m ? T("sl.model", m) : T("sl.model.none")); } },
-    { name: "effort", args: "[none|low|medium|high|auto]", run: rest => {
+    { name: "effort", args: "[none|low|medium|high|xhigh|max|auto]", run: rest => {
       const want = rest.toLowerCase();
       if (!want || !(want in EFFORT_NAMES)) { note(T("sl.effort.usage", effortLabel())); return; }
       sel.value = EFFORT_NAMES[want];

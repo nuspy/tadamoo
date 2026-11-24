@@ -52,6 +52,13 @@ const chatSettings = (() => {
     grid.append(d);
   }
   const effortBox = $("#cs-effort");
+  const quickBudget = $("#effort-budget"), panelBudget = $("#cs-budget");
+  if (quickBudget && panelBudget) {                                           // the field next to the Thinking selector is the panel's reasoning budget, shown where it is used
+    quickBudget.value = panelBudget.value;
+    quickBudget.addEventListener("input", () => { panelBudget.value = quickBudget.value; panelBudget.dispatchEvent(new Event("input", { bubbles: true })); panelBudget.dispatchEvent(new Event("change", { bubbles: true })); });
+    const mirror = () => { if (quickBudget.value !== panelBudget.value) quickBudget.value = panelBudget.value; };
+    panelBudget.addEventListener("input", mirror); panelBudget.addEventListener("change", mirror);
+  }
   applyT($("#chatset"));
   applyT($(".chathead"));
 
@@ -105,6 +112,7 @@ const chatSettings = (() => {
     effortBox.value = s.effort || "";
     if (scope.kind === "new" || scope.kind === "session") $("#effort").value = s.effort || "";      // the header of the conversation shows its own level
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
+    if (quickBudget) quickBudget.value = panelBudget.value;
     $("#cs-show_reasoning").value = s.show_reasoning || "full";
     $("#cs-show_tooling").value = s.show_tooling || "full";
     $("#cs-browsing-reader").value = s.reader_override || "";

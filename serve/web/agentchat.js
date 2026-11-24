@@ -1318,9 +1318,8 @@
   $("#attach-dir").addEventListener("click", () => { if (active()) $("#adir").click(); });
   $("#knowledge-attach").addEventListener("click", () => { if (active() && window.KnowledgeAttach) window.KnowledgeAttach.open(window.agentChat); });
   $("#adir").onchange = e => { attachDir([...e.target.files]); e.target.value = ""; };
-  const dropZone = document.getElementById("view-chat");
-  dropZone.addEventListener("dragover", e => { if (active() && [...(e.dataTransfer || {}).types || []].includes("Files")) e.preventDefault(); });
-  dropZone.addEventListener("drop", e => { if (active() && e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); attachFiles([...e.dataTransfer.files]); } });
+  // what is dropped on the prompt (dropfiles.js) comes here: the files, and the files of a folder named by their path inside it
+  window.agentAttach = { files: attachFiles, dir: attachDir };
 
   /* ---- a file the agent made: a button to save it where the person chooses ---- */
   async function saveOutput(id, name, button) {

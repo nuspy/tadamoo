@@ -393,6 +393,7 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .cmsg.user .bubble { background: var(--surface); border: 1px solid var(--line); border-radius: 10px 10px 2px 10px; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: min(640px, 100%); }
 .cmsg .imgs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .cmsg .imgs img { max-width: 180px; max-height: 180px; border-radius: 6px; border: 1px solid var(--line); object-fit: cover; }
+.cmsg .imgs video { max-width: 260px; max-height: 180px; border-radius: 6px; border: 1px solid var(--line); }
 .chip { font: 400 14px/1.4 var(--font-mono); color: var(--fg-2); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .meta { display: flex; align-items: center; gap: 12px; font: 400 13.5px/1.4 var(--font-mono); color: var(--fg-2); min-height: 24px; }
 .answer { overflow-wrap: anywhere; min-width: 0; }
@@ -429,7 +430,10 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .hint { font-size: 13.5px; color: var(--fg-2); }
 .attachments { display: flex; flex-wrap: wrap; gap: 8px; }
 .att { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 4px 4px 4px; max-width: 100%; }
-.att img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+.att img, .att video { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+.ebudget input { width: 8ch; min-height: 44px; }
+#view-chat.dropping { outline: 2px dashed var(--accent, currentColor); outline-offset: -6px; }
+#view-chat.dropping::after { content: attr(data-drop); position: fixed; inset: auto 0 18% 0; margin-inline: auto; width: max-content; max-width: 90vw; padding: 10px 16px; border-radius: 10px; background: var(--raised, var(--bg)); color: var(--fg); border: 1px solid var(--line); pointer-events: none; z-index: 20; }
 .att span { font-size: 14px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
 
 .settings { overflow: auto; }

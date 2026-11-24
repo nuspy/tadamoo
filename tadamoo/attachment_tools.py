@@ -27,6 +27,12 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
     def known(att_id: str) -> Dict[str, Any]:
         return store.get(session, str(att_id))
 
+    def missing(att_id: Any) -> str:
+        """The answer for an id that is not an attachment, with the ones that are: a model that took the id of a data block for it needs the real ones at once."""
+        items = store.list(session)
+        have = "; ".join(f"{m['name']} = {m['id']}" for m in items) or "none"
+        return f"No attachment '{att_id}'. An attachment id is 12 characters, not the id of a data block. The attachments of this conversation: {have}."
+
     def list_attachments() -> str:
         items = store.list(session)
         if not items:
@@ -41,7 +47,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         try:
             meta = known(id)
         except KeyError:
-            return f"No attachment '{id}'. list_attachments shows the ids."
+            return missing(id)
         text, note = store.text(session, meta["id"])
         if text is None:
             return manifest(meta, None, note)
@@ -53,7 +59,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         try:
             meta = known(id)
         except KeyError:
-            return f"No attachment '{id}'. list_attachments shows the ids."
+            return missing(id)
         if meta["family"] != "data":
             return f"{meta['name']} is not a table. Use read_attachment or search_attachment."
         try:
@@ -65,7 +71,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         try:
             meta = known(id)
         except KeyError:
-            return f"No attachment '{id}'. list_attachments shows the ids."
+            return missing(id)
         text, note = store.text(session, meta["id"])
         if text is None:
             return manifest(meta, None, note)
@@ -78,7 +84,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         try:
             meta = known(id)
         except KeyError:
-            return f"No attachment '{id}'. list_attachments shows the ids."
+            return missing(id)
         if meta["family"] not in ("audio", "video"):
             return f"{meta['name']} is not a recording."
         text, _ = store.text(session, meta["id"]) if (store._folder(session, meta["id"]) / "text.txt").exists() else (None, "")

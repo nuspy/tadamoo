@@ -348,3 +348,16 @@ def test_a_pdf_with_only_page_markers_is_a_scan_that_read_document_can_open_by_i
     assert "not there" in registry.execute("read_document", {"path": "attachment:aaaaaaaaaaaa"})["note"]
     got = registry.execute("read_document", {"path": "attachment:" + card["id"]})
     assert "no such file" not in str(got.get("note", ""))
+
+
+def test_a_conversation_without_tools_shows_what_fits_and_says_the_rest_is_not_there(store):
+    big = "\n".join(f"line {i}: " + "word " * 12 for i in range(4000))
+    card = put(store, "s1", "big.txt", big.encode())
+    msg, inlined = at.compose_message(store, "s1", [card["id"]], "what is on line 7?", window_tokens=4096, tools=False)
+    assert inlined and "line 7:" in msg and "no file tools" in msg and "read_attachment" not in msg and "lines 1-" in msg
+    with_tools, _ = at.compose_message(store, "s1", [card["id"]], "what is on line 7?", window_tokens=4096, tools=True)
+    assert "read_attachment" in with_tools
+    rows = [["id", "units"]] + [[i, i * 3] for i in range(1, 3000)]
+    sheet = put(store, "s1", "t.xlsx", xlsx_bytes(rows))
+    none, _ = at.compose_message(store, "s1", [sheet["id"]], "total?", window_tokens=65536, tools=False)
+    assert "\n2,6\n" in none and "no file tools" in none

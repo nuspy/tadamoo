@@ -3,16 +3,16 @@
    output can never inject markup. The conversation is kept in this browser's localStorage when it allows it, and its words are handed to the server's
    index of earlier conversations (POST /api/past/chat) so that other conversations can find them. */
 (() => {
-  const STORE = "tadamoo.chat", EFFORT = "tadamoo.effort", IMAGE_MAX = 12 << 20;
+  const STORE = "tadamoo.chat", EFFORT = "tadamoo.effort", IMAGE_MAX = 12 << 20, VIDEO_MAX = 64 << 20;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
 
   let messages = load(STORE, []);
   if (!Array.isArray(messages)) messages = [];
-  let attachments = [];                        // [{name, url}]
+  let attachments = [];                        // [{name, url, kind: "image" | "video"}]
   let busy = null;                             // {controller, msg, el}
-  let images = false, model = "";
+  let images = false, videos = false, model = "";
 
   const msgs = $("#msgs"), prompt = $("#prompt"), effort = $("#effort");
   effort.value = load(EFFORT, "") || "";
@@ -165,8 +165,9 @@
       if (m.images && m.images.length) {
         const wrap = document.createElement("div"); wrap.className = "imgs";
         m.images.forEach(im => {
-          if (im.url) { const img = document.createElement("img"); img.src = im.url; img.alt = im.name || "Attached image"; wrap.append(img); }
-          else { const c = document.createElement("span"); c.className = "chip"; c.textContent = `Image: ${im.name || "attached"}`; wrap.append(c); }
+          if (im.url && im.kind === "video") { const v = document.createElement("video"); v.src = im.url; v.controls = true; v.preload = "metadata"; v.setAttribute("aria-label", im.name || "Attached video"); wrap.append(v); }
+          else if (im.url) { const img = document.createElement("img"); img.src = im.url; img.alt = im.name || "Attached image"; wrap.append(img); }
+          else { const c = document.createElement("span"); c.className = "chip"; c.textContent = `${im.kind === "video" ? "Video" : "Image"}: ${im.name || "attached"}`; wrap.append(c); }
         });
         el.append(wrap);
       }
@@ -274,7 +275,8 @@
   }
   function save() {
     // images make the store large: if it is full, keep the text and the image names only
-    if (!keep(STORE, messages)) keep(STORE, messages.map(m => ({ ...m, images: (m.images || []).map(i => ({ name: i.name })) })));
+    const slim = messages.map(m => (m.images || []).some(i => i.kind === "video") ? { ...m, images: m.images.map(i => i.kind === "video" ? { name: i.name, kind: "video" } : i) } : m);
+    if (!keep(STORE, slim)) keep(STORE, messages.map(m => ({ ...m, images: (m.images || []).map(i => ({ name: i.name, kind: i.kind })) })));
     indexSoon();
   }
   // the words of the conversation go to the server once the page is quiet; nothing here depends on the answer
@@ -392,7 +394,7 @@
       if (busy && busy.msg === m) return;
       if (m.role === "user") {
         const imgs = (m.images || []).filter(i => i.url);
-        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: codeSaid(m, i, m.text) }, ...imgs.map(i => ({ type: "image_url", image_url: { url: i.url } }))] : codeSaid(m, i, m.text) });
+        out.push({ role: "user", content: imgs.length ? [{ type: "text", text: codeSaid(m, i, m.text) }, ...imgs.map(i => i.kind === "video" ? ({ type: "video_url", video_url: { url: i.url } }) : ({ type: "image_url", image_url: { url: i.url } }))] : codeSaid(m, i, m.text) });
       } else if (m.role === "summary") {
         const o = full && m.originals ? m.originals.filter(x => x.text).map(x => ({ role: x.role === "user" ? "user" : "assistant", content: x.text })) : [];
         out.push({ role: "user", content: m.content || m.text || "", ...(o.length ? { originals: o } : {}) });   // sent along only when the context is being fitted: a stretch is compacted again from its own text
@@ -665,7 +667,9 @@
     box.hidden = !attachments.length;
     box.replaceChildren(...attachments.map((a, k) => {
       const d = document.createElement("div"); d.className = "att";
-      const img = document.createElement("img"); img.src = a.url; img.alt = "";
+      let img;
+      if (a.kind === "video") { img = document.createElement("video"); img.src = a.url; img.muted = true; img.preload = "metadata"; img.setAttribute("aria-hidden", "true"); }
+      else { img = document.createElement("img"); img.src = a.url; img.alt = ""; }
       const b = document.createElement("button"); b.type = "button"; b.className = "btn ghost"; b.textContent = "Remove";
       b.setAttribute("aria-label", `Remove ${a.name}`);
       b.onclick = () => { attachments.splice(k, 1); drawAttachments(); prompt.focus(); };
@@ -675,10 +679,12 @@
   }
   function addFiles(files) {
     for (const f of files) {
-      if (!f.type.startsWith("image/")) { status(`${f.name}: not an image`); continue; }
-      if (f.size > IMAGE_MAX) { status(`${f.name}: larger than 12 MB`); continue; }
+      const video = f.type.startsWith("video/");
+      if (!video && !f.type.startsWith("image/")) { status(T(videos ? "ch.att.notmedia" : "ch.att.notimage", f.name)); continue; }
+      if (video && !videos) { status(T("ch.att.novideo", f.name)); continue; }
+      if (f.size > (video ? VIDEO_MAX : IMAGE_MAX)) { status(T("ch.att.toobig", f.name, video ? 64 : 12)); continue; }
       const r = new FileReader();
-      r.onload = () => { attachments.push({ name: f.name || "pasted image", url: r.result }); drawAttachments(); };
+      r.onload = () => { attachments.push({ name: f.name || (video ? "pasted video" : "pasted image"), url: r.result, kind: video ? "video" : "image" }); drawAttachments(); };
       r.readAsDataURL(f);
     }
   }
@@ -699,12 +705,13 @@
         // the served model: the list holds the folders' other models too ("unloaded")
         const all = (await r.json()).data || [];
         const d = all.find(x => x.id === model) || all.find(x => (x.status || {}).value === "loaded");
-        if (d) { model = d.id || model; images = ((d.architecture || {}).input_modalities || []).includes("image"); }
+        if (d) { const mods = (d.architecture || {}).input_modalities || []; model = d.id || model; images = mods.includes("image"); videos = mods.includes("video"); }
       }
     } catch (e) { /* /health is enough */ }
     $("#attach").hidden = !images && !(window.chatUi && window.chatUi.agentActive && window.chatUi.agentActive());
     $("#chat-model").textContent = model;
-    prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
+    prompt.placeholder = videos ? T("ch.ph.media") : images ? "Message the model, or attach an image" : "Message the model";
+    $("#file").accept = videos ? "image/*,video/*" : "image/*";
   }
   document.addEventListener("tadamoo:key", () => { capabilities(); meter(); });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
@@ -840,6 +847,8 @@
     return { title: "", session: "", items };
   }
   window.chatUi = {
+    addMedia: files => { if (images) addFiles(files); else status(T("ch.att.noimages")); },
+    mediaOk: () => images,
     renderMarkdown: (el, text) => { el.innerHTML = markdown(text || ""); loadPictures(el); drawDiagrams(el); },
     snapshot, diagram: code => drawn.get(code) || "",
     sessionId: () => "",

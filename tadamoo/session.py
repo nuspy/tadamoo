@@ -77,7 +77,7 @@ from tadamoo.tools.registry import EffectClass, clock_paused
 from tadamoo.vault import valid_code
 
 HEARTBEAT_S = 5.0
-EFFORT_LEVELS = ("none", "low", "medium", "high")
+EFFORT_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 DELTA_CHARS, DELTA_S = 400, 0.25
 EVENT_CHARS = 20_000
 BACKOFF_S = (2.0, 5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0)      # the last wait is repeated for as long as it takes
@@ -951,7 +951,7 @@ class Session:
     def _add_user(self, agent: Any, text: str, origin: str, attachments: Optional[List[str]], steer: bool) -> None:
         if origin == "user" and attachments and self.attachment_store is not None:
             from tadamoo.attachments import compose_message
-            full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens())
+            full, inlined = compose_message(self.attachment_store, self.session_id, attachments, text, self.window_tokens(), tools=not self.ask_only)
             agent.add_user_message(full, steer=steer, shown=text)
             agent.taint("attachment", private=True)         # a file can say anything, and it is the person's own: nothing confirms a change to a plan after it
             return
