@@ -7,7 +7,7 @@ _Aggiornato il 24/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 33 |
-| in attesa | 12 |
+| in attesa | 11 |
 | non iniziato | 1 |
 
 ## Il motore: adapter fusi all'avvio
@@ -769,7 +769,7 @@ Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLM
 - Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7.
 - Trovato provando: il server rifiuta un `mode` più alto del livello della chat (messaggio «raise the level of chat in its settings»). Il modulo non lo chiede più; se vuoi che gli strumenti partano sempre da soli, il livello della chat si alza in Settings, è una tua scelta. Mancano ancora: la sezione «Riga di comando» in Settings > General, la voce nel setup, l'unione con master.
 
-### 49. Il Basalt originale è alla 0.5.7: cosa importare (da decidere) (in attesa)
+### 49. Il Basalt originale è alla 0.5.7: cosa importare (da decidere) (running)
 
 Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Nessuna importazione è stata avviata.
 
@@ -777,6 +777,7 @@ Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il l
 
 - Verificato: la nostra storia e la loro non hanno antenato comune (git merge-base non trova niente), quindi un git merge non si può fare: si portano le modifiche con tre vie da un commit di base (4a591d96). Cambiati da tutti e due: 247 file (72 in src, 36 in include, 46 in serve, 43 in tests).
 - Candidati dai loro registri delle versioni (numeri loro, non misurati da noi): compilazione pulita da 933 a 290 secondi; avvio e RAM più robusti; prompt lunghi di Flash-Next fino al 22% più veloci; slot paralleli che decodificano insieme; video, PDF e Office nei messaggi; richieste immagini da altre macchine; Qwen3.8-27B denso in 16 GiB su una scheda.
+- 24 novembre: master contiene tutti i rami con storia comune (45, 44, 46-48 compresi). Aperto il ramo `merge/upstream-2026-11-24` (partito da master c42cd7f4a) con la sua copia di lavoro su D: (`D:/Projects/basalt-wt-upstream`); la base dei confronti è il loro commit 4a591d96, il loro main è 351039841 (0.5.7). Non è stato importato niente: aspetta le tue indicazioni su cosa prendere e cosa trascurare.
 
 **Decisioni e punti aperti**
 
