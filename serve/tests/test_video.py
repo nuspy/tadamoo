@@ -17,7 +17,7 @@ from serve.engine.mock import MockEngine
 from serve.engine.process import ProcessEngine
 from serve.engine.vision import VideoRows, video_rows
 from serve.frontend import ChatTemplate, anthropic_to_messages, media_of, openai_to_messages
-from serve.models.deepseek41 import DeepSeek41
+from serve.dialects.deepseek41 import DeepSeek41
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 

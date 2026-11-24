@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from serve import frontend
-from serve.models import Dialect
+from serve.dialects import Dialect
 from serve.util.text import IM_END
 
 

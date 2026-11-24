@@ -8,8 +8,8 @@ from pathlib import Path
 
 from serve.engine.mock import MockEngine
 from serve.frontend import openai_to_messages
-from serve.models import dialect_for
-from serve.models.inkling2 import END, END_TURN, HEADER, IMAGE, IMAGE_PAD, OWN_TOKENS, TEXT, THINK, TOOL_JSON, Inkling2, Inkling2Parser
+from serve.dialects import dialect_for
+from serve.dialects.inkling2 import END, END_TURN, HEADER, IMAGE, IMAGE_PAD, OWN_TOKENS, TEXT, THINK, TOOL_JSON, Inkling2, Inkling2Parser
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 

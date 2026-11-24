@@ -7,7 +7,7 @@ import unittest
 import urllib.request
 
 from serve.handler import serve
-from serve.models.inkling2 import END, HEADER, TEXT, THINK, TOOL_JSON, Inkling2Parser
+from serve.dialects.inkling2 import END, HEADER, TEXT, THINK, TOOL_JSON, Inkling2Parser
 from serve.tests.test_inkling2_dialect import merged, service
 
 ARGS = {"path": "src/app.py", "old_string": 'x = "a"\n    y = 1', "new_string": "x = 'b'\n    y = 2 < 3"}

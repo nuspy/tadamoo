@@ -6,23 +6,30 @@ import json
 import math
 import os
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from serve import ROOT
 from serve.engine.flags import flag_index, flag_value
-from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
+from serve.engine.vision import VIDEO_MAX_TOKENS, VISION_MODES, VISION_USAGE, vision_mode
 from serve.origin_guard import check_hostname, check_origin
 from serve.util.console import tagged
 
 
 MIN_SLOT_CONTEXT = 256          # the least context a slot is given when --max-context is shared
-ENGINE_DEFAULT_CONTEXT = 4096     # the engine's context without --max-context
+CONFIG_VERSION = 2                          # the config file's "version"; a file without one is this format's first
 PARALLEL_MAX = 8                            # the engine's batch slots
 SIDE_SLOT_DEFAULT = 30000                   # the technical session's context when --side-slot gives none
 SIDE_SLOT_MIN = 4096                        # ... and the least it may hold
 SIDE_SLOT_MAX = 2147483639
-CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
+CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
+# a model entry's own, and what it may also inherit from the top-level "engine"; other server options are the server's
+ENTRY_OPTIONS = frozenset({"model", "alias"})
+MODEL_OPTIONS = frozenset({
+    "gpu", "vision", "parallel", "slot-full-context", "idle-sleep", "idle-unload", "min-free-vram-mib", "fit-max-tokens",
+    "grammar", "reasoning-effort", "reasoning-budget-tokens", "thinking-loop-tokens", "answer-room", "temperature", "top-p", "top-k", "min-p",
+    "presence-penalty", "frequency-penalty", "repetition-penalty", "penalty-last-n", "seed", "video-max-tokens", "vision-hold", "vision-projector"})
 GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
 REMOVED_SERVER_KEYS = ("reasoning-budget-tokens", "max-answer-tokens")   # server options a saved file may still hold: dropped
 REMOVED_ENGINE_KEYS = ("spec-min-p",)       # engine flags a saved file may still hold: dropped, the engine no longer has them
@@ -67,27 +74,93 @@ def split_engine_extras(extras: list[str]) -> list[str]:
     return out
 
 
+# engine flags that take several values, with their form; every other engine flag takes one
+ENGINE_VALUE_FORMS = {"control-vector-layer-range": ["start", "end"]}
+
+
 def engine_words(key: str, value) -> list[str]:
     """The engine words for one config entry: a switch is true (the flag) or false (nothing), a string or number is
-    one value, and a list gives one word per item (a flag that takes several values). ValueError otherwise."""
-    flag = "--" + str(key).strip().lower().replace("_", "-").removeprefix("--")
+    one value, and a flag that takes several values (`ENGINE_VALUE_FORMS`) is a list of exactly that many. ValueError
+    otherwise."""
+    name = str(key).strip().lower().replace("_", "-").removeprefix("--")
+    flag = "--" + name
+    if name in REMOVED_ENGINE_KEYS:
+        return []
     if isinstance(value, bool):
         return [flag] if value else (["--no-vram-elastic"] if flag == "--vram-elastic" else [])
+    form = ENGINE_VALUE_FORMS.get(name)
+    if form:
+        if not isinstance(value, list) or len(value) != len(form):
+            raise ValueError(f"{name} must be a list [{', '.join(form)}], got {json.dumps(value)}")
+    elif isinstance(value, list):
+        raise ValueError(f"{name} takes one value, got {json.dumps(value)}")
     items = value if isinstance(value, list) else [value]
     for item in items:
         if isinstance(item, bool) or not isinstance(item, (str, int, float)) or str(item).strip() == "":
-            raise ValueError(f"engine.{key}: expected a string or number, a list of them for several values, "
-                             f"or true/false for a switch, not {value!r}")
-    if not items:
-        raise ValueError(f"engine.{key}: an empty list gives the flag no value")
+            raise ValueError(f"engine.{key}: expected a string or number, or true/false for a switch, not {value!r}")
     return [flag, *(str(item) for item in items)]
 
 
-def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str], list[str]]:
-    """(argv, engine) from a --config JSON file {"server": {...}, "engine": {...}}. `server` options become
-    command-line words so every command-line check applies; `engine` maps flags to values and becomes the words
-    for the engine (true: switch, false: off, a list: several values). Paths are relative to the file; ValueError
-    for anything else."""
+@dataclass
+class ModelEntry:
+    """One entry of "models": its server options as command-line words, the engine words of the top-level "engine" (taken
+    where the model has the flag) and its own (a flag it lacks stops the start)."""
+    path: str
+    argv: list[str] = field(default_factory=list)
+    shared_words: list[str] = field(default_factory=list)
+    own_words: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ConfigFile:
+    server_argv: list[str]
+    models: list[ModelEntry]
+
+
+def option_words(where: str, key, value, act, here: Path) -> list[str]:
+    """The command-line words of one server option from a config file, so every command-line check applies."""
+    name = config_name(key)
+    flag = "--" + name
+    if name == "vision":                               # a mode; booleans are refused
+        try:
+            return ["--vision", vision_mode(value)]
+        except ValueError as e:
+            raise ValueError(f"{where}.{key}: {e}") from None
+    if name == "request-log" and isinstance(value, bool):    # true or false in the file; on or off on the line
+        return [flag, "on" if value else "off"]
+    if name == "side-slot" and isinstance(value, bool):      # true: the default size; false: off
+        return [flag, str(SIDE_SLOT_DEFAULT) if value else "0"]
+    if name == "answer-room":                          # auto, or a whole number of tokens as a number or a string
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise ValueError(f'{where}.{key}: "auto" or a whole number of tokens (0 = none), not {value!r}')
+        try:
+            return [flag, str(answer_room(str(value)))]
+        except argparse.ArgumentTypeError as e:
+            raise ValueError(f"{where}.{key}: {e}") from None
+    if act.nargs == 0:                                 # a switch
+        if not isinstance(value, bool):
+            raise ValueError(f"{where}.{key}: true or false")
+        return [flag] if value else ([f"--no-{name}"] if isinstance(act, argparse.BooleanOptionalAction) else [])
+    items = value if isinstance(value, list) else [value]
+    if isinstance(value, list) and not isinstance(act, argparse._AppendAction):
+        raise ValueError(f"{where}.{key}: one value, not a list")
+    words: list[str] = []
+    for item in items:
+        if isinstance(item, bool) or not isinstance(item, (str, int, float)):
+            raise ValueError(f"{where}.{key}: expected a string or number, not {item!r}")
+        item = str(item)
+        if name in CONFIG_PATHS and item:
+            item = str((here / os.path.expanduser(item)))
+        words += [flag, item]
+    return words
+
+
+def config_name(key) -> str:
+    return str(key).strip().lower().replace("_", "-").removeprefix("--")
+
+
+def read_config(path: str) -> dict:
+    """The file's object, of this format and version; ValueError for anything else."""
     try:
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
@@ -95,78 +168,119 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
         raise ValueError(f"cannot read: {e.strerror or e}") from None
     except json.JSONDecodeError as e:
         raise ValueError(f"not valid JSON: {e}") from None
-    if not isinstance(raw, dict) or set(raw) - {"server", "engine"}:
-        raise ValueError('expected {"server": {...}, "engine": {...}}'
-                         + (f", not the key {sorted(set(raw) - {'server', 'engine'})[0]!r}" if isinstance(raw, dict) else ""))
-    sections = {k: raw.get(k, {}) for k in ("server", "engine")}
-    for k, v in sections.items():
+    if not isinstance(raw, dict):
+        raise ValueError('expected {"version": ' + str(CONFIG_VERSION) + ', "server": {...}, "engine": {...}, "models": [...]}')
+    version = raw.get("version", CONFIG_VERSION)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ValueError('"version" must be a whole number')
+    if version > CONFIG_VERSION:
+        raise ValueError(f"this is a v{version} config; this Basalt reads v{CONFIG_VERSION}")
+    if version < CONFIG_VERSION or "models" not in raw or "v" in raw:
+        old = Path(path).resolve()
+        new = old.with_name(f"{old.stem}.v{CONFIG_VERSION}{old.suffix}")
+        raise ValueError(f"Basalt requires v{CONFIG_VERSION} config, please upgrade: "
+                         f"python3 {ROOT / 'tools/migrations/config_v1_to_v2.py'} {old} -o {new}")
+    extra = set(raw) - {"version", "server", "engine", "models"}
+    if extra:
+        raise ValueError(f"unexpected key {sorted(extra)[0]!r}")
+    return raw
+
+
+def load_config_file(path: str, ap: argparse.ArgumentParser) -> ConfigFile:
+    """A --config JSON file {"version": 2, "server": {...}, "engine": {...}, "models": [{...}]}. `server` holds what the
+    whole server shares; `engine` what applies to every model that takes it; each entry of `models` names one model, and
+    its settings win over `engine`'s. Engine flags map to values (true: switch, false: off, a list: several values). Paths
+    are relative to the file; ValueError for anything else."""
+    raw = read_config(path)
+    server, shared, entries = raw.get("server", {}), raw.get("engine", {}), raw["models"]
+    for k, v in (("server", server), ("engine", shared)):
         if not isinstance(v, dict):
             raise ValueError(f'"{k}" must be an object')
+    if not isinstance(entries, list) or not entries or not all(isinstance(e, dict) for e in entries):
+        raise ValueError('"models" must be a list of at least one {"model": FILE, ...}')
+    for section in (server, shared, *entries):
+        for key in section:
+            if re.sub(r"[^a-z]", "", str(key).lower()).startswith("apikey"):
+                raise ValueError("api-key can't be set in a config file; pass --api-key on the command line")
     here = Path(path).resolve().parent
     known = server_options(ap)
-    argv: list[str] = []
-    for key in (*sections["server"], *sections["engine"]):
-        if re.sub(r"[^a-z]", "", str(key).lower()).startswith("apikey"):
-            raise ValueError("api-key can't be set in a config file; pass --api-key on the command line")
-    for key, value in sections["server"].items():
-        name = str(key).strip().lower().replace("_", "-").removeprefix("--")
+    server_argv: list[str] = []
+    for key, value in server.items():
+        name = config_name(key)
         if name in REMOVED_SERVER_KEYS:
             continue
-        act = known.get(name)
         if name == "engine-bin":
             raise ValueError("server.engine-bin: engine-bin is set by basalt serve")
-        if act is None:
+        if name in ENTRY_OPTIONS or name in MODEL_OPTIONS:
+            raise ValueError(f'server.{key}: a model setting, set it under "engine" or in a model entry')
+        if name not in known:
             raise ValueError(f'server.{key}: not a server option (engine flags go under "engine")')
-        flag = "--" + name
-        if name == "vision":                               # a mode; booleans are refused
-            try:
-                mode = vision_mode(value)
-            except ValueError as e:
-                raise ValueError(f"server.{key}: {e}") from None
-            argv += ["--vision", mode]
-            continue
-        if name == "request-log" and isinstance(value, bool):    # true or false in the file; on or off on the line
-            argv += [flag, "on" if value else "off"]
-            continue
-        if name == "side-slot" and isinstance(value, bool):      # true: the default size; false: off
-            argv += [flag, str(SIDE_SLOT_DEFAULT) if value else "0"]
-            continue
-        if act.nargs == 0:                                 # a switch
-            if not isinstance(value, bool):
-                raise ValueError(f"server.{key}: true or false")
-            argv += [flag] if value else ([f"--no-{name}"] if isinstance(act, argparse.BooleanOptionalAction) else [])
-            continue
-        items = value if isinstance(value, list) else [value]
-        if isinstance(value, list) and not isinstance(act, argparse._AppendAction):
-            raise ValueError(f"server.{key}: one value, not a list")
-        for item in items:
-            if isinstance(item, bool) or not isinstance(item, (str, int, float)):
-                raise ValueError(f"server.{key}: expected a string or number, not {item!r}")
-            item = str(item)
-            if name in CONFIG_PATHS and item:
-                item = str((here / os.path.expanduser(item)))
-            argv += [flag, item]
-    engine: list[str] = []
-    for key, value in sections["engine"].items():
-        flag = "--" + str(key).strip().lower().replace("_", "-").removeprefix("--")
-        if flag[2:] in REMOVED_ENGINE_KEYS:
-            continue
-        if flag[2:] in known:
+        server_argv += option_words("server", key, value, known[name], here)
+    shared_argv: list[str] = []
+    shared_words: list[str] = []
+    for key, value in shared.items():
+        name = config_name(key)
+        if name in ENTRY_OPTIONS:
+            raise ValueError(f"engine.{key}: set it in a model entry")
+        if name in MODEL_OPTIONS:
+            shared_argv += option_words("engine", key, value, known[name], here)
+        elif name in known:
             raise ValueError(f'engine.{key}: a server option, set it under "server"')
-        engine += engine_words(key, value)
-    return argv, engine
+        else:
+            shared_words += engine_words(key, value)
+    models: list[ModelEntry] = []
+    for i, entry in enumerate(entries):
+        where = f"models[{i}]"
+        if not isinstance(entry.get("model"), str) or not entry["model"].strip():
+            raise ValueError(f'{where}: "model" names the model file')
+        out = ModelEntry(str(here / os.path.expanduser(entry["model"])), list(shared_argv), list(shared_words))
+        for key, value in entry.items():
+            name = config_name(key)
+            if name in ENTRY_OPTIONS or name in MODEL_OPTIONS:
+                out.argv += option_words(where, key, value, known[name], here)
+            elif name in known:
+                raise ValueError(f'{where}.{key}: a server option, set it under "server"')
+            else:
+                out.own_words += engine_words(key, value)
+        models.append(out)
+    return ConfigFile(server_argv, models)
 
 
-def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
+def model_settings(ap: argparse.ArgumentParser, cli: list[str], refused=None) -> list[tuple]:
+    """parse_settings() for each model the server runs: the --config file's entries, else the command line's one.
+    `refused(path, group)` says a model has no such engine flag; a top-level setting it refuses is left out of that model's
+    words and named in `a.skipped`. With --config the command line's settings apply to every entry."""
+    a_cli = ap.parse_known_args(cli)[0]
+    if not a_cli.config:
+        return [parse_settings(ap, cli)]
+    given = [f for f, v in (("--model", a_cli.model), ("--alias", a_cli.alias)) if v]
+    if given:
+        verb = "is" if len(given) == 1 else "are"
+        raise ValueError(f"{' and '.join(given)} {verb} not supported when using a config file")
+    cfg = load_config_file(a_cli.config, ap)
+    out = []
+    for entry in cfg.models:
+        kept, skipped = [], []
+        for group in engine_groups(entry.shared_words):
+            if refused is not None and refused(entry.path, group):
+                skipped.append(group[0])
+            else:
+                kept += group
+        settings = parse_settings(ap, cli, cfg.server_argv, entry.argv, kept + entry.own_words)
+        settings[0].skipped = skipped
+        out.append(settings)
+    return out
+
+
+def parse_settings(ap: argparse.ArgumentParser, cli: list[str], server_argv=(), model_argv=(), words=()):
     """(args, argv, file_words, cli_words): parsed options, their source words and the engine words from each.
     The engine reads its flags in order and a later one wins, so file words then command-line words keep
-    command line > config file > defaults; SystemExit(2) for a bad value, ValueError for a bad config or stray word."""
+    command line > config file > defaults; SystemExit(2) for a bad value, ValueError for a stray word or a clash."""
     a_cli, extras = ap.parse_known_args(cli)
     cli_words = split_engine_extras(extras)
-    file_argv, file_words = [], []
-    if a_cli.config:
-        file_argv, file_words = load_config_file(a_cli.config, ap)
+    file_argv, file_words = [*server_argv, *model_argv], list(words)
     a = ap.parse_known_args(file_argv + cli)[0]
+    a.skipped = []
     a.sampling_launch = {k: getattr(a, k) for k in SAMPLING_KEYS if getattr(a, k) is not None}
     a.sampling_cli = {k for k in a.sampling_launch if getattr(a_cli, k) is not None}
     if a.vision == "":                                     # a bare --vision
@@ -209,18 +323,18 @@ def parse_settings(ap: argparse.ArgumentParser, cli: list[str]):
             words.extend(["--side-context", str(side)])
         if main > 1 and not a.slot_full_context:
             # --max-context is shared by the slots, as in llama.cpp: each holds an equal part (the solo path, used while
-            # a request is alone, has the same length, so a request never outgrows its slot)
+            # a request is alone, has the same length, so a request never outgrows its slot). Without the flag the
+            # engine's default is shared, once the server has asked the engine for it (split_default).
             src = cli_words if "--max-context" in cli_words or "--max-context" not in file_words else file_words
             at = flag_index(src, "--max-context")
             if at is not None and at + 1 >= len(src):
                 raise ValueError("--max-context needs a value")
-            ctx = int(src[at + 1]) if at is not None else ENGINE_DEFAULT_CONTEXT
-            part = str(max(MIN_SLOT_CONTEXT, ctx // main))
             if at is None:
-                src += ["--max-context", part]
+                a.split_default = True
             else:
-                src[at + 1] = part
-            a.shared_context = ctx                         # the total, for the startup line
+                ctx = int(src[at + 1])
+                src[at + 1] = str(slot_share(ctx, main))
+                a.shared_context = ctx                     # the total, for the startup line
     return a, file_argv + cli, file_words, cli_words
 
 
@@ -245,38 +359,68 @@ def engine_groups(words: list[str]) -> list[list[str]]:
     return groups
 
 
-ENGINE_NAMES = {"max-context": "ctx", "pool-workers": "pool"}      # flag -> the console's name
+# flag -> the console's name; a -mib or -gib flag's unit follows its value
+ENGINE_NAMES = {"max-context": "ctx", "pool-workers": "pool", "conversation-cache-disk-mib": "disk-cache",
+                "conversation-cache-mib": "ram-cache", "vram-reserve-mib": "reserve"}
 UNIT_SUFFIXES = {"-mib": "MiB", "-gib": "GiB"}
 
 
 def engine_item(group: list[str]) -> str:
     """One engine flag with its values as `name=value`; a switch is its bare name."""
-    name, values = group[0][2:], group[1:]
-    for suffix, unit in UNIT_SUFFIXES.items():
-        if name.endswith(suffix) and len(values) == 1:
-            return f"{name[:-len(suffix)]}={values[0]}{unit}"
-    name = ENGINE_NAMES.get(name, name)
-    return f"{name}={','.join(values)}" if values else name
+    flag, values = group[0][2:], group[1:]
+    unit = next((u for suffix, u in UNIT_SUFFIXES.items() if flag.endswith(suffix) and len(values) == 1), "")
+    name = ENGINE_NAMES.get(flag, flag[:-4] if unit else flag)
+    return f"{name}={','.join(values)}{unit}" if values else name
 
 
-def engine_line(file_words: list[str], cli_words: list[str],
-                shared: tuple[int, int] | None = None, grammar: tuple[bool, str] | None = None) -> str:
-    """The startup line listing the engine words from --config and the command line as key=value items, each origin's
-    items followed by `(from config)` or `(from cli)`; with none it says `defaults`. `shared` is (total, slots)
-    when --max-context was divided among the slots. `grammar` is (on, origin) with origin "config" or "cli", None when
-    left at its default (no entry)."""
-    groups = [(g, "config") for g in engine_groups(file_words)] + [(g, "cli") for g in engine_groups(cli_words)]
-    last_ctx = max((i for i, (g, _) in enumerate(groups) if g[0] == "--max-context"), default=None)
-    items: dict[str, list[str]] = {"config": [], "cli": []}
-    for i, (g, src) in enumerate(groups):
+def start_items(file_words: list[str], cli_words: list[str], shared: tuple[int, int] | None = None,
+                grammar: tuple[bool, str] | None = None, debug: bool = False) -> list[str]:
+    """The engine words from --config and the command line as key=value items for a model's startup line, a flag given
+    twice shown once with the value that wins. `shared` is (total, slots) when --max-context was divided among the slots;
+    `grammar` is (on, origin), None when left at its default. The conversation folder shows only with --debug."""
+    groups = engine_groups(file_words) + engine_groups(cli_words)
+    last = {g[0]: i for i, g in enumerate(groups)}
+    items = []
+    for i, g in enumerate(groups):
+        if last[g[0]] != i or (g[0] == "--conversation-cache-dir" and not debug):
+            continue
         item = engine_item(g)
-        if shared and i == last_ctx:
+        if shared and g[0] == "--max-context":
             item += f" ({shared[0]}/{shared[1]} slots)"
-        items[src].append(item)
+        items.append(item)
     if grammar is not None:
-        items[grammar[1]].append(f"grammar={'on' if grammar[0] else 'off'}")
-    shown = "  ".join(f"{' '.join(v)} (from {src})" for src, v in items.items() if v)
-    return tagged("engine", shown or "defaults")
+        items.append(f"grammar={'on' if grammar[0] else 'off'}")
+    return items
+
+
+def slot_share(total: int, parallel: int) -> int:
+    """Each of `parallel` slots' part of a shared --max-context."""
+    return max(MIN_SLOT_CONTEXT, total // parallel)
+
+
+def slots_text(parallel: int, per_slot: int, shared: int | None) -> str:
+    """The startup slot line: the slots and the context each really gets; a shared --max-context also names the
+    whole-context option."""
+    text = f"slots {parallel} \u00d7 {per_slot} ctx"
+    return text + (f" (slot-full-context: {shared} each)" if shared else "")
+
+
+def with_spec(items: list[str], spec) -> list[str]:
+    """A model's items with `spec=N` the window the engine will run (its --gpu-plan answer), not the flag as given."""
+    return items if not isinstance(spec, int) else [x for x in items if not x.startswith("spec=")] + [f"spec={spec}"]
+
+
+def shared_line(shared: list[str], sleeps: list) -> tuple[str, bool]:
+    """The items every model shares, with the idle sleep when all of several models sleep after the same time; and
+    whether it took the sleep (the models then do not say it each)."""
+    s = {x or 0 for x in sleeps}
+    sleep = len(sleeps) > 1 and len(s) == 1 and next(iter(s)) > 0
+    return " ".join(shared + ([f"sleep={next(iter(s)):g}s"] if sleep else [])), sleep
+
+
+def model_line(name: str, width: int, items: list[str]) -> str:
+    """A model's startup line: its name padded to the column of the longest name, then its items."""
+    return f"[server] {name:<{width}} {' '.join(items)}".rstrip()
 
 
 def _num(v):
@@ -324,7 +468,7 @@ def sampling_defaults_from_config(cfg: dict) -> dict:
     start; unknown keys are named and ignored."""
     out = {}
     for key, value in (cfg.get("sampling") or {}).items():
-        if value is None:
+        if value is None or (key == "top_k" and value == 0):   # 0: no top-k cut
             continue
         if key in SAMPLING_KEYS:
             convert, ok, expected = SAMPLING_KEYS[key]
@@ -358,15 +502,13 @@ def sampling_option(key: str):
 
 SAMPLING_NAMES = {"temperature": "temp", "presence_penalty": "pres", "frequency_penalty": "freq",
                   "repetition_penalty": "rep"}      # the console's short names
+SAMPLING_OFF = {"min_p": 0, "presence_penalty": 0, "frequency_penalty": 0, "repetition_penalty": 1, "top_k": -1}
 
 
-def sampling_line(effective: dict, cli: set[str], config: set[str]) -> str:
-    """The startup line for the effective sampling defaults, each marked with where it came from: the keys in
-    `cli` were typed on the command line, those in `config` come from the config file; the rest are the model
-    file's."""
-    mark = lambda k: "(cli)" if k in cli else "(config)" if k in config else ""
-    shown = " ".join(f"{SAMPLING_NAMES.get(k, k)}={v}{mark(k)}" for k, v in effective.items())
-    return tagged("sampling", shown)
+def sampling_items(effective: dict) -> list[str]:
+    """The effective sampling defaults as items, leaving out those that change nothing."""
+    return [f"{SAMPLING_NAMES.get(k, k)}={v}" for k, v in effective.items()
+            if not (k in SAMPLING_OFF and v == SAMPLING_OFF[k]) and not (k == "top_k" and v == 0)]
 
 
 def vision_setting(text: str) -> str:
@@ -441,6 +583,30 @@ def budget_count(text: str) -> int:
     return n
 
 
+def answer_room(text: str) -> str | int:
+    """argparse type: auto, or a whole number of tokens >= 0 (0: none)."""
+    if text == "auto":
+        return text
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected auto or a whole number of tokens >= 0, not {text!r}") from None
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"expected auto or a whole number of tokens >= 0, not {n}")
+    return n
+
+
+def video_tokens(text: str) -> int:
+    """argparse type: a video's token budget, a whole number from 64 to 65536."""
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a whole number from 64 to 65536, not {text!r}") from None
+    if not 64 <= n <= 65536:
+        raise argparse.ArgumentTypeError(f"expected a whole number from 64 to 65536, not {n}")
+    return n
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                  allow_abbrev=False)
@@ -463,10 +629,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="with --parallel, give every slot the whole --max-context instead of an equal part: N slots "
                          "cost N times the KV cache")
     ap.add_argument("--config", metavar="FILE",
-                    help="a JSON file {\"server\": {...}, \"engine\": {...}}: server options and engine flags named "
-                         "without the dashes, e.g. \"engine\": {\"max-context\": 32768, \"spec\": 7, "
-                         "\"resident-experts\": true}; a list gives a flag several values; the command line "
-                         "wins over it")
+                    help="a JSON file {\"server\": {...}, \"engine\": {...}, \"models\": [{\"model\": FILE, ...}]}: settings "
+                         "named without the dashes. \"server\" holds what the server shares, \"engine\" what applies to "
+                         "every model that takes it, a model entry that model's own; a list gives a flag several "
+                         "values; the command line wins over it, for every model")
     ap.add_argument("--vision", nargs="?", const="", default="off", type=vision_setting, metavar="MODE|GPU",
                     help="image input: off (default), dynamic (inside the engine: it borrows expert-cache slots "
                          "on the main GPU while it reads an image, no standing VRAM), cpu (no VRAM, slow) or a "
@@ -524,11 +690,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="a page origin such as http://localhost:3000 that may use this server from a browser; give it once per origin "
                          "(a list in the --config file). '*' turns the Origin rule off: a page of any website could then call "
                          "this PC's server")
+    ap.add_argument("--api-key-file", default="", metavar="FILE",
+                    help="read that key from the first line of FILE, which keeps it out of the process list; command "
+                         "line only")
+    ap.add_argument("--max-payload-mib", type=int, default=256, metavar="MIB",
+                    help="the largest request body the server reads, in MiB; a bigger one gets a 413 (default 256)")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",
                     help="echo the engine's per-request summary on stdout, for a supervisor that only sees this output")
-    ap.add_argument("--lazy", action="store_true", help="start the text-only API unloaded; load on first request")
+    ap.add_argument("--lazy", action="store_true", help="start the API unloaded; load on first request; a sidecar image encoder is dropped, --vision dynamic stays")
     ap.add_argument("--listen-first", action="store_true",
                     help="answer HTTP (web UI, /metrics, /api/logs) at once and load the model behind it; requests "
                          "wait for the load, the Monitor shows Loading")
@@ -565,12 +736,20 @@ def build_parser() -> argparse.ArgumentParser:
                          "unless you save it from the page")
     ap.add_argument("--request-log-mib", type=float, default=32.0, metavar="MIB",
                     help="memory the request log may use (default 32); the oldest entries are dropped beyond it")
+    ap.add_argument("--reasoning-effort", type=str.lower, choices=("none", "low", "medium", "high", "xhigh", "max"),
+                    default=None, help="default reasoning effort for requests that name none (no effort, thinking "
+                                       "switch or budget); unset, the model's template decides")
     ap.add_argument("--thinking-loop-tokens", type=budget_count, default=0, metavar="N",
                     help="end the thinking and let the model answer when it repeats one token this many times in a "
                          "row inside the thinking (default 0 = never; the thinking is never cut otherwise)")
-    ap.add_argument("--answer-room", action=argparse.BooleanOptionalAction, default=False,
-                    help="reserve space for closing the thinking and the answer when the output cap is at least 1024 tokens, "
-                         "which cuts a long thinking short (default off); an explicit request budget of 0 opts out")
+    ap.add_argument("--video-max-tokens", type=video_tokens, default=VIDEO_MAX_TOKENS, metavar="N",
+                    help=f"the most image tokens one video may take over all its frames (default {VIDEO_MAX_TOKENS}): "
+                         "frames are sampled at 2 a second (4 to 768; a request's video part may ask fps and "
+                         "max_frames) and scaled down together to fit")
+    ap.add_argument("--answer-room", type=answer_room, default=0, metavar="auto|N",
+                    help="output tokens kept for closing the thinking and the answer: 0 (the default: none), auto (a quarter of "
+                         "the cap, at least 512, at most half) or a whole number of tokens, which cuts a long thinking short; "
+                         "an explicit request budget of 0 opts out")
     ap.add_argument("--thinking-passage-loop-tokens", type=budget_count, default=30, metavar="N",
                     help="end the thinking, at the first copy, when it writes the same passage of this many tokens again and again (0 = never); "
                          "a loop is --thinking-passage-loop-times copies within --thinking-passage-loop-window tokens. The copies are left out of what the answer reads")

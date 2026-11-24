@@ -10,7 +10,7 @@ from pathlib import Path
 
 from serve.engine.mock import MockEngine
 from serve.handler import serve
-from serve.models.inkling2 import END, END_TURN, HEADER, IMAGE, IMAGE_PAD, TEXT, Inkling2
+from serve.dialects.inkling2 import END, END_TURN, HEADER, IMAGE, IMAGE_PAD, TEXT, Inkling2
 from serve.service import Service
 from serve.tests.test_inkling2_dialect import OFFICIAL, InkTokenizer
 

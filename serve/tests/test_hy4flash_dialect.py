@@ -14,9 +14,9 @@ from serve.engine import modelfile
 from serve.engine.mock import MockEngine
 from serve.frontend import TemplateRequestError, openai_to_messages
 from serve.handler import serve
-from serve.models import dialect_for
-from serve.models.hy4flash import OFFICIAL_SUFFIX, Hy4Flash, Hy4Parser, Tags, suffix_of
-from serve.models.qwen import Qwen
+from serve.dialects import dialect_for
+from serve.dialects.hy4flash import OFFICIAL_SUFFIX, Hy4Flash, Hy4Parser, Tags, suffix_of
+from serve.dialects.qwen import Qwen
 from serve.service import Service
 from serve.tests.test_sleep import SleepyEngine
 from serve.util.text import ByteTokenizer

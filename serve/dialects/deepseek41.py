@@ -12,8 +12,8 @@ import re
 
 from serve import frontend
 from serve.frontend import Event, ToolCall
-from serve.models import Dialect
-from serve.models import deepseek41_encoding as enc
+from serve.dialects import Dialect
+from serve.dialects import deepseek41_encoding as enc
 
 EOS = enc.eos_token
 THINK_END = enc.thinking_end_token

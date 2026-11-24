@@ -12,9 +12,9 @@ from pathlib import Path
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
-from serve.models import deepseek41 as ds
-from serve.models import deepseek41_encoding as enc
-from serve.models.qwen import Qwen
+from serve.dialects import deepseek41 as ds
+from serve.dialects import deepseek41_encoding as enc
+from serve.dialects.qwen import Qwen
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 

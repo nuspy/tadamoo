@@ -12,7 +12,7 @@ import re
 
 from serve import frontend
 from serve.frontend import Event, ToolCall
-from serve.models import Dialect
+from serve.dialects import Dialect
 
 HEADER = "<|message_model|>"
 THINK = "<|content_thinking|>"

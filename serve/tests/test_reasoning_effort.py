@@ -10,8 +10,8 @@ from pathlib import Path
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate, anthropic_to_messages, openai_to_messages
 from serve.handler import serve
-from serve.models.deepseek41 import DeepSeek41, DeepseekTemplate
-from serve.models.qwen import Qwen
+from serve.dialects.deepseek41 import DeepSeek41, DeepseekTemplate
+from serve.dialects.qwen import Qwen
 from serve.router import Router
 from serve.service import Service
 from serve.util.text import ByteTokenizer
@@ -71,7 +71,7 @@ class Caps(unittest.TestCase):
         self.assertTrue(all(Qwen.caps.values()))
 
     def test_deepseek_caps_are_what_its_encoder_has(self):
-        from serve.models import deepseek41_encoding as enc
+        from serve.dialects import deepseek41_encoding as enc
         self.assertIn("drop_thinking", enc.encode_messages.__code__.co_varnames)
         self.assertIn("reasoning_effort", enc.encode_messages.__code__.co_varnames)
         self.assertTrue(all(DeepSeek41.caps.values()))

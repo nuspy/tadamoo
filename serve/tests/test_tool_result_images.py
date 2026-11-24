@@ -18,8 +18,8 @@ from serve.engine.mock import MockEngine
 from serve.engine.vision import Vision
 from serve.frontend import ChatTemplate, anthropic_to_messages, images_of, mark_think_literals, openai_to_messages
 from serve.handler import serve
-from serve.models import deepseek41_encoding as enc
-from serve.models.deepseek41 import DeepSeek41, DeepseekTemplate
+from serve.dialects import deepseek41_encoding as enc
+from serve.dialects.deepseek41 import DeepSeek41, DeepseekTemplate
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 

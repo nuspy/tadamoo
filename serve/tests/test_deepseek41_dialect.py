@@ -5,10 +5,10 @@ import random
 import unittest
 
 from serve.frontend import openai_to_messages
-from serve.models import dialect_for
-from serve.models import deepseek41_encoding as enc
-from serve.models.deepseek41 import DeepSeek41, DeepseekParser, DeepseekTemplate
-from serve.models.qwen import Qwen
+from serve.dialects import dialect_for
+from serve.dialects import deepseek41_encoding as enc
+from serve.dialects.deepseek41 import DeepSeek41, DeepseekParser, DeepseekTemplate
+from serve.dialects.qwen import Qwen
 
 BOS, EOS, A, U = enc.bos_token, enc.eos_token, enc.ASSISTANT_SP_TOKEN, enc.USER_SP_TOKEN
 CALLS = "<｜DSML｜ calls>\n"
@@ -68,8 +68,8 @@ class Render(unittest.TestCase):
                 self.assertIn(f"Reasoning Effort: {budget} ", self.t.render(m, reasoning_effort=word))
 
     def test_effort_levels_by_dialect(self):
-        from serve.models import Dialect
-        from serve.models.deepseek41 import DeepSeek41
+        from serve.dialects import Dialect
+        from serve.dialects.deepseek41 import DeepSeek41
         self.assertEqual(Dialect().effort_level("high"), "xhigh")
         self.assertEqual(Dialect().effort_level("max"), "xhigh")
         self.assertEqual(Dialect().effort_level("low"), "low")
