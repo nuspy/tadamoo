@@ -545,7 +545,7 @@ class Settings(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 path = Path(d) / "c.json"
                 path.write_text(cfgv2.dumps({"server": server}), encoding="utf-8")
-                file_argv, _ = load_config_file(str(path), ap)
+                file_argv = load_config_file(str(path), ap).server_argv
             argv = file_argv + argv
         return ap.parse_known_args(argv)[0]
 

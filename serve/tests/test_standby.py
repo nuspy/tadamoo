@@ -109,7 +109,7 @@ class InProcess(unittest.TestCase):
         self.assertEqual((body["status"], body["notes"]), ("restarting", ["model_restart"]))
         self.wait(self.svc.exit_request.is_set, "the server was not asked to end")
         saved = json.loads(self.cfg.read_text(encoding="utf-8"))
-        self.assertEqual(Path(saved["server"]["model"]), self.b)        # the new start reads it from the file
+        self.assertEqual(Path(saved["models"][0]["model"]), self.b)        # the new start reads it from the file
         self.assertEqual(saved["engine"]["kv"], "q4_0")
 
     def test_without_an_owner_the_model_waits_for_the_next_start(self):

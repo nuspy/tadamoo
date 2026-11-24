@@ -5214,9 +5214,9 @@ class Server(ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
-        sampler = getattr(self.svc, "telemetry", None)
-        if sampler is not None:
-            sampler.stop()
+        stop = getattr(getattr(self.svc, "telemetry", None), "stop", None)
+        if stop is not None:
+            stop()
 
     def handle_error(self, request, client_address):
         if not isinstance(sys.exc_info()[1], ConnectionError):   # a hang-up needs no stack trace

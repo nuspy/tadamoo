@@ -80,7 +80,7 @@ class Route(unittest.TestCase):
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         cls.path = str(Path(cls.tmp.name) / "config.json")
-        Path(cls.path).write_text("{}", encoding="utf-8")
+        Path(cls.path).write_text(cfgv2.dumps({}), encoding="utf-8")
         cls.svc.settings_info = {"config": cls.path}
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"

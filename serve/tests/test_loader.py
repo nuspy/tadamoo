@@ -302,7 +302,7 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(body["slot_context"], 262144)
         self.assertEqual(self.post("plan", {"values": {"engine.kv": "fp8"}})[0], 400)
         self.assertEqual(self.post("plan", {"values": {"server.model": "x"}})[0], 400)
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), cfgv2.v2(CONFIG))
 
     def test_load_writes_the_file_and_reloads(self):
         code, body = self.post("load", {"values": {"engine.kv": "int8", "engine.max-context": 65536,
@@ -313,9 +313,9 @@ class OverHttp(unittest.TestCase):
                                                    "server.slot-full-context"])
         new = json.loads(Path(self.path).read_text(encoding="utf-8"))
         self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("int8", 65536))
-        self.assertEqual(new["server"]["slot-full-context"], True)
+        self.assertEqual(new["models"][0]["slot-full-context"], True)
         self.assertEqual(new["engine"]["resident-experts"], True)            # other keys kept
-        self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), CONFIG)
+        self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), cfgv2.v2(CONFIG))
         st = self.wait_ready()
         self.assertEqual(st["phase"], "ready", st)
         self.assertEqual(self.svc.engine.max_context, 65536)                # each slot holds the whole context
@@ -329,7 +329,7 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(body["error"]["code"], "does_not_fit")
         self.assertIn("commit", [p["code"] for p in body["problems"]])
         self.assertIn("15%", body["problems"][0]["text_it"])
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), cfgv2.v2(CONFIG))
         self.assertEqual(self.sup.status()["phase"], "idle")
 
     def test_a_plan_that_does_not_fit_loads_when_the_person_says_so(self):
@@ -344,7 +344,7 @@ class OverHttp(unittest.TestCase):
         for values in ({"engine.kv": "fp8"}, {"engine.ple-io": "disk"}, {"engine.pool-workers": 0},
                        {"engine.resident-experts": "yes"}, {"server.model": "x"}):
             self.assertEqual(self.post("load", {"values": values})[0], 400, values)
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), CONFIG)
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), cfgv2.v2(CONFIG))
 
     def test_guards(self):
         with mock.patch("serve.settings.is_loopback", return_value=False):

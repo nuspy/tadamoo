@@ -14,6 +14,7 @@ from unittest import mock
 
 from serve import loader, models
 from serve.tests.test_models import BF16, F16, F32, Q8_0, projector_gguf, tiny_basalt, tiny_qwen
+from serve.tests import cfgv2  # noqa: E402
 
 ROOMY = {"ram_total": 128 << 30, "ram_available": 120 << 30, "commit_limit": 144 << 30, "commit_used": 10 << 30,
          "vram_total": 32 << 30, "vram_free": 31 << 30}
@@ -211,8 +212,8 @@ class TheChoice(Isolated):
                 settings.check_value("server", "vision-projector", bad)
         self.assertIn(("server", "vision-projector"), settings.LOADER_FIELDS)
         cfg = self.root / "c.json"
-        cfg.write_text('{"server": {"vision": "dynamic", "vision-projector": "embedded"}}', encoding="utf-8")
-        a = config.parse_settings(config.build_parser(), ["--config", str(cfg)])[0]
+        cfg.write_text(cfgv2.dumps({"server": {"vision": "dynamic", "vision-projector": "embedded"}}), encoding="utf-8")
+        a = config.single_settings(config.build_parser(), ["--config", str(cfg)])[0]
         self.assertEqual((a.vision, a.vision_projector), ("dynamic", "embedded"))
         self.assertEqual(config.parse_settings(config.build_parser(), [])[0].vision_projector, "auto")
 
@@ -253,8 +254,8 @@ class TheChoice(Isolated):
                 settings.check_value("server", "vision-hold", bad)
         self.assertIn(("server", "vision-hold"), settings.LOADER_FIELDS)
         cfg = self.root / "c.json"
-        cfg.write_text('{"server": {"vision": "dynamic", "vision-hold": "release"}}', encoding="utf-8")
-        a = config.parse_settings(config.build_parser(), ["--config", str(cfg)])[0]
+        cfg.write_text(cfgv2.dumps({"server": {"vision": "dynamic", "vision-hold": "release"}}), encoding="utf-8")
+        a = config.single_settings(config.build_parser(), ["--config", str(cfg)])[0]
         self.assertEqual(a.vision_hold, "release")
         self.assertEqual(config.parse_settings(config.build_parser(), [])[0].vision_hold, "keep")
 

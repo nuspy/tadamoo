@@ -40,17 +40,17 @@ class LimitsAreSettings(unittest.TestCase):
 
     def test_the_values_reach_the_service_at_start_and_at_a_reload(self):
         svc = service()
-        a = build_parser().parse_args(["--answer-room", "--thinking-loop-tokens", "300",
+        a = build_parser().parse_args(["--answer-room", "auto", "--thinking-loop-tokens", "300",
                                        "--passage-loop-tokens", "20", "--passage-loop-times", "3", "--passage-loop-window", "800",])
         svc.apply_limits(a)
         self.assertEqual((svc.answer_room, svc.thinking_loop_tokens, svc.repeat_ngram),
-                         (True, 300, (20, 3, 800)))
+                         ("auto", 300, (20, 3, 800)))
         svc.apply_limits(build_parser().parse_args(["--passage-loop-tokens", "0"]))
         self.assertIsNone(svc.repeat_ngram)
         self.assertFalse(svc.answer_room)
 
     def test_the_page_saves_and_checks_them(self):
-        for key, good, bad in (("answer-room", True, "yes"), ("thinking-loop-tokens", 256, -1),
+        for key, good, bad in (("answer-room", "auto", "yes"), ("thinking-loop-tokens", 256, -1),
                                ("passage-loop-tokens", 12, 1.5), ("passage-loop-times", 4, -3), ("passage-loop-window", 2000, None)):
             self.assertEqual(settings.check_value("server", key, good), good, key)
             with self.assertRaises(ValueError, msg=key):

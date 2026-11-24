@@ -9,6 +9,7 @@ from pathlib import Path
 
 from serve import handler
 from serve.tests.test_api_plans import PlansApiBase
+from serve.tests import cfgv2  # noqa: E402
 
 
 class Proxy(http.server.ThreadingHTTPServer):
@@ -39,7 +40,7 @@ class Proxy(http.server.ThreadingHTTPServer):
 class NetworkApiTest(PlansApiBase):
     def setUp(self):
         self.config = Path(self.tmp.name) / "tadamoo_config.json"
-        self.config.write_text(json.dumps({"server": {"port": self.port, "parallel": 2}, "engine": {"max-context": 4096}}), encoding="utf-8")
+        self.config.write_text(cfgv2.dumps({"server": {"port": self.port, "parallel": 2}, "engine": {"max-context": 4096}}), encoding="utf-8")
         self.old = getattr(self.svc, "settings_info", None)
         self.svc.settings_info = {"config": str(self.config), "model": None, "running": {}, "cli": []}
         self.svc.allowed_hosts, self.svc.public_name = (), ""
@@ -59,7 +60,7 @@ class NetworkApiTest(PlansApiBase):
         saved = json.loads(self.config.read_text(encoding="utf-8"))
         self.assertEqual(saved["server"]["host"], "0.0.0.0")
         self.assertEqual(saved["server"]["allowed-hosts"], ["mypc.example.ts.net"])
-        self.assertEqual((saved["server"]["parallel"], saved["engine"]["max-context"]), (2, 4096))           # every other key is kept
+        self.assertEqual((saved["engine"]["parallel"], saved["engine"]["max-context"]), (2, 4096))           # every other key is kept
         self.assertTrue(Path(str(self.config) + ".bak").exists())
         code, res = self.call("POST", "/api/network", {"allowed_hosts": [], "public_name": ""})              # taken out of the file
         self.assertEqual(sorted(res["changed"]), ["server.allowed-hosts", "server.public-name"])

@@ -75,21 +75,21 @@ class FileWrites(unittest.TestCase):
         r = settings.save(self.path, {"engine.spec": 5, "server.port": 9000, "engine.kv": "k8v4"})
         self.assertEqual(sorted(r["changed"]), ["engine.kv", "engine.spec", "server.port"])
         new = json.loads(Path(self.path).read_text(encoding="utf-8"))
-        self.assertEqual(list(new["engine"]), list(CONFIG["engine"]))          # same keys, same order
+        self.assertEqual(list(new["engine"]), list(cfgv2.v2(CONFIG)["engine"]))   # same keys, same order
         self.assertEqual(new["engine"]["spec"], 5)
         self.assertEqual(new["engine"]["kv"], "k8v4")
         self.assertIs(new["engine"]["resident-experts"], True)
         self.assertEqual(new["engine"]["vram-reserve-mib"], 700)
-        self.assertEqual(new["server"]["alias"], "Qwen 3.8 FN")
+        self.assertEqual(new["models"][0]["alias"], "Qwen 3.8 FN")
         self.assertEqual(new["server"]["port"], 9000)
-        self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), CONFIG)
+        self.assertEqual(json.loads(Path(self.path + ".bak").read_text(encoding="utf-8")), cfgv2.v2(CONFIG))
 
     def test_a_file_saved_with_the_removed_drafting_floor_still_loads_and_loses_it(self):
         old = {**CONFIG, "engine": {**CONFIG["engine"], "spec-min-p": 0.5}}
         Path(self.path).write_text(cfgv2.dumps(old), encoding="utf-8")
         self.assertNotIn("engine.spec-min-p", settings.values_of(settings.read_file(self.path), settings.LOADER_FIELDS))
-        settings.check_whole(old, self.path)                                    # the server starts with it
-        _, engine = config.load_config_file(self.path, config.build_parser())
+        settings.check_whole(cfgv2.v2(old), self.path)                          # the server starts with it
+        engine = config.load_config_file(self.path, config.build_parser()).models[0].shared_words
         self.assertNotIn("--spec-min-p", engine)
         self.assertIn("--spec", engine)
         r = settings.save(self.path, {"engine.spec": 5, "engine.spec-min-p": 0.7})   # an old form may still send it
@@ -104,13 +104,14 @@ class FileWrites(unittest.TestCase):
         settings.save(self.path, {"engine.prefill": None, "server.parallel": 2, "server.vision": "off"})
         new = json.loads(Path(self.path).read_text(encoding="utf-8"))
         self.assertNotIn("prefill", new["engine"])
-        self.assertEqual(new["server"]["parallel"], 2)
-        self.assertEqual(new["server"]["vision"], "off")
+        self.assertEqual(new["models"][0]["parallel"], 2)
+        self.assertEqual(new["models"][0]["vision"], "off")
 
     def test_the_file_s_own_spelling_is_kept(self):
-        Path(self.path).write_text(cfgv2.dumps({"engine": {"max_context": 8192}}), encoding="utf-8")
+        own = {"version": 2, "models": [{"model": "m.basalt"}], "engine": {"max_context": 8192}}
+        Path(self.path).write_text(json.dumps(own), encoding="utf-8")
         settings.save(self.path, {"engine.max-context": 16384})
-        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), {"engine": {"max_context": 16384}})
+        self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), {**own, "engine": {"max_context": 16384}})
 
     def test_a_bad_value_leaves_the_file_alone(self):
         before = Path(self.path).read_bytes()

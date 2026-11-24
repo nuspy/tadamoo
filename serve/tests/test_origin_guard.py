@@ -85,7 +85,7 @@ class Matrix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d) / "config.json"
             tmp.write_text(cfgv2.dumps({"server": {"allowed_hosts": ["mypc.tail1234.ts.net", "PLUTO-MAX.lan"]}}), encoding="utf-8")
-            argv, _ = load_config_file(str(tmp), ap)
+            argv = load_config_file(str(tmp), ap).server_argv
             self.assertEqual(ap.parse_args(argv).allowed_hosts, ["mypc.tail1234.ts.net", "pluto-max.lan"])
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 ap.parse_args(["--allowed-hosts", "http://mypc/"])
@@ -135,10 +135,10 @@ class AllowedOrigins(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d) / "config.json"
             tmp.write_text(cfgv2.dumps({"server": {"allowed-origins": ["http://localhost:3000", "HTTPS://App.Example.com"]}}), encoding="utf-8")
-            argv, _ = load_config_file(str(tmp), ap)
+            argv = load_config_file(str(tmp), ap).server_argv
             self.assertEqual(ap.parse_args(argv).allowed_origins, ["http://localhost:3000", "https://app.example.com"])
             tmp.write_text(cfgv2.dumps({"server": {"allowed-origins": ["*"]}}), encoding="utf-8")
-            argv, _ = load_config_file(str(tmp), ap)
+            argv = load_config_file(str(tmp), ap).server_argv
             self.assertEqual(ap.parse_args(argv).allowed_origins, ["*"])
         self.assertEqual(ap.parse_args(["--allowed-origins", "http://localhost:3000", "--allowed-origins", "http://localhost:5173"]).allowed_origins,
                          ["http://localhost:3000", "http://localhost:5173"])

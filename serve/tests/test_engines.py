@@ -17,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from serve import engines, hardware, loader, supervisor  # noqa: E402
 from serve.handler import serve  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 from serve.tests.test_loader import CONFIG, F, ROOMY, make_service  # noqa: E402
 
 GiB = 1 << 30
@@ -251,7 +252,7 @@ class Http(unittest.TestCase):
         self.no_engines = mock.patch.object(engines, "ROOT", Path(self.dir.name))     # no engine installed on this PC leaks in
         self.no_engines.start()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": self.path, "model": None, "cli": [], "running": {"engine.max-context": 4096}}
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", self.path], mock=True)

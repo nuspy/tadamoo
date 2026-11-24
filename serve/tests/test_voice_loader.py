@@ -25,6 +25,7 @@ from serve.handler import serve
 from serve.service import Service
 from serve.tests.test_models import ROOMY, tiny_basalt
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 MIB = 1 << 20
@@ -93,7 +94,7 @@ class Base(unittest.TestCase):
         self.a = tiny_basalt(root / "a.basalt", "Model A")
         self.b = tiny_basalt(root / "b.basalt", "Model B")
         self.cfg = root / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096, "vram-reserve-mib": 1200}}), encoding="utf-8")
+        self.cfg.write_text(cfgv2.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096, "vram-reserve-mib": 1200}}), encoding="utf-8")
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": str(self.cfg), "model": str(self.a), "cli": [], "running": {"engine.vram-elastic": False}}

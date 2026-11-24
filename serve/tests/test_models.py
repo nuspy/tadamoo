@@ -555,7 +555,7 @@ class WithModel(Base):
         self.assertEqual(settings.model_of(str(self.cfg)), self.a.as_posix())
         profiles.apply("Con B", str(self.cfg))
         new = json.loads(self.cfg.read_text(encoding="utf-8"))
-        self.assertEqual((new["server"]["model"], new["server"]["alias"], new["engine"]["kv"]),
+        self.assertEqual((new["models"][0]["model"], new["models"][0]["alias"], new["engine"]["kv"]),
                          (self.b.as_posix(), "Modello B", "q4_0"))
         with contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(profiles.main(["apply", profiles.SAFE_NAME, "--config", str(self.cfg),

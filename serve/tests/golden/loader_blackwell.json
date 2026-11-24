@@ -28,8 +28,9 @@
   "engine.spec": 0,
   "engine.vram-elastic": true,
   "engine.vram-reserve-mib": 700,
-  "server.answer-room": false,
+  "server.answer-room": 0,
   "server.grammar": true,
+  "server.max-payload-mib": 256,
   "server.measure-length": true,
   "server.parallel": 1,
   "server.passage-loop-times": 4,
@@ -42,6 +43,7 @@
   "server.thinking-passage-loop-times": 5,
   "server.thinking-passage-loop-tokens": 30,
   "server.thinking-passage-loop-window": 3000,
+  "server.video-max-tokens": 8192,
   "server.vision": "off",
   "server.vision-hold": "keep",
   "server.vision-projector": "auto"
@@ -92,7 +94,12 @@
   "server.thinking-passage-loop-tokens",
   "server.thinking-passage-loop-times",
   "server.thinking-passage-loop-window",
-  "server.measure-length"
+  "server.measure-length",
+  "server.reasoning-effort",
+  "server.video-max-tokens",
+  "server.max-payload-mib",
+  "engine.lora-scaled",
+  "engine.no-lora-partial"
  ],
  "gpu": {
   "blackwell": true,
@@ -142,8 +149,8 @@
   "plan_safe": {
    "commit": {
     "available": 143881404416,
-    "elastic": 11408506880,
     "counts_page_file_max": false,
+    "elastic": 11408506880,
     "free_now": 143881404416,
     "keep": 23192823398,
     "keep_share": 0.15,
@@ -261,8 +268,9 @@
     "engine.spec": 7,
     "engine.vram-elastic": true,
     "engine.vram-reserve-mib": 1536,
-    "server.answer-room": false,
+    "server.answer-room": 0,
     "server.grammar": true,
+    "server.max-payload-mib": 256,
     "server.measure-length": true,
     "server.parallel": 1,
     "server.passage-loop-times": 4,
@@ -275,6 +283,7 @@
     "server.thinking-passage-loop-times": 5,
     "server.thinking-passage-loop-tokens": 30,
     "server.thinking-passage-loop-window": 3000,
+    "server.video-max-tokens": 8192,
     "server.vision": "dynamic",
     "server.vision-hold": "keep",
     "server.vision-projector": "auto"
@@ -333,8 +342,8 @@
   "plan_values": {
    "commit": {
     "available": 143881404416,
-    "elastic": 0,
     "counts_page_file_max": false,
+    "elastic": 0,
     "free_now": 143881404416,
     "keep": 23192823398,
     "keep_share": 0.15,
@@ -448,8 +457,9 @@
     "engine.spec": 7,
     "engine.vram-elastic": true,
     "engine.vram-reserve-mib": 700,
-    "server.answer-room": false,
+    "server.answer-room": 0,
     "server.grammar": true,
+    "server.max-payload-mib": 256,
     "server.measure-length": true,
     "server.parallel": 1,
     "server.passage-loop-times": 4,
@@ -462,6 +472,7 @@
     "server.thinking-passage-loop-times": 5,
     "server.thinking-passage-loop-tokens": 30,
     "server.thinking-passage-loop-window": 3000,
+    "server.video-max-tokens": 8192,
     "server.vision": "off",
     "server.vision-hold": "keep",
     "server.vision-projector": "auto"
@@ -537,8 +548,8 @@
  "plan": {
   "commit": {
    "available": 143881404416,
-   "elastic": 713031680,
    "counts_page_file_max": false,
+   "elastic": 713031680,
    "free_now": 143881404416,
    "keep": 23192823398,
    "keep_share": 0.15,
@@ -726,8 +737,9 @@
    "engine.spec": 7,
    "engine.vram-elastic": true,
    "engine.vram-reserve-mib": 1200,
-   "server.answer-room": false,
+   "server.answer-room": 0,
    "server.grammar": true,
+   "server.max-payload-mib": 256,
    "server.measure-length": true,
    "server.parallel": 1,
    "server.passage-loop-times": 4,
@@ -740,6 +752,7 @@
    "server.thinking-passage-loop-times": 5,
    "server.thinking-passage-loop-tokens": 30,
    "server.thinking-passage-loop-window": 3000,
+   "server.video-max-tokens": 8192,
    "server.vision": "dynamic",
    "server.vision-hold": "keep",
    "server.vision-projector": "auto"
@@ -883,6 +896,7 @@
   "engine.resident-experts": true,
   "engine.spec": 7,
   "engine.vram-reserve-mib": 1200,
+  "server.model": "m.basalt",
   "server.port": 7232,
   "server.vision": "dynamic"
  }

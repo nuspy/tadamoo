@@ -19,6 +19,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 GiB = 1 << 30
@@ -179,13 +180,13 @@ class Store(unittest.TestCase):
 
     def test_apply_writes_the_config_and_keeps_a_backup(self):
         cfg = os.path.join(self.dir.name, "tadamoo_config.json")
-        original = {"server": {"model": "m.basalt", "port": 7232}, "engine": {"kv": "fp16", "resident-experts": True}}
+        original = cfgv2.v2({"server": {"model": "m.basalt", "port": 7232}, "engine": {"kv": "fp16", "resident-experts": True}})
         Path(cfg).write_text(json.dumps(original), encoding="utf-8")
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
         profiles.apply("Veloce", cfg)
         new = json.loads(Path(cfg).read_text(encoding="utf-8"))
         self.assertEqual(new["server"]["port"], 7300)
-        self.assertEqual(new["server"]["model"], "m.basalt")
+        self.assertEqual(new["models"][0]["model"], "m.basalt")
         self.assertEqual((new["engine"]["kv"], new["engine"]["max-context"]), ("int8", 65536))
         self.assertNotIn("resident-experts", new["engine"])              # the profile's own value: the default
         self.assertEqual(json.loads(Path(cfg + ".bak").read_text(encoding="utf-8")), original)

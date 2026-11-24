@@ -112,8 +112,8 @@ class ConfigFile(unittest.TestCase):
         settings.save(self.path, values, settings.LOADER_FIELDS)
         raw = json.loads(Path(self.path).read_text(encoding="utf-8"))
         self.assertEqual(raw["engine"]["kv-resident"], 40960)
-        self.assertIs(raw["server"]["grammar"], False)
-        a, _argv, file_words, _cli = config.parse_settings(settings._parser(), ["--config", self.path])
+        self.assertIs(raw["models"][0]["grammar"], False)
+        a, _argv, file_words, _cli = config.single_settings(settings._parser(), ["--config", self.path])
         self.assertFalse(a.grammar)
         self.assertEqual(a.thinking_loop_tokens, 4096)
         for words in (["--kv-resident", "40960"], ["--resident-budget-gib", "24.5"], ["--adapt-swaps", "0"],
@@ -129,7 +129,7 @@ class ConfigFile(unittest.TestCase):
 
     def test_grammar_on_is_the_default_and_a_switch_off_is_not_passed(self):
         settings.save(self.path, {"server.grammar": True, "engine.mmap-experts": False}, settings.LOADER_FIELDS)
-        a, argv, file_words, _ = config.parse_settings(settings._parser(), ["--config", self.path])
+        a, argv, file_words, _ = config.single_settings(settings._parser(), ["--config", self.path])
         self.assertTrue(a.grammar)
         self.assertNotIn("--mmap-experts", file_words)
         self.assertIn("--grammar", argv)
@@ -323,8 +323,8 @@ class SavedConfigurations(unittest.TestCase):
         Path(cfg).write_text(cfgv2.dumps({"server": {"port": 7232}, "engine": {"kv": "fp16"}}), encoding="utf-8")
         profiles.apply("Lunga", cfg)
         raw = json.loads(Path(cfg).read_text(encoding="utf-8"))
-        self.assertEqual((raw["engine"]["prompt-cache"], raw["engine"]["rope-scaling"], raw["server"]["grammar"],
-                          raw["server"]["thinking-loop-tokens"]), (3, "yarn", False, 4096))
+        self.assertEqual((raw["engine"]["prompt-cache"], raw["engine"]["rope-scaling"], raw["models"][0]["grammar"],
+                          raw["models"][0]["thinking-loop-tokens"]), (3, "yarn", False, 4096))
 
     def test_an_older_configuration_without_them_loads_and_takes_the_defaults(self):
         old = {"engine.max-context": 65536, "engine.kv": "int8", "server.port": 7300}
