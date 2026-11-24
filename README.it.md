@@ -152,8 +152,8 @@ Il server parla entrambe le API anche verso l'esterno, così gli editor e gli st
 |---|---|---|
 | **Windows**, completo | [windows-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.1) | app, motore, server e Python su un solo PC |
 | **Windows**, solo GUI | [windows-gui-only-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.1) | una finestra su un server che gira altrove |
-| **Linux**, completo | [linux-complete-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v1.12.8) | harness, installer e motore Basalt-Plus |
-| **Linux**, server | [server-linux-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v1.12.8) | harness e installer |
+| **Linux**, completo | [linux-complete-v2.1](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.1) | harness, installer e motore Basalt-Plus |
+| **Linux**, server | [server-linux-v2.1](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.1) | harness e installer |
 | **Android** | [android-v2.1](https://github.com/nuspy/tadamoo/releases/tag/android-v2.1) | l'app per il telefono |
 | **Mac** | da compilare da questo repository | la finestra su un server (predisposto in [deploy/mac](deploy/mac/README.md)) |
 
@@ -162,7 +162,7 @@ agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third
 Su Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v1.12.8.tar.gz && cd tadamoo-1.12
+tar xzf TaDaMoo-linux-complete-v2.1.tar.gz && cd tadamoo-2.1
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 

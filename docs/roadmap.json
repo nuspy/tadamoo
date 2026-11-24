@@ -968,6 +968,25 @@
         "Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7."
       ],
       "branch": false
+    },
+    {
+      "id": "rm49",
+      "num": 49,
+      "group": "todo",
+      "title": "Il Basalt originale è alla 0.5.7: cosa importare (da decidere)",
+      "status": "wait",
+      "summary": "Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Nessuna importazione è stata avviata.",
+      "solved": [
+        "Verificato: la nostra storia e la loro non hanno antenato comune (git merge-base non trova niente), quindi un git merge non si può fare: si portano le modifiche con tre vie da un commit di base (4a591d96). Cambiati da tutti e due: 247 file (72 in src, 36 in include, 46 in serve, 43 in tests).",
+        "Candidati dai loro registri delle versioni (numeri loro, non misurati da noi): compilazione pulita da 933 a 290 secondi; avvio e RAM più robusti; prompt lunghi di Flash-Next fino al 22% più veloci; slot paralleli che decodificano insieme; video, PDF e Office nei messaggi; richieste immagini da altre macchine; Qwen3.8-27B denso in 16 GiB su una scheda."
+      ],
+      "decisions": [
+        "Da decidere con te: se avviare la fase 0 (un ramo di prova su D: con le modifiche applicate a tre vie, per contare i conflitti veri) e quali gruppi prendere; il 27B come secondo modello."
+      ],
+      "risks": [
+        "La 0.5.7 rompe le opzioni multi-scheda (`gpu`, `gpu-mode`, `gpu-share`; `gpu: auto` tolto) e il Loader e il supervisore le passano. Ogni modifica che cambia i numeri o la velocità vuole l'A/B e il controllo di qualità di AGENTS.md."
+      ],
+      "branch": false
     }
   ]
 }

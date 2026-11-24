@@ -152,8 +152,8 @@ The server also speaks both APIs outward, so editors and tools you already use c
 |---|---|---|
 | **Windows**, complete | [windows-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.1) | the app, the engine, the server and Python on one PC |
 | **Windows**, GUI only | [windows-gui-only-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.1) | a window on a server that runs elsewhere |
-| **Linux**, complete | [linux-complete-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v1.12.8) | the harness, the installer and the Basalt-Plus engine |
-| **Linux**, server | [server-linux-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v1.12.8) | the harness and the installer |
+| **Linux**, complete | [linux-complete-v2.1](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.1) | the harness, the installer and the Basalt-Plus engine |
+| **Linux**, server | [server-linux-v2.1](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.1) | the harness and the installer |
 | **Android** | [android-v2.1](https://github.com/nuspy/tadamoo/releases/tag/android-v2.1) | the phone app |
 | **Mac** | compile from this repository | the window on a server (prepared in [deploy/mac](deploy/mac/README.md)) |
 
@@ -162,7 +162,7 @@ agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_
 On Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v1.12.8.tar.gz && cd tadamoo-1.12
+tar xzf TaDaMoo-linux-complete-v2.1.tar.gz && cd tadamoo-2.1
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
