@@ -38,7 +38,7 @@ from serve.api.documents import sources as document_sources
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
 from serve.api.longform import long_answer_chunks, long_collect, long_request
-from serve.api.openai import (openai_chunks, openai_collect, retry_messages, structured_retries,
+from serve.api.openai import (checked_return_progress, openai_chunks, openai_collect, retry_messages, structured_retries,
                               structured_retry_chunks)
 from serve.api.responses import ResponsesError
 from serve.prompt import primed
@@ -4863,6 +4863,7 @@ def make_handler(svc: Service, remote: bool = False):
             messages, tools, kw = openai_to_messages(req)
             tools, force = forced_call(req.get("tool_choice"), tools)   # a bad choice is a 400 before streaming
             check_format(req.get("response_format"))
+            checked_return_progress(req)                      # a return_progress that is not a boolean is a 400 before streaming
             retries = structured_retries(req)                 # 0: the engine's grammar alone; tries only when a request asks
             validator = json_validator(req.get("response_format")) if retries else None
             trace = self.trace

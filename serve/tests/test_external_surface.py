@@ -25,11 +25,11 @@ ROOT = Path(__file__).resolve().parents[2]
 # the interfaces of the loaded model
 LLM_ROUTES = {"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models"}
 # control of the loaded model, for the server's own page
-CONTROL_ROUTES = {"/v1/status", "/v1/vram"}
+CONTROL_ROUTES = {"/v1/status", "/v1/vram", "/v1/answer_now"}      # answer now closes a running request's thinking
 # prefixes of the above: one model's entry, and the refusal for stored responses; "/v1/" alone is the namespace test
 PREFIXES = {"/v1/models/", "/v1/responses/", "/v1/"}
 # routes outside /v1: the page, health, and the short forms of the model list and of the control routes
-TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/models", "/models/", "/status", "/canary", "/canary/"}      # the Canary page, this PC only
+TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/tokenize", "/detokenize", "/models", "/models/", "/status", "/canary", "/canary/"}      # the Canary page, this PC only
 
 # callAPIcall's routes, republished by serve/voice_compat.py with TaDaMoo's own key (tests/test_voice_compat.py): the first path segment of each
 COMPAT_TOP = {"external", "analysis", "transcribe", "tts", "stt", "voices", "models", "session", "personas", "avatar", "meetbot", "meetings", "calendar", "copilot"}
