@@ -42,14 +42,50 @@ def supports(name: Any) -> bool:
     return Path(str(name)).suffix.lower() in FORMATS
 
 
+def pdf_text(path: Path) -> Tuple[Optional[str], str]:
+    """(text, note) of a PDF from its text layer, page by page with `[page N]` markers (a page with no text says so: it is a scan, for OCR). pypdf keeps the
+    spaces between the words that MarkItDown's PDF reader (pdfminer) drops in many PDFs. `unavailable` when pypdf is not installed."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None, "unavailable"
+    import io
+    import logging
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+    try:
+        if Path(path).stat().st_size > MAX_BYTES:
+            return None, "too_large"
+        data = Path(path).read_bytes()
+        if not data.startswith(MAGIC[".pdf"]):             # a damaged file would be read as plain text, which is not its content
+            return None, "failed: not_pdf"
+        reader = PdfReader(io.BytesIO(data), strict=False)
+        if reader.is_encrypted and not reader.decrypt(""):
+            return None, "failed: encrypted"
+        parts, with_text = [], 0
+        for n, page in enumerate(reader.pages, 1):
+            body = (page.extract_text() or "").replace("\r\n", "\n").strip()
+            if body:
+                with_text += 1
+                parts.append(f"[page {n}]\n{body}\n")
+            else:
+                parts.append(f"[page {n}: no text layer]\n")
+    except Exception as exc:                               # a damaged file: the caller falls back
+        return None, f"failed: {type(exc).__name__}"
+    return ("\n".join(parts), "") if with_text else (None, "empty")
+
+
 def convert(path: Path, name: str = "") -> Tuple[Optional[str], str]:
     """(markdown, note): the file as Markdown, or None with why not (`unavailable`, `unsupported`, `too_large`, `empty`, or `failed: <kind>`).
     `name` is the file's own name when the stored copy has none (an attachment is kept as plain `file`): its extension tells MarkItDown what it is."""
+    path = Path(path)
+    ext = Path(name or path.name).suffix.lower()
+    if ext == ".pdf":                                      # the text layer, with its spaces; a PDF with none is empty, for OCR
+        text, note = pdf_text(path)
+        if note != "unavailable":
+            return text, note
     engine = _get()
     if engine is None:
         return None, "unavailable"
-    path = Path(path)
-    ext = Path(name or path.name).suffix.lower()
     if ext not in FORMATS:
         return None, "unsupported"
     try:
