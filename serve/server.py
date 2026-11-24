@@ -129,6 +129,26 @@ def engine_echo(engine):
     return echo_engine_line
 
 
+def model_file_problem(a) -> str | None:
+    """One plain line when the model's file is missing, a directory or unreadable (the path the engine is given: a relative
+    one is already resolved against the config file), in the words of where it was named."""
+    if not a.model or not a.engine_bin or (a.mock_engine and a.config):
+        return None
+    who = f"model '{a.alias}'" if a.alias else "model"
+    where = f' (the "model" key in {Path(a.config).name})' if a.config else " (--model)"
+    if os.path.isdir(a.model):
+        why = f"{a.model} is a directory, not a model file"
+    elif not os.path.exists(a.model):
+        why = f"file not found: {a.model}"
+    else:
+        try:
+            with open(a.model, "rb"):
+                return None
+        except OSError as e:
+            why = f"can't read {a.model}: {e.strerror or e}"
+    return f"{who}: {why}{where}"
+
+
 def settings_info(a, words: list[str]) -> dict:
     """What the settings page shows (supervisor.settings_info over this process's command line)."""
     return supervisor.settings_info(a, words, sys.argv[1:])
@@ -141,6 +161,25 @@ def main() -> int:
     except ValueError as e:
         fail(f"--config: {e}")
     service.DEBUG, engine_process.REQUEST_LINES = a.debug, a.request_lines
+    if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="
+           for i, x in enumerate(used_argv)):
+        # an empty key would silently disable authentication
+        print("[server] error: --api-key is empty (give a key, or leave it out)", file=sys.stderr)
+        return 2
+    if a.api_key_file:
+        if a.api_key:
+            print("[server] error: give --api-key or --api-key-file, not both", file=sys.stderr)
+            return 2
+        try:
+            a.api_key = api_key_from_file(a.api_key_file)
+        except ValueError as e:
+            print(f"[server] error: {e}", file=sys.stderr)
+            return 2
+    try:
+        api_key = api_key_of(a.api_key)
+    except ValueError as e:
+        print(f"[server] error: {e}: give a key, or leave --api-key out", file=sys.stderr)
+        return 2
     logs = LogBuffer()                                  # this process's and the engine's output
     sys.stdout, sys.stderr = (TeeStream(ColorStream.wrap(sys.stdout), logs, "srv"),
                               TeeStream(ColorStream.wrap(sys.stderr), logs, "srv"))
@@ -162,6 +201,8 @@ def main() -> int:
     if a.model:
         if not a.engine_bin:
             fail("--model needs --engine-bin BINARY")
+        if (problem := model_file_problem(a)):
+            fail(problem)
         try:
             known = engine_flags_of(a.engine_bin)
             check_engine_flags(file_engine, known, f"--config {a.config}")
@@ -326,28 +367,10 @@ def main() -> int:
     svc.model_catalog.items()                           # the first scan starts now, on a thread
     if loaded_memory:
         supervisor.record_memory(facts, svc.settings_info.get("running") or {}, *loaded_memory)
-    if any(x == "--api-key" and i + 1 < len(used_argv) and not used_argv[i + 1].strip() or x.strip() == "--api-key="
-           for i, x in enumerate(used_argv)):
-        # an empty key would silently disable authentication
-        print("[server] error: --api-key is empty (give a key, or leave it out)", file=sys.stderr)
-        return 2
     if a.max_payload_mib < 1:
         fail(f"--max-payload-mib {a.max_payload_mib} must be at least 1")
     svc.max_payload = a.max_payload_mib << 20
-    if a.api_key_file:
-        if a.api_key:
-            print("[server] error: give --api-key or --api-key-file, not both", file=sys.stderr)
-            return 2
-        try:
-            a.api_key = api_key_from_file(a.api_key_file)
-        except ValueError as e:
-            print(f"[server] error: {e}", file=sys.stderr)
-            return 2
-    try:
-        svc.api_key = api_key_of(a.api_key)
-    except ValueError as e:
-        print(f"[server] error: {e}: give a key, or leave --api-key out", file=sys.stderr)
-        return 2
+    svc.api_key = api_key
     kept = server_key.KeyStore(userdata.path("server_key.json")).stored()
     if kept:                                            # a key changed from a client wins over --api-key
         svc.api_key = kept

@@ -28,7 +28,7 @@ CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 ENTRY_OPTIONS = frozenset({"model", "alias"})
 MODEL_OPTIONS = frozenset({
     "gpu", "vision", "parallel", "slot-full-context", "idle-sleep", "idle-unload", "min-free-vram-mib", "fit-max-tokens",
-    "grammar", "reasoning-effort", "reasoning-budget-tokens", "thinking-loop-tokens", "answer-room", "temperature", "top-p", "top-k", "min-p",
+    "grammar", "reasoning-effort", "thinking-loop-tokens", "answer-room", "temperature", "top-p", "top-k", "min-p",
     "presence-penalty", "frequency-penalty", "repetition-penalty", "penalty-last-n", "seed", "video-max-tokens", "vision-hold", "vision-projector"})
 GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
 REMOVED_SERVER_KEYS = ("reasoning-budget-tokens", "max-answer-tokens")   # server options a saved file may still hold: dropped
@@ -175,11 +175,9 @@ def read_config(path: str) -> dict:
         raise ValueError('"version" must be a whole number')
     if version > CONFIG_VERSION:
         raise ValueError(f"this is a v{version} config; this Basalt reads v{CONFIG_VERSION}")
-    if version < CONFIG_VERSION or "models" not in raw or "v" in raw:
-        old = Path(path).resolve()
-        new = old.with_name(f"{old.stem}.v{CONFIG_VERSION}{old.suffix}")
-        raise ValueError(f"Basalt requires v{CONFIG_VERSION} config, please upgrade: "
-                         f"python3 {ROOT / 'tools/migrations/config_v1_to_v2.py'} {old} -o {new}")
+    if version < CONFIG_VERSION or "models" not in raw:
+        raise ValueError(f'not a v{CONFIG_VERSION} config: it has "version": {CONFIG_VERSION} and a "models" list '
+                         '(docs/configuration/models.md)')
     extra = set(raw) - {"version", "server", "engine", "models"}
     if extra:
         raise ValueError(f"unexpected key {sorted(extra)[0]!r}")
@@ -220,6 +218,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> ConfigFile:
     shared_words: list[str] = []
     for key, value in shared.items():
         name = config_name(key)
+        if name in REMOVED_SERVER_KEYS:
+            continue
         if name in ENTRY_OPTIONS:
             raise ValueError(f"engine.{key}: set it in a model entry")
         if name in MODEL_OPTIONS:
@@ -236,6 +236,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> ConfigFile:
         out = ModelEntry(str(here / os.path.expanduser(entry["model"])), list(shared_argv), list(shared_words))
         for key, value in entry.items():
             name = config_name(key)
+            if name in REMOVED_SERVER_KEYS:
+                continue
             if name in ENTRY_OPTIONS or name in MODEL_OPTIONS:
                 out.argv += option_words(where, key, value, known[name], here)
             elif name in known:

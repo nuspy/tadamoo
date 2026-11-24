@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path
 
 EXECUTABLES = ("basalt", "basalt-bench", "basalt-probe", "basalt-vision")
-TOOLS = ("tools/tokenizer.py", "tools/model_file.py", "tools/migrations/config_v1_to_v2.py")
+TOOLS = ("tools/tokenizer.py", "tools/model_file.py")
 FILES = ("requirements.txt", "LICENSE", "THIRD_PARTY_LICENSES", "README.md")
 TREES = ("serve", "data/profiles", "data/bench", "docs")
 SKIP_DIRS = {"__pycache__", "tests", "img", "community", "assets"}   # docs/img, docs/community, docs/assets are web-only

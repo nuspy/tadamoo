@@ -301,6 +301,9 @@ from serve.util.text import IM_END, stop_strings
 from serve.api.cache_slot import check_cache_slot
 
 
+# Anthropic clients add /v1/messages to their base URL themselves, so a base URL that already ends in /v1 makes them
+# post /v1/v1/messages. These two paths mean the same as the real ones; nothing else is aliased.
+V1_V1_ALIASES = {"/v1/v1/messages": "/v1/messages", "/v1/v1/messages/count_tokens": "/v1/messages/count_tokens"}
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
 # The longest a connection may stay silent before its handler thread gives it up: a client whose connection died
 # without a close (a laptop sleeping, a link dropping mid-body) would otherwise hold the thread for the life of the
@@ -324,6 +327,12 @@ class BadBody(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
         self.status = status
+
+
+def request_path(target: str) -> str:
+    """The route of a request target: no query, no trailing slash, and a doubled /v1 of the two Anthropic paths undone."""
+    path = target.split("?")[0].rstrip("/")
+    return V1_V1_ALIASES.get(path, path)
 
 
 def _size_text(n: int) -> str:
@@ -630,7 +639,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if self.remote_listener and not self._authorized():          # every request to the listener for phones needs a key
                 return
-            path = self.path.split("?")[0].rstrip("/")
+            path = request_path(self.path)
             if not getattr(svc, "web", True) and (path == "" or path.startswith(("/web/", "/fonts/"))):
                 return self._no_web(path)                              # --no-web: the API only
             if path.startswith("/fonts/"):
@@ -1103,7 +1112,7 @@ def make_handler(svc: Service, remote: bool = False):
             if not self._authorized():
                 self._discard_body()
                 return
-            path = self.path.split("?")[0].rstrip("/")   # clients post /v1/messages?beta=true
+            path = request_path(self.path)   # clients post /v1/messages?beta=true
             if path.startswith("/api/") and path not in CONTROL_PATHS and not self._write_secret():
                 return
             if path == "/api/settings":

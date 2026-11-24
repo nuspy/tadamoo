@@ -139,11 +139,11 @@ def _context(svc) -> int:
 
 
 def served(svc, local: bool) -> list[dict]:
-    """The served model in the OpenAI shape, then one entry per alias; empty when it is not listed (the engine is
-    down and does not load on use, or a standby server has no model)."""
+    """The served model in the OpenAI shape, then one entry per alias; empty when a standby server has no model. A model
+    that is not loaded is listed as "unloaded": the next request loads it."""
     loaded = svc.loaded()
     loading = bool(getattr(svc, "loading", False))             # listed while it loads
-    if not loaded and not loading and not (getattr(svc, "idle_unload_s", 0) or getattr(svc.engine, "unloaded", False)):
+    if not loaded and not loading and getattr(svc, "standby", False):
         return []
     path = served_path(svc)
     ctx = _context(svc)
