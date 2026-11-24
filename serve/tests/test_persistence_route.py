@@ -21,7 +21,7 @@ class PersistenceRoute(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         cls.patch = mock.patch.object(userdata, "path", lambda *parts: Path(cls.tmp.name).joinpath(*parts))
         cls.patch.start()

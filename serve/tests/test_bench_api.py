@@ -24,7 +24,7 @@ class Bench(Base):
     def setUp(self):
         super().setUp()
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": None, "model": None, "cli": [], "running": {}}
         self.patches = [mock.patch.object(loader, "system_now", return_value=dict(ROOMY)), mock.patch.object(benchrun, "power_limit_w", lambda: 600.0),
                         mock.patch.object(benchrun, "run_tests", fake_runner([])), mock.patch.object(models, "_commit_share", return_value=0.5),

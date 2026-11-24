@@ -56,7 +56,7 @@ class Language(Isolated):
 
     def test_the_page_and_the_prefs(self):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         port = httpd.server_address[1]
 
@@ -135,7 +135,7 @@ class Compare(Isolated):
 
     def test_over_http_with_the_default_profile(self):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cfg = Path(self.dir.name) / "tadamoo_config.json"
         cfg.write_text(json.dumps({"server": {"port": 7232}}), encoding="utf-8")
         svc.settings_info = {"config": str(cfg), "model": None, "cli": [], "running": dict(self.RUNNING)}

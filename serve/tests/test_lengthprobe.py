@@ -204,7 +204,7 @@ class FirstLoad(unittest.TestCase):
         self.addCleanup(p.stop)
         tok = ByteTokenizer()
         self.engine = MockEngine(tok, " ".join(f"word{i}" for i in range(300)), max_context=32768)
-        self.svc = Service(self.engine, tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        self.svc = Service(self.engine, tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         facts = {**loader.DEMO_FACTS, "name": "Mock", "path": str(Path(self.tmp.name) / "m.basalt"), "meta_hash": "feed01"}
         Path(facts["path"]).write_bytes(b"y" * 20)
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, [], mock=False, facts=facts)
@@ -253,7 +253,7 @@ class FirstLoad(unittest.TestCase):
     def test_a_loop_in_the_text_cancels_the_try_where_it_is_found(self):
         tok = ByteTokenizer()
         looping = MockEngine(tok, "Chapter 1. The start of the long story is told in plain words. " + LOOP * 3, max_context=32768)
-        svc = Service(looping, tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        svc = Service(looping, tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         svc.supervisor = sup = supervisor.Supervisor(svc, [], mock=False, facts=self.sup.facts)
         sup.auto_calibrate = False
         svc.lengths = lengthprobe.Lengths(lambda: sup.facts)
@@ -268,7 +268,7 @@ class FirstLoad(unittest.TestCase):
         self.run_it()
         self.assertTrue(self.svc.v1_status()["length"]["known"])
         self.assertGreater(self.svc.v1_status()["length"]["limit_tokens"], 0)
-        self.assertEqual(Service(self.engine, ByteTokenizer(), ChatTemplate(ROOT / "serve" / "chat_template.jinja")).v1_status()["length"], {"known": False})
+        self.assertEqual(Service(self.engine, ByteTokenizer(), ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja")).v1_status()["length"], {"known": False})
         for key in ("ln.title", "ln.limit", "ln.measure", "ln.stop", "ln.unknown", "ln.help", "ln.try", "ln.cp.ok", "ld.step.length", "f.server.measure-length", "h.server.measure-length"):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
         self.assertNotIn("asked_words", JS)

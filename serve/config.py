@@ -272,6 +272,14 @@ def model_settings(ap: argparse.ArgumentParser, cli: list[str], refused=None) ->
     return out
 
 
+def single_settings(ap: argparse.ArgumentParser, cli: list[str], refused=None):
+    """model_settings() for this server, which runs one model: the --config file's only entry, else the command line's."""
+    entries = model_settings(ap, cli, refused)
+    if len(entries) != 1:
+        raise ValueError(f'this server runs one model, and the config file lists {len(entries)} in "models"')
+    return entries[0]
+
+
 def parse_settings(ap: argparse.ArgumentParser, cli: list[str], server_argv=(), model_argv=(), words=()):
     """(args, argv, file_words, cli_words): parsed options, their source words and the engine words from each.
     The engine reads its flags in order and a later one wins, so file words then command-line words keep
@@ -423,6 +431,26 @@ def model_line(name: str, width: int, items: list[str]) -> str:
     return f"[server] {name:<{width}} {' '.join(items)}".rstrip()
 
 
+def engine_line(file_words: list[str], cli_words: list[str],
+                shared: tuple[int, int] | None = None, grammar: tuple[bool, str] | None = None) -> str:
+    """The startup line listing the engine words from --config and the command line as key=value items, each origin's
+    items followed by `(from config)` or `(from cli)`; with none it says `defaults`. `shared` is (total, slots)
+    when --max-context was divided among the slots. `grammar` is (on, origin) with origin "config" or "cli", None when
+    left at its default (no entry)."""
+    groups = [(g, "config") for g in engine_groups(file_words)] + [(g, "cli") for g in engine_groups(cli_words)]
+    last_ctx = max((i for i, (g, _) in enumerate(groups) if g[0] == "--max-context"), default=None)
+    items: dict[str, list[str]] = {"config": [], "cli": []}
+    for i, (g, src) in enumerate(groups):
+        item = engine_item(g)
+        if shared and i == last_ctx:
+            item += f" ({shared[0]}/{shared[1]} slots)"
+        items[src].append(item)
+    if grammar is not None:
+        items[grammar[1]].append(f"grammar={'on' if grammar[0] else 'off'}")
+    shown = "  ".join(f"{' '.join(v)} (from {src})" for src, v in items.items() if v)
+    return tagged("engine", shown or "defaults")
+
+
 def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
@@ -509,6 +537,15 @@ def sampling_items(effective: dict) -> list[str]:
     """The effective sampling defaults as items, leaving out those that change nothing."""
     return [f"{SAMPLING_NAMES.get(k, k)}={v}" for k, v in effective.items()
             if not (k in SAMPLING_OFF and v == SAMPLING_OFF[k]) and not (k == "top_k" and v == 0)]
+
+
+def sampling_line(effective: dict, cli: set[str], config: set[str]) -> str:
+    """The startup line for the effective sampling defaults, each marked with where it came from: the keys in
+    `cli` were typed on the command line, those in `config` come from the config file; the rest are the model
+    file's."""
+    mark = lambda k: "(cli)" if k in cli else "(config)" if k in config else ""
+    shown = " ".join(f"{SAMPLING_NAMES.get(k, k)}={v}{mark(k)}" for k, v in effective.items())
+    return tagged("sampling", shown)
 
 
 def vision_setting(text: str) -> str:

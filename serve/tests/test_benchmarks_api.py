@@ -305,7 +305,7 @@ class Routes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         cls.fake = FakeService()
         cls.api = BenchApi(Path(cls.tmp.name) / "b", lambda: 400.0, lambda: MODEL, lambda: "", Path(cls.tmp.name) / "lessons", service=cls.fake)
@@ -370,7 +370,7 @@ class Glue(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         base = Path(cls.tmp.name)
         cls.patches = [mock.patch.object(handler, "_BENCHMARKS", None), mock.patch.object(handler.userdata, "path", lambda name: base / name),

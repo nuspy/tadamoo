@@ -18,7 +18,7 @@ I18N = (ROOT / "serve" / "web" / "i18n.js").read_text(encoding="utf-8")
 
 def service():
     tok = ByteTokenizer()
-    return Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    return Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
 
 
 class LimitsAreSettings(unittest.TestCase):

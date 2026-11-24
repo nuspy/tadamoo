@@ -31,7 +31,7 @@ FITS = {"engine.expert-cache": 8}        # the tiny model has 8 expert slots: a 
 
 def service(engine=None):
     tok = ByteTokenizer()
-    return Service(engine or MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+    return Service(engine or MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
 
 class InProcess(unittest.TestCase):

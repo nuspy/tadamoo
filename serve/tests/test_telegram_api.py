@@ -401,7 +401,7 @@ def test_the_button_is_offered_only_when_the_bot_runs_and_a_chat_is_known(rig):
 @pytest.fixture
 def web(rig, tmp_path):
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     ws = tmp_path / "ws"
     ws.mkdir()
     mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", command=lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history)],

@@ -188,7 +188,7 @@ class Speed(unittest.TestCase):
 def make_service(max_context=4096):
     tok = ByteTokenizer()
     return Service(MockEngine(tok, ["</think>\n\n" + "word " * 60], max_context=max_context), tok,
-                   ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                   ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
 
 class Calibration(unittest.TestCase):

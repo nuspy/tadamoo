@@ -52,7 +52,7 @@ class ExternalSurfaceTest(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok,
-                          ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+                          ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.svc.telemetry = _NoTelemetry()
         cls.tmp = tempfile.TemporaryDirectory()
         cls.personas = mock.patch.object(handler, "_PERSONAS", PersonasApi(PersonaStore(Path(cls.tmp.name) / "personas", key=bytes(range(32)))))

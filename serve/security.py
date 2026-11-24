@@ -2,9 +2,28 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 
 
 LOOPBACK_NAMES = ("localhost", "127.0.0.1", "::1")
+
+
+# proxies announce themselves with these; ordinary clients send none of them
+FORWARDING_HEADERS = frozenset((
+    "forwarded", "via", "x-real-ip", "x-client-ip", "client-ip", "true-client-ip", "x-cluster-client-ip",
+    "cf-connecting-ip", "fastly-client-ip", "x-originating-ip", "x-remote-ip", "x-remote-addr", "x-host",
+    "x-proxyuser-ip", "wl-proxy-client-ip", "proxy-connection"))
+FORWARDING_PREFIXES = ("x-forwarded-", "x-original-", "x-envoy-", "x-amzn-", "x-azure-", "x-appengine-", "cf-",
+                       "tailscale-")
+
+
+def is_ip(name: str) -> bool:
+    """Whether `name` is an IP address (no brackets)."""
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
 
 
 def exposed_without_key(host: str, api_key: str) -> bool:
@@ -19,6 +38,19 @@ def api_key_of(value) -> str:
     if key and not key.strip():
         raise ValueError("an API key was given but it is empty")
     return key.strip()
+
+
+def api_key_from_file(path: str) -> str:
+    """The key in the first line of `path`. A file that cannot be read, or whose first line holds no key, raises
+    ValueError: it never means "no key"."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            line = f.readline()
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"--api-key-file {path}: {e}") from None
+    if not line.strip():
+        raise ValueError(f"--api-key-file {path}: no key in its first line")
+    return line
 
 
 def key_matches(given: str, key: str) -> bool:

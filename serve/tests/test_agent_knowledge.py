@@ -105,7 +105,7 @@ def test_the_route_attaches_and_detaches_over_http(tmp_path):
     mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", rag_dir=tmp_path / "rag", tick_s=0.1)
     tok = ByteTokenizer()
     root = handler.ROOT if hasattr(handler, "ROOT") else None
-    svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(root / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(root / "serve" / "chat_template.jinja"))
     with mock.patch.object(handler, "_SESSIONS", mgr):
         httpd = serve(svc, port=0)
         try:

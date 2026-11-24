@@ -50,7 +50,7 @@ class Rig:
         self.estimate, self.check = "estimate_long", "check_none"
         order = [*[body(k) for k in (1, 2, 3)], *SCRIPTS.values()]
         self.names = ["part1", "part2", "part3", *SCRIPTS]
-        self.service = Service(MockEngine(TOKENS, order, max_context=65536, route=self.route), TOKENS, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.service = Service(MockEngine(TOKENS, order, max_context=65536, route=self.route), TOKENS, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
     def route(self, ids) -> int:
         text = TOKENS.decode(ids)

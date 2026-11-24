@@ -24,20 +24,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
 from serve import ROOT, lengthprobe, loader, loader_api, model_list, service, settings, supervisor, voice_loader  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
-                          engine_line, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line)
+                          engine_line, grammar_words, sampling_defaults_from_config, sampling_line,
+                          single_settings, slot_share)
 from serve.control import write_control_token  # noqa: E402
 from serve.engine import process as engine_process  # noqa: E402
 from serve.engine.errors import EngineStartError  # noqa: E402
 from serve.engine.flags import flag_index, flag_value  # noqa: E402
 from serve.engine.mock import MockEngine, NoEngine  # noqa: E402
 from serve.engine.process import ProcessEngine  # noqa: E402
-from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, engine_args, gpu_card_name, gpu_plan,  # noqa: E402
+from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, engine_args, gpu_card_name, model_plan,  # noqa: E402
                                  gpu_text, gpus_in_play, vision_card, vision_env, vision_line)
-from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
 from serve.origin_guard import ANY_ORIGIN  # noqa: E402
 from serve import server_key, userdata  # noqa: E402
-from serve.security import LOOPBACK_NAMES, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
+from serve.dialects import dialect_for  # noqa: E402
+from serve.engine import modelfile  # noqa: E402
+from serve.security import LOOPBACK_NAMES, api_key_from_file, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
 from serve.util.reqlog import RequestLog  # noqa: E402
@@ -80,7 +82,7 @@ def settings_info(a, words: list[str]) -> dict:
 def main() -> int:
     ap = build_parser()
     try:
-        a, used_argv, file_engine, cli_engine = parse_settings(ap, sys.argv[1:])
+        a, used_argv, file_engine, cli_engine = single_settings(ap, sys.argv[1:])
     except ValueError as e:
         fail(f"--config: {e}")
     service.DEBUG, engine_process.REQUEST_LINES = a.debug, a.request_lines
@@ -105,7 +107,6 @@ def main() -> int:
     if a.model:
         if not a.engine_bin:
             fail("--model needs --engine-bin BINARY")
-        from serve.engine import modelfile
         try:
             known = engine_flags_of(a.engine_bin)
             check_engine_flags(file_engine, known, f"--config {a.config}")
@@ -119,18 +120,18 @@ def main() -> int:
             fail("--vision-hold release: this engine binary does not know --vision-release; build the engine again")
         try:
             projector = loader.projector_path(a.vision_projector, a.model) if vision_arg else None
-            cfg.update({k: v for k, v in modelfile.model_config(
-                a.model, a.engine_bin, vision=vision_arg, engine_words=file_engine + cli_engine,
-                projector=projector, hold=a.vision_hold).items()
-                if k not in cfg})
+            spec = modelfile.ModelSpec(a.model, alias=a.alias, gpu=a.gpu, vision=vision_arg,
+                                       engine_words=tuple(file_engine + cli_engine), projector=projector,
+                                       hold=a.vision_hold)
+            cfg.update({k: v for k, v in modelfile.model_config(spec, a.engine_bin).items() if k not in cfg})
         except (OSError, ValueError, KeyError) as e:
             fail(f"{a.model}: {e}")
         if not a.mock_engine:
             # the engine's own choice, printed once here; the engine then sees only these cards, main first
             try:
-                plan = gpu_plan(a.engine_bin, a.gpu)
+                plan = model_plan(a.engine_bin, a.model, a.gpu, list(spec.engine_words))
             except ValueError as e:
-                fail(f"gpu: {e}")
+                fail(f"{a.model}: {e}")
             card = vision_card(mode)
             if card is not None:                       # a numbered sidecar card: the engine's sm_120 rule is the
                 if gpu_card_name(card) is None:        # engine's; the sidecar is its own build and says whether
@@ -140,6 +141,13 @@ def main() -> int:
             if plan.get("warning"):
                 print(f"[server] warning: {plan['warning']}", flush=True)
             cfg["gpu"] = plan["devices"]
+            cfg["spec"] = plan.get("spec")
+            if getattr(a, "split_default", False) and plan.get("max_context"):
+                # the engine's default context, shared by the slots
+                a.shared_context = int(plan["max_context"])
+                part = ["--max-context", str(slot_share(a.shared_context, a.parallel or 1))]
+                cfg["args"] += part
+                cli_engine += part
             cfg["gpu_smi"] = [c.get("smi", -1) for c in plan.get("cards") or []]
             cfg["args"] += ["--gpu", ",".join(str(i) for i in range(len(plan.get("cards") or [])))]
         if not a.mock_engine:
@@ -152,21 +160,24 @@ def main() -> int:
         Server((a.host, a.port), BaseHTTPRequestHandler).server_close()
     except OSError:
         fail(f"port {a.port} is in use (--port N)")
-    if cfg.get("tokenizer"):
-        a.tokenizer = cfg["tokenizer"]
+    # the tokenizer files, by name: the model file's own sections, else the folder --tokenizer names
+    files = cfg.get("tokenizer")
+    if not isinstance(files, dict):
+        tpath = Path(a.tokenizer)
+        files = {n: (tpath / n).read_bytes() for n in modelfile.TOKENIZER_SECTIONS if (tpath / n).exists()}
     tok = ByteTokenizer()
-    tpath = Path(a.tokenizer)
-    if not a.mock_engine and a.model and not (tpath / "vocab.json").exists():
-        fail(f"tokenizer missing: {tpath / 'vocab.json'}")
-    if (tpath / "vocab.json").exists():
+    if not a.mock_engine and a.model and "vocab.json" not in files:
+        fail(f"tokenizer missing: {a.tokenizer}/vocab.json")
+    if "vocab.json" in files:
         import tokenizer as ST
-        vocab = json.loads((tpath / "vocab.json").read_text(encoding="utf-8"))
+        vocab = json.loads(files["vocab.json"].decode("utf-8"))
         tokens = [None] * len(vocab)
         for t, i in vocab.items():
             tokens[i] = t
-        merges = (tpath / "merges.txt").read_text(encoding="utf-8").split("\n")
-        types = json.loads((tpath / "token_type.json").read_text())
-        tok = ST.Tokenizer(tokens, merges, types)
+        merges = files["merges.txt"].decode("utf-8").split("\n")
+        types = json.loads(files["token_type.json"])
+        pre = json.loads(files["tokenizer.json"].decode("utf-8")).get("pre", "qwen35") if "tokenizer.json" in files else "qwen35"
+        tok = ST.Tokenizer(tokens, merges, types, pre=pre)
     if not a.mock_engine and not a.model:               # --standby without a model: the Loader chooses one
         engine, vision, sampling_defaults = NoEngine(), None, {}
         cfg.setdefault("model_name", "no model loaded")
@@ -231,11 +242,14 @@ def main() -> int:
             "Thinking about it.</think>\n\nHello from the mock engine."], batch=a.parallel or 0,
             max_context=int(flag_value(words, "--max-context") or 32768)), None, dict(a.sampling_launch)
     # the model's exported template, else the bundled one
-    tpl = tpath / "chat_template.jinja"
-    svc = Service(engine, tok, ChatTemplate(tpl if tpl.exists() else ROOT / "serve/chat_template.jinja"),
+    dialect = dialect_for(cfg.get("arch"))
+    template = files["chat_template.jinja"].decode("utf-8") if "chat_template.jinja" in files else \
+        (ROOT / "serve/chat_template.jinja").read_text(encoding="utf-8")
+    svc = Service(engine, tok, dialect.template(template),
                   model_name=cfg.get("model_name", "qwen3.8-flash-next"), vision=vision,
                   sampling_defaults=sampling_defaults, fit_max_tokens=a.fit_max_tokens, grammar=a.grammar,
-                  grammar_engine=bool(a.mock_engine or has_grammar))
+                  grammar_engine=bool(a.mock_engine or has_grammar), dialect=dialect,
+                  video_max_tokens=a.video_max_tokens)
     svc.logs = logs
     if not a.request_log_mib > 0 or a.request_log_mib == float("inf"):
         fail(f"--request-log-mib {a.request_log_mib:g}: expected a number of MiB above 0")
@@ -262,6 +276,18 @@ def main() -> int:
         # an empty key would silently disable authentication
         print("[server] error: --api-key is empty (give a key, or leave it out)", file=sys.stderr)
         return 2
+    if a.max_payload_mib < 1:
+        fail(f"--max-payload-mib {a.max_payload_mib} must be at least 1")
+    svc.max_payload = a.max_payload_mib << 20
+    if a.api_key_file:
+        if a.api_key:
+            print("[server] error: give --api-key or --api-key-file, not both", file=sys.stderr)
+            return 2
+        try:
+            a.api_key = api_key_from_file(a.api_key_file)
+        except ValueError as e:
+            print(f"[server] error: {e}", file=sys.stderr)
+            return 2
     try:
         svc.api_key = api_key_of(a.api_key)
     except ValueError as e:

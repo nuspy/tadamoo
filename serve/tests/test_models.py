@@ -567,7 +567,7 @@ class WithModel(Base):
 
     def test_the_loader_plans_and_loads_another_model(self):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         svc.settings_info = {"config": str(self.cfg), "model": str(self.a), "cli": [],
                              "running": {"engine.max-context": 4096}}
         svc.supervisor = supervisor.Supervisor(svc, ["--mock-engine", "--config", str(self.cfg)], mock=True,
@@ -669,7 +669,7 @@ class OverHttp(Base):
     def setUp(self):
         super().setUp()
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": None, "model": None, "cli": [], "running": {}}
         self.system = mock.patch.object(loader, "system_now", return_value=dict(ROOMY))
         self.system.start()

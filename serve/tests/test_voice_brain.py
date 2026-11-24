@@ -124,7 +124,7 @@ class ServerBase(Base):
     def setUp(self):
         super().setUp()
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": None, "model": None, "cli": [], "running": {}}
         self.httpd = serve(self.svc, port=0)
         self.port = self.httpd.server_address[1]

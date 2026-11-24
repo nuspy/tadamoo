@@ -43,7 +43,7 @@ def route(ids) -> int:
 
 def make_service(ctx: int = 65536) -> Service:
     scripts = ['{"fixes": []}', *[part_body(k) for k in range(1, 4)]]       # the check of the flow finds nothing to fix
-    return Service(MockEngine(TOKENS, scripts, max_context=ctx, route=route), TOKENS, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+    return Service(MockEngine(TOKENS, scripts, max_context=ctx, route=route), TOKENS, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
 
 OUTLINE = [{"heading": f"S{i}", "goal": f"goal {i}", "target_words": 700, "key_points": ["a"]} for i in (1, 2, 3)]
@@ -125,7 +125,7 @@ class LongAnswerApi(unittest.TestCase):
 
 class Guards(unittest.TestCase):
     def reply(self, text, limit=None, thinking=False, **req):
-        svc = Service(MockEngine(TOKENS, text, max_context=8192), TOKENS, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(TOKENS, text, max_context=8192), TOKENS, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         if limit is not None:
             svc.repeat_ngram = limit or None
         ids = TOKENS.encode("hi")

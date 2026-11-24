@@ -188,7 +188,7 @@ class Http(unittest.TestCase):
     def start(self, script="Thinking.</think>\n\nHello there.", telemetry=True, delay=0.0, key=""):
         self.tok = ByteTokenizer()
         self.engine = MockEngine(self.tok, script, max_context=32768, delay_s=delay)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
         self.svc.telemetry = FakeTelemetry() if telemetry else NoTelemetry()
         self.svc.api_key = key
         self.httpd = serve(self.svc, port=0)

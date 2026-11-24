@@ -137,7 +137,7 @@ class OverHttp(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                           ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.dir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")

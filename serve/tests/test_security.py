@@ -28,7 +28,7 @@ class OverHttp(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                           ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.control_token = "control-secret"
         self.httpd = None
 
@@ -191,7 +191,7 @@ class ApiKeyForms(unittest.TestCase):
 
     def test_a_utf8_key_over_http(self):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, "ok", max_context=4096), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, "ok", max_context=4096), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         svc.api_key = "ключ"
         httpd = serve(svc, port=0)
         port = httpd.server_address[1]

@@ -48,7 +48,7 @@ class PlansApiBase(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = MockEngine(tok, cls.script, max_context=32768)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.svc.telemetry = _NoTelemetry()
         cls.svc.api_key = cls.api_key
         cls.tmp = tempfile.TemporaryDirectory()

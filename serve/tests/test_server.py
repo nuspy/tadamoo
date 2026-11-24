@@ -46,7 +46,7 @@ class MaxTokens(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = RecordingEngine(tok, "</think>\n\n" + ANSWER, max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"), fit_max_tokens=False)
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"), fit_max_tokens=False)
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -190,7 +190,7 @@ class FitMaxTokens(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = RecordingEngine(tok, "</think>\n\n" + ANSWER, max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"), fit_max_tokens=True)
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"), fit_max_tokens=True)
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -253,7 +253,7 @@ class ImageMarkers(unittest.TestCase):
                     vision = Fresh(d)
                     vision.extra = extra
                     svc = Service(MockEngine(tok, "ok", max_context=ctx), tok,
-                                  ChatTemplate(ROOT / "serve/chat_template.jinja"), vision=vision)
+                                  ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"), vision=vision)
                     with self.assertRaises(ValueError):
                         svc.prepare(msgs, None, {})
                     self.assertFalse((Path(d) / "req-test.sve").exists())
@@ -269,7 +269,7 @@ class ImageMarkers(unittest.TestCase):
                 raise ValueError("the image could not be read: the image needs 528 expert-cache slots and 454 can be lent")
 
         msgs = [{"role": "user", "content": [{"type": "text", "text": "look"}, {"type": "image", "source": "x.png"}]}]
-        svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"),
+        svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"),
                       vision=Refuses())
         out = io.StringIO()
         with contextlib.redirect_stdout(out), self.assertRaisesRegex(ValueError, "528 expert-cache slots"):
@@ -280,7 +280,7 @@ class ImageMarkers(unittest.TestCase):
         import tempfile
         tok = ByteTokenizer()
         with tempfile.TemporaryDirectory() as d:
-            svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"),
+            svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"),
                           vision=self.FakeVision(d))
             pad = tok.encode("<|image_pad|>", parse_special=True)[0]
             for text in ("the docs say <|image_pad|> marks an image", "plain"):
@@ -307,7 +307,7 @@ class ImageMarkers(unittest.TestCase):
             return any(ids[i:i + len(part)] == part for i in range(len(ids) - len(part) + 1))
 
         with tempfile.TemporaryDirectory() as d:
-            svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"),
+            svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"),
                           vision=TwoPictures(d))
             pictures = [{"type": "image", "source": "a.png"}, {"type": "text", "text": "and"},
                         {"type": "image", "source": "b.png"}]
@@ -360,7 +360,7 @@ class LiteralThinkTags(unittest.TestCase):
     def setUpClass(cls):
         cls.tok = ThinkTokenizer()
         cls.svc = Service(MockEngine(cls.tok, "ok", max_context=CTX), cls.tok,
-                          ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                          ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.open, cls.close = (cls.tok.encode(t)[0] for t in ("<think>", "</think>"))
 
     def ids(self, messages, tools=None, **kw):
@@ -430,7 +430,7 @@ class LiteralControlTokens(unittest.TestCase):
     def setUpClass(cls):
         cls.tok = ThinkTokenizer()
         cls.svc = Service(MockEngine(cls.tok, "ok", max_context=CTX), cls.tok,
-                          ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                          ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.specials = [cls.tok.encode(t, parse_special=True)[0] for t in ("<|im_start|>", "<|im_end|>", "<|endoftext|>")]
 
     def ids(self, messages, tools=None, **kw):
@@ -519,7 +519,7 @@ class StopStrings(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = CountingEngine(tok, "</think>\n\n" + cls.ANSWER, max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -636,7 +636,7 @@ class EffortAtTheEnd(unittest.TestCase):
     def setUp(self):
         self.tok = ByteTokenizer()
         self.svc = Service(MockEngine(self.tok, "ok", max_context=1 << 20), self.tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                           ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
     def ids(self, messages, end, **kw):
         self.svc.effort_end = end
@@ -712,7 +712,7 @@ class StatusNeedsTheKey(unittest.TestCase):
 
     def test_status(self):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, "ok", max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         svc.api_key = "k3y"
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}/status"
@@ -793,7 +793,7 @@ class UnfinishedToolCall(unittest.TestCase):
     def answers(self, script, max_tokens=500):
         """(finish reason, the call's arguments) from OpenAI and Anthropic, whole and streamed, for the model's `script`."""
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, script, max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, script, max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         tools = {"openai": [{"type": "function", "function": {"name": "write", "parameters": {
@@ -876,7 +876,7 @@ class ClientShapes(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = RecordingPrompt(tok, "</think>\n\n2", max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -938,7 +938,7 @@ class ClientShapes(unittest.TestCase):
             tpl = Path(d) / "chat_template.jinja"
             tpl.write_text("{% if messages[-1].role != 'user' %}{{ raise_exception('No user query found in messages.') }}"
                            "{% endif %}{{ messages[-1].content }}", encoding="utf-8")
-            template, self.svc.template = self.svc.template, ChatTemplate(tpl)
+            template, self.svc.template = self.svc.template, ChatTemplate.from_file(tpl)
             try:
                 status, b = self.post("/v1/chat/completions", {
                     "model": "qwen3.8-flash-next", "max_tokens": 20, "messages": [{"role": "system", "content": "Only a system."}]})
@@ -1117,7 +1117,7 @@ class SamplingChecked(unittest.TestCase):
     def test_a_bad_value_is_a_400_before_the_stream(self):
         tok = ByteTokenizer()
         engine = MockEngine(tok, "ok", max_context=CTX)
-        httpd = serve(Service(engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja")), port=0)
+        httpd = serve(Service(engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja")), port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
             for path, body in (("/v1/chat/completions", {"messages": [{"role": "user", "content": "hi"}]}),
@@ -1319,7 +1319,7 @@ class ClientHangUp(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = SlowPromptEngine(tok, "</think>\n\nOK", max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.httpd = serve(cls.svc, port=0)
         cls.port = cls.httpd.server_address[1]
 
@@ -1356,7 +1356,7 @@ class EngineDeath(unittest.TestCase):
     def test_error_then_restart(self):
         tok = ByteTokenizer()
         eng = DyingEngine(tok, "</think>\n\n" + ANSWER, max_context=CTX)
-        svc = Service(eng, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(eng, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -1392,7 +1392,7 @@ class EngineDeath(unittest.TestCase):
                 raise ValueError("verify: layer 31 never rang (an illegal memory access was encountered)")
 
         tok = ByteTokenizer()
-        svc = Service(ErrEngine(tok, ANSWER, max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(ErrEngine(tok, ANSWER, max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -1435,7 +1435,7 @@ class DraftCounts(unittest.TestCase):
             "DONE 4 20 40.0 30.0 stop 7 12 0",                  # 7 of 12 drafts accepted
             "DONE 4 20 40.0 30.0 stop",                          # an engine that reports no drafts
             "DONE 4 20 40.0 30.0 stop 3 5 0 9 10"])
-        svc = Service(engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -1463,7 +1463,7 @@ class PcieShare(unittest.TestCase):
             "DONE 4 20 40.0 30.0 stop 3 5 0 60 100 0 0 0.0 20 25",     # 25 more over PCIe: 20% of 125 routed
             "DONE 4 20 40.0 30.0 stop 3 5 0 60 100 0 0 0.0 20 0",
             "DONE 4 20 40.0 30.0 stop 3 5 0 60 100 0 0 0.0 20"])       # an older engine
-        svc = Service(engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         with contextlib.redirect_stdout(io.StringIO()) as out:
             for _ in range(3):
                 list(svc.run(tok.encode("hi"), False, None, 10, {}, threading.Event()))
@@ -1478,7 +1478,7 @@ class RepeatedToken(unittest.TestCase):
 
     def run_reply(self, script, max_new):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, script, max_context=CTX), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(MockEngine(tok, script, max_context=CTX), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         events, done = [], None
         with contextlib.redirect_stdout(io.StringIO()):
             for kind, x in svc.run(tok.encode("hi"), False, None, max_new, {}, threading.Event()):
@@ -1997,7 +1997,7 @@ class CancelledRead(unittest.TestCase):
             "DONE 0 20 400.0 0.0 cancel 0 0 0 0 0 0 0 0.0 8",      # stopped after 8 prompt tokens
             "DONE 4 20 40.0 30.0 stop 0 0 0 0 0 0 0 0.0 20",
             "DONE 0 20 400.0 0.0 cancel 0 0 0"])                   # an older engine: no read count
-        svc = Service(engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -2027,7 +2027,7 @@ class LiveRate(unittest.TestCase):
     def setUp(self):
         self.tok = ByteTokenizer()
         self.engine = MockEngine(self.tok, "x" * self.TOKENS, max_context=CTX, delay_s=self.PACE_S)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
 
@@ -2168,7 +2168,7 @@ class LiveRate(unittest.TestCase):
 
         tok = ByteTokenizer()
         svc = Service(HalfDead(tok, "x" * self.TOKENS, max_context=CTX), tok,
-                      ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                      ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -2195,7 +2195,7 @@ class OwnPage(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.svc = Service(RecordingEngine(tok, "</think>\n\nhello", max_context=CTX), tok,
-                          ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                          ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.svc.control_token = "control-secret"
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
@@ -2239,7 +2239,7 @@ class WebApp(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.svc = Service(RecordingEngine(tok, "</think>\n\nhello", max_context=CTX), tok,
-                          ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                          ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -2399,7 +2399,7 @@ class UsageAndStatus(unittest.TestCase):
     def setUpClass(cls):
         tok = ByteTokenizer()
         cls.engine = ClockedEngine(tok, "</think>\n\nok", max_context=CTX)
-        cls.svc = Service(cls.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        cls.svc = Service(cls.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -2491,7 +2491,7 @@ class UsageAndStatus(unittest.TestCase):
         """An engine without a clock (MockEngine): no timings, nothing cached."""
         tok = ByteTokenizer()
         svc = Service(MockEngine(tok, "</think>\n\nok", max_context=CTX), tok,
-                      ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                      ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         try:
             data = json.dumps({"model": "qwen3.8-flash-next", "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).encode()
@@ -2543,7 +2543,7 @@ class SharingTheGpu(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.engine = UnloadableEngine(tok, "</think>\n\nok", max_context=CTX)
-        self.svc = Service(self.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(self.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.control_token = "control-secret"
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -2701,7 +2701,7 @@ class ThinkingBudget(unittest.TestCase):
     def setUp(self):
         self.tok = ByteTokenizer()
         self.engine = ThinkingEngine(self.tok)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
 
@@ -3103,7 +3103,7 @@ class StatusHandover(unittest.TestCase):
                 self.lock.release()
 
         svc = Service(Engine(tok, "</think>\n\n" + "y" * 40, max_context=CTX), tok,
-                      ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                      ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         svc.fifo = SlowRelease()
         ids = tok.encode("hi")
         first = svc.run(ids, True, None, 30, {}, threading.Event())
@@ -3237,7 +3237,7 @@ class RestartWindow(unittest.TestCase):
         tok = ByteTokenizer()
         eng = MockEngine(tok, "</think>\n\nok", max_context=0)
         eng.known_ctx, eng.starting = 4096, False
-        svc = Service(eng, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(eng, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -3253,7 +3253,7 @@ class RestartWindow(unittest.TestCase):
     def test_context_zero_is_503(self):
         tok = ByteTokenizer()
         svc = Service(MockEngine(tok, "</think>\n\nok", max_context=0), tok,
-                      ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                      ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         httpd = serve(svc, port=0)
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         try:
@@ -3379,7 +3379,7 @@ class LostStep(unittest.TestCase):
                 eng = ProcessEngine("basalt", ["--mark", str(mark), "--mode", mode])
                 eng.silence_s = 0.5
                 tok = ByteTokenizer()
-                svc = Service(eng, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                svc = Service(eng, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
                 httpd = serve(svc, port=0)
                 base = f"http://127.0.0.1:{httpd.server_address[1]}"
                 body = {"model": "qwen3.8-flash-next", "max_tokens": 2, "reasoning_effort": "none", "stream": stream,

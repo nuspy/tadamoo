@@ -150,7 +150,7 @@ class OverHttp(unittest.TestCase):
 
     def setUp(self):
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.httpd = serve(self.svc, port=0)
         self.port = self.httpd.server_address[1]
         self.here = f"127.0.0.1:{self.port}"

@@ -30,7 +30,7 @@ class _Server(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "Hello.", max_context=4096), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(MockEngine(tok, "Hello.", max_context=4096), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.svc.telemetry = NoTelemetry()
         cls.svc.api_key = cls.api_key
         cls.tmp = tempfile.TemporaryDirectory()

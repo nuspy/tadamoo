@@ -192,7 +192,7 @@ class ApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tok = ByteTokenizer()
-        cls.svc = Service(MockEngine(tok, "Hello.", max_context=4096), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        cls.svc = Service(MockEngine(tok, "Hello.", max_context=4096), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         cls.svc.telemetry = type("T", (), {"snapshot": lambda self: {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}}})()
         cls.svc.api_key = "k"
         cls.tmp = tempfile.TemporaryDirectory()

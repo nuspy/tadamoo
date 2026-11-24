@@ -555,7 +555,7 @@
     if (long) { body.long_answer = long; for (const k of ["max_tokens", "max_answer_tokens", "response_format", "structured_retries"]) delete body[k]; }
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
-        headers: { "Content-Type": "application/json", "X-Tadamoo-Function": "chat", ...(long ? {} : { "X-Tadamoo-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
+        headers: { "Content-Type": "application/json", "X-Tadamoo-Function": "chat", "X-Session-Id": chatId(), ...(long ? {} : { "X-Tadamoo-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
         try { msg = (await r.json()).error.message || msg; } catch (e) { /* not JSON */ }

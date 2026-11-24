@@ -172,7 +172,7 @@ class Server(unittest.TestCase):
     def start(self, script, **kw):
         self.tok = ByteTokenizer()
         self.engine = MockEngine(self.tok, script, max_context=32768)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(Path(__file__).resolve().parents[1] / "chat_template.jinja"))
         self.svc.telemetry = _NoTelemetry()
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"

@@ -47,7 +47,7 @@ class Reload(unittest.TestCase):
         self.model = tiny_basalt(root / "a.basalt", "Model A")
         self.cfg = root / "tadamoo_config.json"
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": str(self.cfg), "model": str(self.model), "cli": [], "running": {}}
         self.sup = self.svc.supervisor = supervisor.Supervisor(
             self.svc, ["--mock-engine", "--config", str(self.cfg)], mock=True)

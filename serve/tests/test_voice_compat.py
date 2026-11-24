@@ -105,7 +105,7 @@ class Base(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok", max_context=32768), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         self.httpd = handler._listen(self.svc, "127.0.0.1", 0)
         self.addCleanup(lambda: (self.httpd.shutdown(), self.httpd.server_close()))
         self.port = self.httpd.server_address[1]

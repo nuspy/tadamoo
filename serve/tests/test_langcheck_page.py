@@ -40,7 +40,7 @@ class LanguageCheckInARealBrowserTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         tok = ByteTokenizer()
         answers = ["</think>\n\nThe sea is wide and quiet.", "</think>\n\nJo reggelt kivanok."]
-        svc = Service(MockEngine(tok, answers * 30, max_context=1000000), tok, ChatTemplate(root / "serve" / "chat_template.jinja"))
+        svc = Service(MockEngine(tok, answers * 30, max_context=1000000), tok, ChatTemplate.from_file(root / "serve" / "chat_template.jinja"))
         svc.telemetry = _NoTelemetry()
         cls.httpd = serve(svc, port=0)
         cls.url = f"http://127.0.0.1:{cls.httpd.server_address[1]}/"

@@ -30,7 +30,7 @@ class Server(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         self.engine = FakeService()
         self.svc.vram_broker = VramBroker(self.engine, probe=lambda: self.engine.free, start_reserve=lambda: 1500,
                                           prefs=BrokerPrefs(base / "b.json"), timer=False)

@@ -75,7 +75,7 @@ class VoiceOfTheChatTest(unittest.TestCase):
             fake_microphone(wav)
             tok = ByteTokenizer()
             answers = ["</think>\n\nThe sea is wide and quiet.", "</think>\n\nThe sky is high and `blue`.\n\n```\nx = 1\n```", "</think>\n\nHello to you."]
-            svc = Service(MockEngine(tok, answers * 40, max_context=1000000), tok, ChatTemplate(HERE.parents[1] / "serve" / "chat_template.jinja"))
+            svc = Service(MockEngine(tok, answers * 40, max_context=1000000), tok, ChatTemplate.from_file(HERE.parents[1] / "serve" / "chat_template.jinja"))
             svc.telemetry = _NoTelemetry()
             httpd = serve(svc, port=0)
             url = f"http://127.0.0.1:{httpd.server_address[1]}/"

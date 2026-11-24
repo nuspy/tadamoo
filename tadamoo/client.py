@@ -151,9 +151,11 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
 class TadamooClient:
     """Client for local TaDaMoo server."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None) -> None:
+    def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None,
+                 session_id: Optional[str] = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.session_id = session_id             # the conversation these requests belong to: the server keeps it in the same engine slot
         self.call_timeout: Optional[float] = 60.0       # seconds a model call may take when the caller gives none; None: no limit (a whole answer arrives at once when it is not streamed)
 
     def _headers(self) -> Dict[str, str]:
@@ -163,6 +165,8 @@ class TadamooClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.session_id:
+            headers["X-Session-Id"] = self.session_id
         if os.environ.get("TADAMOO_COMPRESS") == "1":
             headers["X-Tadamoo-Compress"] = "1"          # the server may compress a streamed conversation (Billion Context)
         return headers

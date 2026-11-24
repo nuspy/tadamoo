@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from serve.origin_guard import check_hostname
-from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, REMOVED_SERVER_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
+from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, REMOVED_SERVER_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, single_settings, read_config, ENTRY_OPTIONS, MODEL_OPTIONS
 from serve.engine.vision import VISION_MODES, vision_mode
 
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
@@ -49,7 +49,8 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  ("server", "answer-room"), ("server", "thinking-loop-tokens"),
                  ("server", "passage-loop-tokens"), ("server", "passage-loop-times"), ("server", "passage-loop-window"),
                  ("server", "thinking-passage-loop-tokens"), ("server", "thinking-passage-loop-times"), ("server", "thinking-passage-loop-window"),
-                 ("server", "measure-length"))
+                 ("server", "measure-length"), ("server", "reasoning-effort"), ("server", "video-max-tokens"),
+                 ("server", "max-payload-mib"), ("engine", "lora-scaled"), ("engine", "no-lora-partial"))
 # Settings > Network: where the server listens and the names it is reached by (a change applies when the server is started again)
 NETWORK_FIELDS = (("server", "host"), ("server", "port"), ("server", "allowed-hosts"), ("server", "public-name"))
 # the secret of the changes through /api/*: its own route, never part of the values the pages read back
@@ -57,6 +58,7 @@ CONTROL_FIELDS = (("server", "control-secret"), ("server", "control-secret-value
 CONTROL_SECRET_MAX = 200
 # the model a load profile or the Loader writes (with the API name, when the file sets one)
 MODEL_FIELDS = (("server", "model"), ("server", "alias"))
+REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")   # the server's default effort for a request that names none
 PLE_IO_MODES = ("direct", "mmap", "ram")             # the engine's --ple-io
 VISION_HOLDS = ("keep", "release")                   # the image encoder's weights stay in RAM, or are read again for each batch of images
 POOL_WORKERS_MAX = 256
@@ -195,6 +197,36 @@ def check_value(section: str, key: str, value):
             return _whole(value, what, 0)
         except ValueError:
             raise ValueError(f"{what}: auto or a whole number of expert slots (0 = none), not {value!r}") from None
+    if key == "reasoning-effort":
+        text = value.strip().lower() if isinstance(value, str) else ""
+        if text not in REASONING_EFFORTS:
+            raise ValueError(f"{what}: one of {', '.join(REASONING_EFFORTS)}, not {value!r}")
+        return text
+    if key == "video-max-tokens":
+        return _whole(value, what, 64, 65536)
+    if key == "max-payload-mib":
+        return _whole(value, what, 1, 1 << 16)
+    if key == "lora-scaled":
+        # FILE:SCALE, comma-separated (the last colon of an item splits it, as the engine does)
+        items = [x.strip() for x in value.split(",")] if isinstance(value, str) else []
+        if not items or any(not x for x in items):
+            raise ValueError(f"{what}: adapter files with their scales, FILE:SCALE[,FILE:SCALE...], not {value!r}")
+        for item in items:
+            path, _, scale = item.rpartition(":")
+            try:
+                float(scale)
+            except ValueError:
+                path = ""
+            if not path:
+                raise ValueError(f"{what}: expected FILE:SCALE, got {item!r}")
+        return ",".join(items)
+    if key == "answer-room":
+        if isinstance(value, str) and value.strip().lower() == "auto":
+            return "auto"
+        try:
+            return _whole(value, what, 0)
+        except ValueError:
+            raise ValueError(f"{what}: auto, or a whole number of tokens (0 = none), not {value!r}") from None
     if key == "prefill":
         if isinstance(value, str):
             text = value.strip().lower()
@@ -210,7 +242,7 @@ def check_value(section: str, key: str, value):
         if not text.strip() or len(text) > CONTROL_SECRET_MAX or any(not 32 <= ord(c) <= 126 for c in text):
             raise ValueError(f"{what}: one line of letters, digits and signs without accents, up to {CONTROL_SECRET_MAX} characters")
         return text
-    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "keep-vram-commit", "grammar", "control-secret", "answer-room", "measure-length"):
+    if key in ("resident-experts", "slot-full-context", "mmap-experts", "vram-elastic", "keep-vram-commit", "grammar", "control-secret", "measure-length", "no-lora-partial"):
         if not isinstance(value, bool):
             raise ValueError(f"{what}: true or false, not {value!r}")
         return value
@@ -296,22 +328,44 @@ def check_model_value(key: str, value):
 
 
 def read_file(path: str) -> dict:
-    """The config file's JSON object (OSError / ValueError when it cannot be read)."""
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
-        raise ValueError("the config file is not a JSON object")
+    """The config file's JSON object, in this format ({"version": 2, "server": ..., "engine": ..., "models": [one entry]});
+    OSError / ValueError when it cannot be read or is another format."""
+    raw = read_config(path)
+    entries = raw["models"]
+    if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
+        raise ValueError('this page edits a config file with one model: "models" must hold one entry')
     return raw
+
+
+def _home(section: str, key: str) -> tuple[str, int | None]:
+    """Where a field lives in the file: a model's own and per-model settings in its entry of "models", an engine flag in
+    "engine", the rest in "server". (The page groups them as it likes; the file is what the server reads.)"""
+    if key in ENTRY_OPTIONS or key in MODEL_OPTIONS:
+        return "models", 0
+    return ("engine" if section == "engine" else "server"), None
+
+
+def _block(raw: dict, where: tuple[str, int | None]):
+    name, at = where
+    block = raw.get(name)
+    if at is not None:
+        block = block[at] if isinstance(block, list) and len(block) > at else None
+    return block if isinstance(block, dict) else None
 
 
 def values_of(raw: dict, fields=FIELDS) -> dict:
     """{"server.port": value, ...} for the edited and read-only fields the file sets."""
     out = {}
     for section, key in (*fields, *READ_ONLY):
-        sec = raw.get(section) if isinstance(raw.get(section), dict) else {}
-        for k, v in sec.items():
-            if norm(k) == key:
-                out[f"{section}.{key}"] = v
+        homes = [_home(section, key), ("server", None), ("engine", None), ("models", 0)]
+        for where in homes:
+            block = _block(raw, where)
+            if block is None:
+                continue
+            hit = next((v for k, v in block.items() if norm(k) == key), None)
+            if hit is not None or any(norm(k) == key for k in block):
+                out[f"{section}.{key}"] = hit
+                break
     return out
 
 
@@ -322,6 +376,7 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
         raise ValueError('send {"changes": {"engine.spec": 7, ...}}')
     allowed = {f"{s}.{k}": (s, k) for s, k in fields}
     out = json.loads(json.dumps(raw))                  # a deep copy
+    out["version"] = 2
     changed = []
     for name, value in changes.items():
         if name in REMOVED_KEYS:
@@ -330,10 +385,14 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
             ro = {f"{s}.{k}" for s, k in READ_ONLY}
             raise ValueError(f"{name}: read-only here" if name in ro else f"{name}: not a field this page sets")
         section, key = allowed[name]
-        sec = out.get(section, {})
-        if not isinstance(sec, dict):
-            raise ValueError(f'"{section}" in the config file is not an object')
-        out[section] = sec
+        where = _home(section, key)
+        sec = _block(out, where)
+        if sec is None:
+            if where[0] == "models":
+                raise ValueError('"models" in the config file holds no entry')
+            sec = out.setdefault(where[0], {})
+            if not isinstance(sec, dict):
+                raise ValueError(f'"{where[0]}" in the config file is not an object')
         present = [k for k in sec if norm(k) == key]
         if value is None:
             for k in present:
@@ -351,12 +410,11 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
         else:
             sec[key] = value
             changed.append(name)
-    if isinstance(out.get("engine"), dict):
-        for k in [k for k in out["engine"] if norm(k) in REMOVED_ENGINE_KEYS]:
-            del out["engine"][k]
-    if isinstance(out.get("server"), dict):
-        for k in [k for k in out["server"] if norm(k) in REMOVED_SERVER_KEYS]:
-            del out["server"][k]
+    for where, removed in ((("engine", None), REMOVED_ENGINE_KEYS), (("server", None), REMOVED_SERVER_KEYS)):
+        block = _block(out, where)
+        if block is not None:
+            for k in [k for k in block if norm(k) in removed]:
+                del block[k]
     for section in ("server", "engine"):
         if section in out and out[section] == {} and section not in raw:
             del out[section]
@@ -383,7 +441,7 @@ def check_whole(obj: dict, path: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f)
-        parse_settings(_parser(), ["--config", tmp])
+        single_settings(_parser(), ["--config", tmp])
     finally:
         try:
             os.unlink(tmp)

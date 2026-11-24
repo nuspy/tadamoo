@@ -327,7 +327,7 @@ class EveryStartPath(Base):
     def test_the_first_request_of_a_lazy_server_calls_it_once_before_the_engine_starts(self):
         tok = ByteTokenizer()
         engine = Restartable(tok, ["x"])
-        svc = Service(engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        svc = Service(engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         order = []
         self.calls.clear()
         engine.restart = lambda tries=1: (order.append("engine"), setattr(engine, "up", True))

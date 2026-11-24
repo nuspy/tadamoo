@@ -10,6 +10,7 @@ import select
 import socket
 import sys
 import threading
+import uuid
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.parse
@@ -31,6 +32,9 @@ from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
 from serve.engine.errors import EngineDied, EngineError, EngineStarting, EngineStuck, GpuBusy, ModelBusy
 from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
+from serve.api.logprobs import REQUEST_KEY as LOGPROBS_KEY, checked as checked_logprobs
+from serve.live import AnswerNowRefused, LiveRequests
+from serve.api.documents import sources as document_sources
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
 from serve.api.longform import long_answer_chunks, long_collect, long_request
@@ -301,6 +305,10 @@ BODY_MAX = 256 << 20                        # the most a JSON request body may h
 CONTROL_BODY_MAX = 64 << 10                 # the unused body of the control routes
 CONTROL_PATHS = ("/api/control/load", "/api/control/unload")   # not part of the interfaces other applications use
 CONTROL_HEADER = "X-Tadamoo-Control"
+CAPABILITIES = ["answer_now", "logprobs", "documents"]   # listed under /props "basalt"
+# the headers a client names its conversation by, then the body's session_id; the engine keeps a conversation in one slot
+SESSION_HEADERS = ("x-llm-flow-id", "x-claude-code-session-id", "x-session-id", "x-session-affinity",
+                   "x-grok-conv-id", "x-grok-session-id")
 API_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")      # the requests the request log records
 REQLOG_CHARS_MAX = 64 << 20                 # the most one GET /api/reqlog answer may hold
 
@@ -319,6 +327,8 @@ def _size_text(n: int) -> str:
 
 def make_handler(svc: Service, remote: bool = False):
     """`remote`: the handler of the listener for phones: device keys count only there, and every request needs a key."""
+    live_requests = svc.__dict__.setdefault("live_requests", LiveRequests())
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
         remote_listener = remote
@@ -326,9 +336,30 @@ def make_handler(svc: Service, remote: bool = False):
         _held_body = None                                   # the body of a request read before it was answered here
         watch_done = None                                   # stops this request's disconnect watcher
         trace = None                                        # this request's entries in the request log
+        live = None                                         # this request's entry in the running requests (answer now)
 
         def log_message(self, fmt, *args):
             pass
+
+        def end_headers(self):
+            """A chat response names its request id."""
+            if self.live is not None:
+                self.send_header("X-Request-Id", self.live.id)
+            super().end_headers()
+
+        def _session_id(self, req) -> str | None:
+            """The conversation this request belongs to, or None when it names no session."""
+            for h in SESSION_HEADERS:
+                v = (self.headers.get(h) or "").strip()
+                if v:
+                    return v
+            v = req.get("session_id") if isinstance(req, dict) else None
+            return v if isinstance(v, str) and v else None
+
+        def _open_live(self, rid: str, req: dict) -> None:
+            """Register this request under its response id (and the client's x-client-request-id) for answer now."""
+            client = (self.headers.get("x-client-request-id") or "").strip()[:256] or None
+            self.live = live_requests.open(rid, self._session_id(req), client)
 
         def parse_request(self) -> bool:
             """Every request, whatever its method and also a WebSocket upgrade, passes the origin guard (serve/origin_guard.py) first."""
@@ -1436,6 +1467,15 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(404, responses_error_body("this server keeps no responses (stateless); send the "
                                                          "whole conversation to POST /v1/responses", code="not_found"))
                     return
+                if path == "/v1/answer_now":                 # close a running request's thinking and let it answer
+                    rid = req.get("request_id")
+                    if rid is not None and not isinstance(rid, str):
+                        raise ValueError("request_id: a string")
+                    try:
+                        self._json(200, live_requests.answer_now(rid, None if rid else self._session_id(req)))
+                    except AnswerNowRefused as e:
+                        self._json(e.status, e.body())
+                    return
                 if path == "/v1/vram":                       # resize the VRAM reserve
                     r = req.get("reserve_mib")
                     if r is not None and (isinstance(r, bool) or not isinstance(r, int) or r < 0):
@@ -1456,16 +1496,17 @@ def make_handler(svc: Service, remote: bool = False):
                         self._json(404, model_list.refused_body(
                             refused, "anthropic" if path == "/v1/messages" else "openai"))
                         return
-                if path == "/v1/responses":
-                    self._responses(req)
-                elif path == "/v1/chat/completions":
-                    self._openai(req)
-                elif path == "/v1/messages":
-                    self._anthropic(req)
-                elif path == "/v1/messages/count_tokens":
-                    self._count_tokens(req)
-                else:
-                    self._json(404, {"error": {"message": "not found"}})
+                with document_sources(svc.image_sources):      # a document by URL or path is read as an image is
+                    if path == "/v1/responses":
+                        self._responses(req)
+                    elif path == "/v1/chat/completions":
+                        self._openai(req)
+                    elif path == "/v1/messages":
+                        self._anthropic(req)
+                    elif path == "/v1/messages/count_tokens":
+                        self._count_tokens(req)
+                    else:
+                        self._json(404, {"error": {"message": "not found"}})
             except EngineError as e:                         # the engine failed: not the request's fault
                 if path == "/v1/responses":
                     self._json(500, responses_error_body(str(e), "server_error", code="server_error"))
@@ -1496,6 +1537,9 @@ def make_handler(svc: Service, remote: bool = False):
             finally:
                 if self.watch_done is not None:
                     self.watch_done.set()
+                if self.live is not None:
+                    live_requests.close(self.live)
+                    self.live = None
                 if trace is not None:
                     trace.end()
                     self.trace = svc.request_ctx.trace = None
@@ -1520,8 +1564,9 @@ def make_handler(svc: Service, remote: bool = False):
             params["n_predict"] = -1
             props = {"default_generation_settings": {"n_ctx": svc.engine.max_context, "params": params},
                      "total_slots": svc.slot_stats()["conversations"], "model_alias": svc.model, "chat_template": svc.template.source,
-                     "modalities": {"vision": svc.vision is not None}, "models_autoload": hasattr(svc.engine, "restart"),
-                     "is_sleeping": not svc.loaded()}
+                     "modalities": {"vision": svc.vision is not None, "video": svc.video_on()},
+                     "models_autoload": hasattr(svc.engine, "restart"),
+                     "is_sleeping": not svc.loaded(), "chat_template_caps": dict(svc.dialect.caps)}
             side = svc.side_slot_info()
             if side is not None:                             # the technical session: one more slot, with a context of its own
                 props["side_slot"] = side
@@ -1531,6 +1576,9 @@ def make_handler(svc: Service, remote: bool = False):
             version = getattr(svc.engine, "info", {}).get("version")
             if version:
                 props["build_info"] = "basalt " + str(version)
+            # "video" only where a video can be read: image input on, a model that reads video, FFmpeg found
+            props["basalt"] = {"version": str(version) if version else None,
+                               "capabilities": list(CAPABILITIES) + (["video"] if svc.video_on() else [])}
             self._json(200, props)
 
         def _control_local(self) -> bool:
@@ -4828,21 +4876,26 @@ def make_handler(svc: Service, remote: bool = False):
             svc.answer_cap(req)                               # likewise a bad answer cap
             stop_strings(req)                                 # likewise a bad stop
             check_cache_slot(req)                             # likewise a bad cache_slot
+            req[LOGPROBS_KEY] = checked_logprobs(req)         # and a bad logprobs / top_logprobs
+            self._open_live("chatcmpl-" + uuid.uuid4().hex[:24], req)
             ids, thinking, max_new = svc.prepare(messages, tools, kw, asked, force=force)
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
             self._watch_client(cancel)
             if validator is None:
-                chunks = primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+                chunks = primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force,
+                                          session=self._session_id(req), live=self.live), ids)
             else:                                             # validated, and tried again with the error fed back
                 def start(feedback):
                     if trace is not None:
                         trace.attempt = (trace.attempt or 0) + 1
                     if feedback is None:
-                        return primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+                        return primed(openai_chunks(svc, req, ids, thinking, tools, max_new, cancel, force=force,
+                                          session=self._session_id(req), live=self.live), ids)
                     again = retry_messages(messages, *feedback)
                     ids2, thinking2, max_new2 = svc.prepare(again, tools, kw, asked, force=force)
-                    return primed(openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel, force=force), ids2)
+                    return primed(openai_chunks(svc, req, ids2, thinking2, tools, max_new2, cancel, force=force,
+                                          session=self._session_id(req), live=self.live), ids2)
                 chunks = structured_retry_chunks(start, validator, retries, trace.note if trace is not None else None,
                                                  constrained=bool(req.get(GRAMMAR_KEY)))
             if not req.get("stream"):
@@ -4912,11 +4965,14 @@ def make_handler(svc: Service, remote: bool = False):
             def events():
                 yield from asm.start()
                 done = None
-                for kind, x in svc.run(ids, thinking, tools, max_new, req, cancel, force=force):
+                for kind, x in svc.run(ids, thinking, tools, max_new, req, cancel, force=force,
+                                   session=self._session_id(req), live=self.live):
                     if kind == "ping":
                         yield None
                     elif kind == "event":
                         yield from asm.feed(x)
+                    elif kind == "logprobs":
+                        asm.logprob(*x)
                     elif kind == "done":
                         done = x
                 if done is not None and done["finish"] != "cancel" and not cancel.is_set():
@@ -5018,6 +5074,8 @@ def make_handler(svc: Service, remote: bool = False):
                 check_cache_slot(req)
             except ValueError as e:
                 raise ResponsesError(str(e), "cache_slot") from None
+            req[LOGPROBS_KEY] = responses_api.requested_logprobs(req)
+            self._open_live(responses_api.new_id("resp"), req)
             svc.load()
             try:
                 ids, thinking, max_new = svc.prepare(messages, tools, kw, req.get("max_output_tokens") or 0, force=force)
@@ -5029,7 +5087,7 @@ def make_handler(svc: Service, remote: bool = False):
             _debug_req("responses", req, messages, tools, max_new, thinking, len(ids))
             include = req.get("include") if isinstance(req.get("include"), list) else []
             asm = responses_api.Assembler(req, svc.model, len(ids), names,
-                                          "reasoning.encrypted_content" in include)
+                                          "reasoning.encrypted_content" in include, rid=self.live.id)
             return ids, thinking, tools, max_new, asm, req, force
 
         def _count_tokens(self, req):
@@ -5054,11 +5112,14 @@ def make_handler(svc: Service, remote: bool = False):
             checked_sampling(req)                             # likewise a sampling value out of range
             stop_strings(req)                                 # likewise a bad stop
             check_cache_slot(req)                             # likewise a bad cache_slot
+            req[LOGPROBS_KEY] = checked_logprobs(req)         # Basalt's logprobs, as Chat Completions takes them
+            self._open_live("msg_" + uuid.uuid4().hex[:24], req)
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, force=force)
             _debug_req("anthropic", req, messages, tools, max_new, thinking, len(ids))
             cancel = threading.Event()
             self._watch_client(cancel)
-            events = primed(anthropic_events(svc, req, ids, thinking, tools, max_new, cancel, force=force), ids)
+            events = primed(anthropic_events(svc, req, ids, thinking, tools, max_new, cancel, force=force,
+                                          session=self._session_id(req), live=self.live), ids)
             if not req.get("stream"):
                 return self._json(200, anthropic_collect(events))
             self._sse()

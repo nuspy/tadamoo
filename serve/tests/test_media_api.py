@@ -30,7 +30,7 @@ class MediaRoute(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         self.httpd = serve(self.svc, port=0)
         self.port = self.httpd.server_address[1]
         self.addCleanup(self.httpd.server_close)

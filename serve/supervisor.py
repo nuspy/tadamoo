@@ -12,7 +12,7 @@ from pathlib import Path
 
 from serve import lengthprobe, loader, settings
 from serve.service import voice_first
-from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line
+from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, sampling_defaults_from_config, sampling_line, single_settings
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
@@ -192,7 +192,7 @@ class Supervisor:
         def error(message):
             raise ValueError(message)
         ap.error = error
-        a, used, file_engine, cli_engine = parse_settings(ap, self.argv)
+        a, used, file_engine, cli_engine = single_settings(ap, self.argv)
         return a, file_engine + cli_engine
 
     def _reload_now(self, phase: str = "stopping"):

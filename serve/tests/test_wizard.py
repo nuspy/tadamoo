@@ -209,7 +209,7 @@ class Save(Isolated):
 def make_service():
     tok = ByteTokenizer()
     return Service(MockEngine(tok, ["</think>\n\n" + "word " * 40], max_context=8192), tok,
-                   ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                   ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
 
 class Measure(Isolated):

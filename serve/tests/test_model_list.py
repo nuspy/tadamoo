@@ -58,7 +58,7 @@ class Http(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=8192), tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"), model_name=SERVED)
+                           ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"), model_name=SERVED)
         self.svc.settings_info = {"model": "D:/Modelli/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt"}
         self.items = [other("Qwen3.8-Flash-Next-IQ4_NL", "Qwen3.8 Flash Next", vision=True),
                       other("Orca-IQ3_XXS", ctx=None),
@@ -189,7 +189,7 @@ class Http(unittest.TestCase):
 
     def test_a_standby_server_without_a_model_lists_the_others(self):
         tok = ByteTokenizer()
-        svc = Service(NoEngine(), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"), model_name="no model loaded")
+        svc = Service(NoEngine(), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"), model_name="no model loaded")
         svc.standby = True
         svc.model_catalog = model_list.Catalog(lambda: list(self.items))
         svc.model_catalog.refresh()
@@ -258,7 +258,7 @@ class ProfileSummaries(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         # the PC with the model loaded: the engine holds 29 GiB of VRAM and 60 GiB of RAM and commit
         busy = {**ROOMY, "vram_free": 2 * GiB, "ram_available": 60 * GiB, "commit_used": 70 * GiB}
         self.patches = [mock.patch.object(loader, "system_now", return_value=dict(busy)),

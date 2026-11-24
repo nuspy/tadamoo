@@ -204,7 +204,7 @@ class OverHttp(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
-        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.system = mock.patch.object(loader, "system_now", return_value=dict(ROOMY))
         self.system.start()
         self.httpd = serve(self.svc, port=0)

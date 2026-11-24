@@ -37,7 +37,7 @@ class Policies(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.engine = MockEngine(tok, SUMMARY, max_context=4096)
-        self.svc = Service(self.engine, tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
+        self.svc = Service(self.engine, tok, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
 
     def fit(self, messages, policy, **kw):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -140,7 +140,7 @@ class OverHttp(unittest.TestCase):
     def setUp(self):
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, SUMMARY, max_context=2048), tok,
-                           ChatTemplate(ROOT / "serve/chat_template.jinja"))
+                           ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.httpd = serve(self.svc, port=0)
         self.port = self.httpd.server_address[1]
 
