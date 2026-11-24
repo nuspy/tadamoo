@@ -70,7 +70,8 @@ def pdf_text(path: Path) -> Tuple[Optional[str], str]:
             else:
                 parts.append(f"[page {n}: no text layer]\n")
     except Exception as exc:                               # a damaged file: the caller falls back
-        return None, f"failed: {type(exc).__name__}"
+        broken = type(exc).__name__ in ("PdfStreamError", "PdfReadError", "EmptyFileError")   # the signature was there, the body was not a PDF
+        return None, "failed: not_pdf" if broken else f"failed: {type(exc).__name__}"
     return ("\n".join(parts), "") if with_text else (None, "empty")
 
 
