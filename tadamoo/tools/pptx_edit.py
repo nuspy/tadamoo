@@ -239,7 +239,8 @@ class PptxTools:
         existed = target.exists()
         io.atomic_write(target, lambda tmp: prs.save(tmp), lambda tmp: Presentation(tmp))
         result = self.sandbox._record(output or path, "modified" if existed else "added", old_dump if existed and target == safe else "", dump(prs), keep_text=False)
-        result.update(edits=len(edits), applied=applied, note="Slide numbers may have changed; run pptx_outline again before editing further.")
+        result.update(edits=len(edits), applied=applied, written=str(output or path),
+                      note="Slide numbers may have changed; run pptx_outline again before editing further. " + io.copy_note(output))
         return result
 
     def _apply(self, prs: Any, item: Dict[str, Any]) -> str:
