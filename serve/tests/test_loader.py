@@ -20,6 +20,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 GiB = 1 << 30
@@ -225,7 +226,7 @@ class OverHttp(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": self.path, "model": None, "cli": [], "running": {"engine.max-context": 4096}}
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", self.path],
@@ -280,7 +281,7 @@ class OverHttp(unittest.TestCase):
 
     def test_a_file_saved_with_the_removed_drafting_floor_still_loads(self):
         old = {**CONFIG, "engine": {**CONFIG["engine"], "spec-min-p": 0.5}}
-        Path(self.path).write_text(json.dumps(old, indent=2), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(old, indent=2), encoding="utf-8")
         code, body = self.req("GET", "/api/loader")
         self.assertEqual(code, 200)
         self.assertNotIn("engine.spec-min-p", body["values"])

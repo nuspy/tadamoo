@@ -22,6 +22,7 @@ from serve.util.logbuf import LogBuffer, TeeStream
 from serve.util.reqlog import GATHER_CHARS, RequestLog, export_jsonl, export_text
 from serve.util.reqtrace import request_params
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 try:
     import jsonschema  # noqa: F401
@@ -543,7 +544,7 @@ class Settings(unittest.TestCase):
         if server is not None:
             with tempfile.TemporaryDirectory() as d:
                 path = Path(d) / "c.json"
-                path.write_text(json.dumps({"server": server}), encoding="utf-8")
+                path.write_text(cfgv2.dumps({"server": server}), encoding="utf-8")
                 file_argv, _ = load_config_file(str(path), ap)
             argv = file_argv + argv
         return ap.parse_known_args(argv)[0]

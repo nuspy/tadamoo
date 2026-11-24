@@ -102,7 +102,7 @@ class ConfigFile(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(self.path).write_text(json.dumps({"server": {"port": 7232}, "engine": {"kv": "int8"}}), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps({"server": {"port": 7232}, "engine": {"kv": "int8"}}), encoding="utf-8")
 
     def tearDown(self):
         self.dir.cleanup()
@@ -238,7 +238,7 @@ class PlanAccounting(unittest.TestCase):
         self.assertEqual(loader.effective({})["server.side-slot"], config.SIDE_SLOT_DEFAULT)      # on unless the Loader says 0
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "basalt.json")
-            Path(path).write_text(json.dumps({"server": {"model": "m.basalt"}}), encoding="utf-8")
+            Path(path).write_text(cfgv2.dumps({"server": {"model": "m.basalt"}}), encoding="utf-8")
             settings.save(path, {"server.side-slot": 30000}, settings.LOADER_FIELDS)
             self.assertEqual(settings.values_of(settings.read_file(path), settings.LOADER_FIELDS)["server.side-slot"], 30000)
             ap = config.build_parser()
@@ -320,7 +320,7 @@ class SavedConfigurations(unittest.TestCase):
         profiles.change({"action": "import", "data": data})
         self.assertEqual(profiles.get_load("Lunga"), got)
         cfg = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(cfg).write_text(json.dumps({"server": {"port": 7232}, "engine": {"kv": "fp16"}}), encoding="utf-8")
+        Path(cfg).write_text(cfgv2.dumps({"server": {"port": 7232}, "engine": {"kv": "fp16"}}), encoding="utf-8")
         profiles.apply("Lunga", cfg)
         raw = json.loads(Path(cfg).read_text(encoding="utf-8"))
         self.assertEqual((raw["engine"]["prompt-cache"], raw["engine"]["rope-scaling"], raw["server"]["grammar"],
@@ -414,7 +414,7 @@ class GpuNames(unittest.TestCase):
     def test_the_loader_payload_lists_the_gpus_and_names_the_vision_card(self):
         dirs = tempfile.TemporaryDirectory()
         path = os.path.join(dirs.name, "tadamoo_config.json")
-        Path(path).write_text(json.dumps({"server": {"port": 7232, "vision": "1"}, "engine": {"kv": "int8"}}), encoding="utf-8")
+        Path(path).write_text(cfgv2.dumps({"server": {"port": 7232, "vision": "1"}, "engine": {"kv": "int8"}}), encoding="utf-8")
         svc = make_service()
         svc.settings_info = {"config": path, "model": None, "cli": [], "running": {}}
         svc.supervisor = supervisor.Supervisor(svc, ["--mock-engine", "--config", path], mock=True)
@@ -445,6 +445,7 @@ class GpuNames(unittest.TestCase):
 import re  # noqa: E402
 
 from serve.tests import test_web_static as web  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 LOADER_JS = (web.WEB / "loader.js").read_text(encoding="utf-8")
 

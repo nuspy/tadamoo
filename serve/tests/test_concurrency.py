@@ -14,6 +14,7 @@ from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.service import Service
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "chat_template.jinja"
 
@@ -303,12 +304,12 @@ class ParallelOption(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "c.json"
-            p.write_text(json.dumps({"server": {"parallel": 3, "side-slot": 0}}))
+            p.write_text(cfgv2.dumps({"server": {"parallel": 3, "side-slot": 0}}))
             a, _, file_engine, cli_engine = self.parse("--config", str(p))
             self.assertEqual((a.parallel, file_engine[:4], "--batch" in cli_engine), (3, ["--kv", "int8", "--batch", "3"], False))
             _, _, file_engine, cli_engine = self.parse("--config", str(p), "--parallel", "2")
             self.assertEqual(cli_engine[:4], ["--kv", "int8", "--batch", "2"])
-            p.write_text(json.dumps({"server": {"parallel": 3}, "engine": {"batch": 2}}))
+            p.write_text(cfgv2.dumps({"server": {"parallel": 3}, "engine": {"batch": 2}}))
             with self.assertRaises(ValueError):
                 self.parse("--config", str(p))
 

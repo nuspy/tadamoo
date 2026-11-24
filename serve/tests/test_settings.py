@@ -19,6 +19,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = {
@@ -65,7 +66,7 @@ class FileWrites(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(CONFIG, indent=2), encoding="utf-8")
 
     def tearDown(self):
         self.dir.cleanup()
@@ -85,7 +86,7 @@ class FileWrites(unittest.TestCase):
 
     def test_a_file_saved_with_the_removed_drafting_floor_still_loads_and_loses_it(self):
         old = {**CONFIG, "engine": {**CONFIG["engine"], "spec-min-p": 0.5}}
-        Path(self.path).write_text(json.dumps(old), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(old), encoding="utf-8")
         self.assertNotIn("engine.spec-min-p", settings.values_of(settings.read_file(self.path), settings.LOADER_FIELDS))
         settings.check_whole(old, self.path)                                    # the server starts with it
         _, engine = config.load_config_file(self.path, config.build_parser())
@@ -107,7 +108,7 @@ class FileWrites(unittest.TestCase):
         self.assertEqual(new["server"]["vision"], "off")
 
     def test_the_file_s_own_spelling_is_kept(self):
-        Path(self.path).write_text(json.dumps({"engine": {"max_context": 8192}}), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps({"engine": {"max_context": 8192}}), encoding="utf-8")
         settings.save(self.path, {"engine.max-context": 16384})
         self.assertEqual(json.loads(Path(self.path).read_text(encoding="utf-8")), {"engine": {"max_context": 16384}})
 
@@ -121,7 +122,7 @@ class FileWrites(unittest.TestCase):
         self.assertEqual([p for p in os.listdir(self.dir.name) if p.startswith(".tadamoo-settings-")], [])
 
     def test_the_whole_file_is_checked_as_the_server_would(self):
-        Path(self.path).write_text(json.dumps({"engine": {"kv-resident": 32768, "batch": 2}}), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps({"engine": {"kv-resident": 32768, "batch": 2}}), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "kv-resident"):
             settings.save(self.path, {"engine.kv": "k8v4"})
         with self.assertRaisesRegex(ValueError, "parallel and engine --batch"):
@@ -140,7 +141,7 @@ class OverHttp(unittest.TestCase):
                            ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
         self.dir = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.dir.name, "tadamoo_config.json")
-        Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc.settings_info = {"config": self.path, "model": "/models/m.basalt", "cli": ["engine.spec"],
                                   "running": {"server.port": 7232, "engine.spec": 3}}
         self.httpd = serve(self.svc, port=0)

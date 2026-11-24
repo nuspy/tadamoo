@@ -23,6 +23,7 @@ from serve.handler import serve
 from serve.service import Service
 from serve.tests.test_models import ROOMY, tiny_basalt
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 PORT = 7281                     # a free port of this repository's test range
@@ -43,7 +44,7 @@ class InProcess(unittest.TestCase):
         self.a = tiny_basalt(root / "a.basalt", "Model A")
         self.b = tiny_basalt(root / "b.basalt", "Model B")
         self.cfg = root / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096}}),
+        self.cfg.write_text(cfgv2.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096}}),
                             encoding="utf-8")
         self.svc = service()
         self.svc.standby = True

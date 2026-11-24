@@ -14,6 +14,7 @@ from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.service import Service
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRET = "my own secret, 123"
@@ -36,7 +37,7 @@ class Saved(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = str(Path(self.tmp.name) / "config.json")
-        Path(self.path).write_text(json.dumps({"server": {"port": 8080}, "engine": {"kv": "int8"}}), encoding="utf-8")
+        Path(self.path).write_text(cfgv2.dumps({"server": {"port": 8080}, "engine": {"kv": "int8"}}), encoding="utf-8")
 
     def tearDown(self):
         self.tmp.cleanup()

@@ -21,6 +21,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 PC = "pluto-max"
@@ -83,7 +84,7 @@ class Matrix(unittest.TestCase):
         ap = build_parser()
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d) / "config.json"
-            tmp.write_text(json.dumps({"server": {"allowed_hosts": ["mypc.tail1234.ts.net", "PLUTO-MAX.lan"]}}), encoding="utf-8")
+            tmp.write_text(cfgv2.dumps({"server": {"allowed_hosts": ["mypc.tail1234.ts.net", "PLUTO-MAX.lan"]}}), encoding="utf-8")
             argv, _ = load_config_file(str(tmp), ap)
             self.assertEqual(ap.parse_args(argv).allowed_hosts, ["mypc.tail1234.ts.net", "pluto-max.lan"])
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -133,10 +134,10 @@ class AllowedOrigins(unittest.TestCase):
         self.assertIsNone(ap.parse_args([]).allowed_origins)                              # the default does not change
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d) / "config.json"
-            tmp.write_text(json.dumps({"server": {"allowed-origins": ["http://localhost:3000", "HTTPS://App.Example.com"]}}), encoding="utf-8")
+            tmp.write_text(cfgv2.dumps({"server": {"allowed-origins": ["http://localhost:3000", "HTTPS://App.Example.com"]}}), encoding="utf-8")
             argv, _ = load_config_file(str(tmp), ap)
             self.assertEqual(ap.parse_args(argv).allowed_origins, ["http://localhost:3000", "https://app.example.com"])
-            tmp.write_text(json.dumps({"server": {"allowed-origins": ["*"]}}), encoding="utf-8")
+            tmp.write_text(cfgv2.dumps({"server": {"allowed-origins": ["*"]}}), encoding="utf-8")
             argv, _ = load_config_file(str(tmp), ap)
             self.assertEqual(ap.parse_args(argv).allowed_origins, ["*"])
         self.assertEqual(ap.parse_args(["--allowed-origins", "http://localhost:3000", "--allowed-origins", "http://localhost:5173"]).allowed_origins,

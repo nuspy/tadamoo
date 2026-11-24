@@ -18,6 +18,7 @@ from serve.frontend import ChatTemplate
 from serve.service import Service
 from serve.tests.test_models import ROOMY, tiny_basalt
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,7 +62,7 @@ class Reload(unittest.TestCase):
         self.dir.cleanup()
 
     def write(self, **server):
-        self.cfg.write_text(json.dumps({"server": {"model": str(self.model), **server}}), encoding="utf-8")
+        self.cfg.write_text(cfgv2.dumps({"server": {"model": str(self.model), **server}}), encoding="utf-8")
 
     def reload(self):
         with contextlib.redirect_stdout(io.StringIO()):

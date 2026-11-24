@@ -578,7 +578,7 @@ def gguf_info(path: str, size: int) -> dict:
                 sys.path.insert(0, str(ROOT / "tools" / "convert"))
             import model_sections as S                   # numpy; only for the qwen4exp files
             form_of = S.form_of
-            native_ple, not_in_dense = S.NATIVE_PLE_KEY, S.NOT_IN_DENSE
+            native_ple, not_in_dense = {"Q2_0", "Q8_0"}, {"per_layer_token_embd.weight"}      # the per-layer key kept as is, and the table the dense pool leaves out
         if name in not_in_dense:
             continue
         tn, form = type_name(t), form_of(name)

@@ -26,6 +26,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 GiB = 1 << 30
@@ -537,7 +538,7 @@ class WithModel(Base):
         self.a = tiny_basalt(self.models / "A-IQ3_XXS.basalt", name="Modello A")
         self.b = tiny_basalt(self.models / "B-Q2_0.basalt", name="Modello B")
         self.cfg = self.root / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"model": self.a.as_posix(), "alias": "Nome A", "port": 7232},
+        self.cfg.write_text(cfgv2.dumps({"server": {"model": self.a.as_posix(), "alias": "Nome A", "port": 7232},
                                         "engine": {"kv": "int8"}}), encoding="utf-8")
 
     def test_profiles_keep_their_model(self):

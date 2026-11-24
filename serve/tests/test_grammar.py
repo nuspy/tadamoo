@@ -19,6 +19,7 @@ from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 FN = {"name": "get_weather", "description": "weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}}}
@@ -268,7 +269,7 @@ class Wire(unittest.TestCase):
             for value, cli, want in ((True, [], True), (False, [], False), (True, ["--no-grammar"], False),
                                      (False, ["--grammar"], True)):
                 p = Path(d) / "c.json"
-                p.write_text(json.dumps({"server": {"grammar": value}}))
+                p.write_text(cfgv2.dumps({"server": {"grammar": value}}))
                 self.assertEqual(parse_settings(build_parser(), ["--config", str(p)] + cli)[0].grammar, want)
 
 
@@ -299,7 +300,7 @@ class EngineStart(unittest.TestCase):
             eng = Path(d) / "eng"
             eng.write_bytes(flags)
             conf = Path(d) / "c.json"
-            conf.write_text(json.dumps({"server": {"model": "m.basalt", "side-slot": 0, **server_block}}))
+            conf.write_text(cfgv2.dumps({"server": {"model": "m.basalt", "side-slot": 0, **server_block}}))
             argv = ["x", "--config", str(conf), "--engine-bin", str(eng), "--port", str(free_port()), *cli]
             tokdir = Path(d) / "tok"
             tokdir.mkdir()

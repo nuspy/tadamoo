@@ -20,6 +20,7 @@ from serve.handler import serve
 from serve.service import Service
 from serve.tests.test_models import tiny_basalt
 from serve.util.text import ByteTokenizer
+from serve.tests import cfgv2  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 GiB, MiB = 1 << 30, 1 << 20
@@ -216,7 +217,7 @@ class Measure(Isolated):
     def setUp(self):
         super().setUp()
         self.cfg = Path(self.dir.name) / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"port": 7286}, "engine": {"max-context": 4096}}), encoding="utf-8")
+        self.cfg.write_text(cfgv2.dumps({"server": {"port": 7286}, "engine": {"max-context": 4096}}), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": str(self.cfg), "model": None, "cli": [], "running": {}}
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", str(self.cfg)],
@@ -281,7 +282,7 @@ class OverHttp(Isolated):
         root = Path(self.dir.name)
         self.model = tiny_basalt(root / "a.basalt", "A")
         self.cfg = root / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"model": str(self.model), "port": 7287}}), encoding="utf-8")
+        self.cfg.write_text(cfgv2.dumps({"server": {"model": str(self.model), "port": 7287}}), encoding="utf-8")
         self.svc = make_service()
         self.svc.standby = True
         self.svc.settings_info = {"config": str(self.cfg), "model": str(self.model), "cli": [],
