@@ -15,9 +15,12 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from websockets.exceptions import ConnectionClosed
-from websockets.sync.client import connect
-from websockets.sync.server import serve as ws_serve
+try:
+    from websockets.exceptions import ConnectionClosed
+    from websockets.sync.client import connect
+    from websockets.sync.server import serve as ws_serve
+except ImportError:
+    raise unittest.SkipTest("the websockets library of the voice service (voice/requirements.txt) is not installed here") from None
 
 from serve import handler, voice_gateway_relay, voice_service
 from serve.engine.mock import MockEngine

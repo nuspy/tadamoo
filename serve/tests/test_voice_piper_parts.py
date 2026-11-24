@@ -19,6 +19,8 @@ def service_side():
         from callbridge.engines import catalog, tts_router
         from callbridge.engines.piper_tts import PiperTtsEngine
         from callbridge.config import Config
+    except ImportError as e:                             # the service's own libraries (voice/requirements.txt) are not in this environment
+        raise unittest.SkipTest(f"the voice service's libraries are not installed here ({e})") from None
     finally:
         sys.path.pop(0)
     return models_store, catalog, tts_router, PiperTtsEngine, Config

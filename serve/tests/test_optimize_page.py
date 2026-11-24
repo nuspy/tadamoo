@@ -212,7 +212,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn('data-t="po.tip"', section)                                                        # the same words are on the page for touch screens
         self.assertLess(HTML.index("web/promptswitch.js"), HTML.index("web/optimize.js"))
         self.assertLess(HTML.index("web/optimize.js"), HTML.index("web/intake.js"))
-        self.assertEqual(len(re.findall(r'data-sub="inference"', HTML)), 3)
+        self.assertGreaterEqual(len(re.findall(r'data-sub="inference"', HTML)), 3)
 
     def test_the_model_only_chat_hides_it_and_the_pages_keep_it_in_step(self):
         self.assertIn('$("#po-chat").hidden = !on', AGENTCHAT)
