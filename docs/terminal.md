@@ -1,6 +1,7 @@
 # The command line
 
-The PowerShell module in `tools/terminal/PSLLMKit` (a copy of the module of the API-CLI project) puts the harness in the terminal. The setup offers it and, if asked, writes a block in the
+The PowerShell module of the API-CLI project (github.com/nuspy/API-CLI, the tag named in `compile_and_package.ps1`) is downloaded when the setup is built and goes into the program folder
+as `tools/terminal/PSLLMKit`; it puts the harness in the terminal. The setup offers it and, if asked, writes a block in the
 user's PowerShell profiles (`WindowsPowerShell` and `PowerShell`) that loads it and calls `Enable-TaDaMooPrefix`; deleting the block takes it away.
 
 - A line that starts with the prefix (default `§`, a setting) is not run by the shell: it goes to the harness. One prefix opens a new conversation in the current folder and
