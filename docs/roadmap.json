@@ -989,10 +989,12 @@
       "decisions": [
         "Deciso da te (24 novembre): da importare 0.3.0 (Qwen 4 e DeepSeek), 0.3.2, 0.3.3 (video, punto di ripresa dei media), 0.4.0, 0.4.1, 0.5.0, 0.5.5, 0.5.6. Da discutere: 0.2.1, 0.3.1, PDF e Office (noi abbiamo il Markdown), logprobs, answer-room e le altre novità di 0.3.3, 0.5.7.",
         "Proposta: le versioni sono cumulative, quindi si importa tutto fino al tag v0.5.6 in un'unica prova e le scelte da discutere si applicano come impostazioni e predefiniti dopo; la 0.5.7 si valuta a parte.",
-        "Avvertenza: DeepSeek-V4.1-Flash vuole circa 320 GB di RAM per andare bene; con 121 GiB e gli esperti su SSD i loro numeri danno 2,8 token al secondo. Questo PC ha 128 GiB e una RTX 5090."
+        "Avvertenza: DeepSeek-V4.1-Flash vuole circa 320 GB di RAM per andare bene; con 121 GiB e gli esperti su SSD i loro numeri danno 2,8 token al secondo. Questo PC ha 128 GiB e una RTX 5090.",
+        "Metodo proposto per il motore: base = albero del loro v0.5.6; sopra si riapplicano le nostre parti in questo ordine: 1) LoRA e quantizzatori IQ, 2) arbitro della VRAM, `vram_backing` e letture di Windows, 3) Loader e server (config v2, opzioni). Ogni passo con compilazione e prove; alla fine le prove vere sulla GPU (prestito e restituzione di VRAM mentre serve, scambio per un lavoro pesante, tempo di caricamento, commit di Windows, prove LoRA P1-P7), solo con il tuo via libera per la GPU."
       ],
       "risks": [
-        "La 0.5.7 rompe le opzioni multi-scheda (`gpu`, `gpu-mode`, `gpu-share`; `gpu: auto` tolto) e il Loader e il supervisore le passano. Ogni modifica che cambia i numeri o la velocità vuole l'A/B e il controllo di qualità di AGENTS.md."
+        "La 0.5.7 rompe le opzioni multi-scheda (`gpu`, `gpu-mode`, `gpu-share`; `gpu: auto` tolto) e il Loader e il supervisore le passano. Ogni modifica che cambia i numeri o la velocità vuole l'A/B e il controllo di qualità di AGENTS.md.",
+        "Le due zone che ti preoccupano (24 novembre). VRAM elastica: l'originale ha già esperti e cache elastici, prestiti (`loans`, `image_loan`), `POST /v1/vram` e dalla 0.3.0 un router che scambia i modelli (config v2 con `models`); da noi sopra ci sono `vram_arbiter` (110+82 righe), `vram_backing` (164+37, memoria di commit di Windows), letture dirette di Windows in `pinned.cu` (+152), crescita della KV (`kv.cpp` +127) e `memory.cpp`; i conflitti stanno proprio dove il nostro arbitro si aggancia al loro runtime rifatto (`state.hpp`, `runtime.cpp`, `kv.cpp`, `memory.cpp`, `pinned.cu`, `platform/memory.*`). LoRA: i file nuovi (`lora.cpp`, `lora_experts.cpp`, `cli/lora.cpp`, circa 850 righe, e i quantizzatori IQ, 1.420 righe) non hanno conflitti; i conflitti sono solo negli aggancio (`native_dense.cpp`, opzioni `--lora`, avvio, identità della conversazione)."
       ],
       "branch": false
     }
