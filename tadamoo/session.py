@@ -296,6 +296,9 @@ class Session:
         if tools is not None:
             tools.on_write = lambda: setattr(self, "_tasks_seen", tools.board.signature(self.session_id))       # its own change is not news to it
             tools.session_id = lambda: self.session_id                                                           # the tasks it opens are this conversation's
+        shell = getattr(built, "terminal", None)               # the person's terminal, when a message has described one (tadamoo/terminal.py)
+        if shell is not None:
+            shell.on_command = lambda event: self.emit({"event": "terminal_command", "turn": self._cur_turn(), **event})
         self.apps = getattr(built.agent.tools, "mcp_apps", None)  # the MCP apps of this conversation (tadamoo/mcp_apps.py)
         if self.apps is not None:
             self.apps.emit = lambda event: self.emit({**event, "turn": self._cur_turn()})
@@ -795,6 +798,10 @@ class Session:
         if note:
             agent.append({"role": "user", "content": note})
         note = self._tasks_note()
+        if note:
+            agent.append({"role": "user", "content": note})
+        terminal = getattr(self.built, "terminal", None)
+        note = terminal.note() if terminal is not None else None
         if note:
             agent.append({"role": "user", "content": note})
         note = self.apps.context_note() if self.apps is not None else None
@@ -2253,6 +2260,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)] if isinstance(cmd.get("attachments"), list) else []
                 if cmd.get("place") is not None and built.take_place:
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
+                if cmd.get("terminal") is not None and built.take_terminal:
+                    built.take_terminal(cmd["terminal"])            # the same for the person's terminal
                 if isinstance(cmd.get("reader"), str):
                     built.agent.reader = cmd["reader"][:20]          # where the person reads, for the [state] note
                 if isinstance(cmd.get("address"), str):

@@ -4497,7 +4497,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "budget":
                         return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions"), self._address()))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions"), self._address(), req.get("terminal")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":
