@@ -175,12 +175,11 @@ int sessions(Context& context) {
     // ---- THE ELASTIC KV.  A server on one GPU backs only the first core::kElasticKvBase cells of each session's K/V pools at
     // start; the rest of their VRAM goes to the expert cache as its tail, and a request that needs more cells takes
     // them back from that tail (kv_fit below), so a short request decodes with the larger cache.  Not with KV
-    // streaming (its pools are a fixed set of VRAM pages) nor with --vram-elastic (that resizes the same tail).
-    // With --batch a session's base is smaller: the slots' sessions are many, and an idle or short one would hold its
-    // whole base out of the expert cache.
+    // streaming (its pools are a fixed set of VRAM pages).  With --vram-elastic the VRAM command lends what the KV's
+    // growth leaves (VramArbiter).  With --batch a session's base is smaller: the slots' sessions are many, and an idle
+    // or short one would hold its whole base out of the expert cache.
     const int64_t kv_base = o.batch > 0 ? basalt::core::kElasticKvBaseBatch : basalt::core::kElasticKvBase;
-    const int64_t kv_floor = o.serve && !multi_gpu && o.kv_resident == 0 && !o.vram_elastic &&
-                             o.max_context > kv_base ? kv_base : 0;
+    const int64_t kv_floor = o.serve && !multi_gpu && o.kv_resident == 0 && o.max_context > kv_base ? kv_base : 0;
     basalt::core::qsa_set_kv_elastic(kv_floor);
     // ---- CUDA0's session, and the stages' sessions: sized to each device's own layer range (the carve).  A
     // stage that runs [lb, le) carves only those layers' GDN rows and QSA pools - before the carve every stage
@@ -274,6 +273,10 @@ int sessions(Context& context) {
             o.batch = cap;
         }
     }
+    if (o.side_context > 0 && o.batch <= 0) {
+        basalt::log::warn("basalt generate", "--side-context is off: it needs --batch with 2 or more slots");
+        o.side_context = 0;
+    }
     if (o.batch > 0) {
         const std::string why = cli::kv_batch_refusal(o.kv, o.batch);
         if (!why.empty()) {
@@ -283,8 +286,9 @@ int sessions(Context& context) {
     }
     if (o.batch > 0) {
         bslot_ss.resize(1 + stages.size());
-        slot_cap.assign((size_t) o.batch, o.max_context);
+        slot_cap = basalt::program::slot_contexts::plan(o.batch, o.max_context, o.side_context);
         slot0_is_solo = stages.empty();   // one GPU: the solo session's state is slot 0's
+        const int asked = o.batch;   // the slots asked for, side slot included
         int fit = o.batch;   // the slots every stage could carve
         for (size_t k = 0; k < bslot_ss.size(); ++k) {
             const int dev = k == 0 ? 0 : stages[k - 1]->dev;
@@ -333,7 +337,16 @@ int sessions(Context& context) {
             slot_cap.clear();
             o.batch = 0;
             slot0_is_solo = false;
+            if (o.side_context > 0) {
+                basalt::log::warn("basalt generate", "--side-context is off with --batch");
+                o.side_context = 0;
+            }
         } else {
+            if (o.side_context > 0 && basalt::program::slot_contexts::side_after_fit(asked, fit, o.side_context) < 0) {
+                basalt::log::warn("basalt generate", "--side-context is off: the side slot did not fit (%d of %d slots)",
+                                  fit, asked);
+                o.side_context = 0;
+            }
             o.batch = fit;
             for (size_t k = 0; k < bslot_ss.size(); ++k)   // every slot session allocated, solo state included
                 for (int b = 0; b < o.batch; ++b)
@@ -354,11 +367,17 @@ int sessions(Context& context) {
                 kept += basalt::core::session_bytes(g, slot_cap[(size_t) b], K, 0, multi_gpu ? split_at[0] : -1);
             slot_kv_cuda0 = kept;
             const uint64_t per_slot = basalt::core::session_bytes(g, slot_cap[0], K, 0, multi_gpu ? split_at[0] : -1);
+            uint64_t all_slots = 0;
+            for (int b = 0; b < o.batch; ++b)
+                all_slots += basalt::core::session_bytes(g, slot_cap[(size_t) b], K, 0, multi_gpu ? split_at[0] : -1);
             basalt::log::info("basalt generate", "--batch %d: %.2f GiB of KV cache and state per slot (%lld tokens), "
                                  "%.2f GiB in all; the slots beyond the solo one take %.2f GiB of VRAM on CUDA0 that "
                                  "the expert cache would otherwise hold", o.batch, (double) per_slot / 1073741824.0,
-                         (long long) slot_cap[0], (double) (per_slot * (uint64_t) o.batch) / 1073741824.0,
+                         (long long) slot_cap[0], (double) all_slots / 1073741824.0,
                          (double) kept / 1073741824.0);
+            if (o.side_context > 0)
+                basalt::log::info("basalt generate", "--side-context: slot %d is the side slot, %lld tokens, no conversation "
+                                     "checkpoints", o.batch - 1, (long long) slot_cap[(size_t) o.batch - 1]);
         }
     }
 

@@ -257,7 +257,7 @@ if(BUILD_TESTING)
   target_include_directories(hy4flash_vision_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(hy4flash_vision_test PRIVATE vision_core warnings)
   basalt_gpu_test(NAME hy4_encoder_parity COMMAND hy4_encoder_parity)
-  basalt_cpu_test(NAME hy4flash_vision_test COMMAND hy4flash_vision_test ${CMAKE_CURRENT_SOURCE_DIR}/assets/basalt-lockup-light.png)
+  basalt_cpu_test(NAME hy4flash_vision_test COMMAND hy4flash_vision_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/vision/basalt-lockup-light.png)
   add_executable(hy4flash_pretok_test src/models/hy4flash/pretok_test.cpp src/models/hy4flash/pretok_hy4.cpp)
   target_include_directories(hy4flash_pretok_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/program/tokenizer)
   target_link_libraries(hy4flash_pretok_test PRIVATE tokenizer)
@@ -315,7 +315,7 @@ if(BUILD_TESTING)
   add_executable(inkling2_vision_test src/models/inkling2/vision_test.cpp src/models/inkling2/vision.cpp)
   target_include_directories(inkling2_vision_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(inkling2_vision_test PRIVATE vision_core warnings)
-  basalt_cpu_test(NAME inkling2_vision_test COMMAND inkling2_vision_test ${CMAKE_CURRENT_SOURCE_DIR}/assets/basalt-lockup-light.png
+  basalt_cpu_test(NAME inkling2_vision_test COMMAND inkling2_vision_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/vision/basalt-lockup-light.png
                   ${CMAKE_CURRENT_SOURCE_DIR}/docs/assets/basalt-format.png)
   # the image encoder on the real projector: CUDA against CPU per stage, the encode time, rows for an outside reference
   add_executable(inkling2_vision_parity src/models/inkling2/vision_parity.cpp src/models/inkling2/vision.cpp)
@@ -681,6 +681,24 @@ if(BUILD_TESTING)
   basalt_cpu_test(NAME lora_experts_test COMMAND lora_experts_test
                    ${CMAKE_CURRENT_SOURCE_DIR}/tools/lora_training/testdata)
   set_tests_properties(lora_experts_test PROPERTIES TIMEOUT 300)
+  # the WDDM eviction backing of a device allocation given back to the commit (a no-op off Windows)
+  add_executable(platform_vram_backing_test src/platform/vram_backing_test.cpp)
+  target_link_libraries(platform_vram_backing_test PRIVATE core ${_gpu_runtime_target})
+  basalt_embed_manifest(platform_vram_backing_test)
+  basalt_gpu_test(NAME platform_vram_backing_test COMMAND platform_vram_backing_test)
+  # the expert cache's backed size: the segment layouts, the elastic KV's and the lends' targets, on a model of the
+  # cache and the card (CPU only)
+  add_executable(vram_arbiter_test tests/program/vram_arbiter_test.cpp src/program/serve/vram_arbiter.cpp
+                 src/core/segment_plan.cpp)
+  target_include_directories(vram_arbiter_test PRIVATE src/program/serve include)
+  target_link_libraries(vram_arbiter_test PRIVATE warnings)
+  basalt_embed_manifest(vram_arbiter_test)
+  basalt_cpu_test(NAME vram_arbiter_test COMMAND vram_arbiter_test)
+  set_tests_properties(vram_arbiter_test PROPERTIES TIMEOUT 60)
+  # the batch slots' contexts with a side slot (header-only)
+  add_executable(slot_contexts_test tests/program/slot_contexts_test.cpp)
+  target_include_directories(slot_contexts_test PRIVATE include)
+  basalt_cpu_test(NAME slot_contexts_test COMMAND slot_contexts_test)
   endif()
   # the conversation cache: retention bookkeeping (header-only), the memory budget, the snapshot's validation (host
   # only: CUDA is linked but never initialized) and its transfer-failure paths, and a snapshot round trip on a device
@@ -784,6 +802,7 @@ add_library(serve_shared STATIC src/program/serve/commands.cpp
             src/program/serve/request_restore.cpp
             src/program/serve/prompt_handles.cpp
             src/program/serve/session_engine.cpp
+            src/program/serve/vram_arbiter.cpp
             src/program/cli/tokens.cpp
             src/program/cli/help.cpp)
 target_include_directories(serve_shared PUBLIC include PRIVATE ${_gpu_include_directories} ${CMAKE_CURRENT_SOURCE_DIR}/src/program/tokenizer)

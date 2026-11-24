@@ -33,7 +33,7 @@ bool checkpoint_restore(const ConvCheckpoint& c, basalt::core::SessionState& ss,
 
 /// The identity parked conversations on disk are written under (conversation_store.hpp): the model file
 /// (its size and samples of its bytes) and the settings that change a state's bytes - the K/V type, the rope, the draft
-/// layer, the image encoder, control vectors.  A file of another identity is never restored.
+/// layer, the image encoder, control vectors, LoRA adapters. A file of another identity is never restored.
 uint64_t conversation_identity(const Options& o, const basalt::core::ModelGeometry& g) {
     using basalt::core::conversation_store_hash;
     char num[512];
@@ -43,11 +43,14 @@ uint64_t conversation_identity(const Options& o, const basalt::core::ModelGeomet
     std::string text = std::string("basalt conversation state kv ") + o.kv + " rope " +
                        o.rope.type + num + " mtp " + o.mtp + " vision_in_engine " + (o.vision_in_engine ? "1" : "0");
     for (const auto& [path, scale] : o.cvec_files) text += " cvec " + path + " " + std::to_string(scale);
+    for (const auto& [path, scale] : o.lora_files) text += " lora " + path + " " + std::to_string(scale);
     uint64_t h = conversation_store_hash(text.data(), text.size(), 1);
     const int64_t geo[] = {g.n_embd, g.n_layers, g.qsa_interval, g.ssm_state_size, g.ssm_v_heads, g.n_head_kv,
                            g.head_dim, g.idx_key_dim, g.n_expert, g.n_ff};
     h = conversation_store_hash(geo, sizeof geo, h);
-    return basalt::core::conversation_store_hash_file(o.model, h);
+    h = basalt::core::conversation_store_hash_file(o.model, h);
+    for (const auto& [path, scale] : o.lora_files) h = basalt::core::conversation_store_hash_file(path, h);
+    return h;
 }
 
 // A capture of a conversation's state, or a read of one from disk, takes `need` bytes of RAM: only while the RAM
@@ -63,7 +66,7 @@ bool QfnRuntime::capture_admit(uint64_t need, uint64_t floor) {
 // own chain), 0 when another conversation takes the session
 bool QfnRuntime::park_current(size_t held, int64_t kept) {
     ckd_finish();
-    if ((!conversations->enabled() && !disk.enabled()) || !live_ok || live.empty()) return true;
+    if (side_own || (!conversations->enabled() && !disk.enabled()) || !live_ok || live.empty()) return true;
     // below the token minimum: store nothing, evict nothing
     if (o.conversation_cache_min_tokens > 0 && (int64_t) live.size() < o.conversation_cache_min_tokens) {
         basalt::log::info("basalt serve", "conversation cache: %zu tokens below the minimum %d, not parked",
@@ -221,7 +224,7 @@ bool QfnRuntime::gpu_sync_ok() {
 bool QfnRuntime::checkpoint_at(int64_t L, std::vector<ConvCheckpoint>* parts, bool defer, ConvCheckpoint::Source source) {
     ckpt_why.clear();
     ckd_finish();
-    if (o.prompt_cache <= 0 || L < 1) return true;
+    if (o.prompt_cache <= 0 || L < 1 || side_req) return true;
     if (touch_check(L, source)) return true;
     ConvCheckpoint c;
     c.source = source;
@@ -568,7 +571,7 @@ int QfnRuntime::init_conversations() {
         basalt::core::progress_at("reading the prompt (batched), done up to token", done);
         basalt::core::progress_beat();
         std::fflush(stdout);
-        if (o.prompt_cache_every > 0 && done >= pp_next_check) {
+        if (o.prompt_cache_every > 0 && !side_req && done >= pp_next_check) {
             if (done == pp_part_ckpt && !multi_gpu) {
                 pp_next_check = done + o.prompt_cache_every;
                 return true;
@@ -600,7 +603,7 @@ int QfnRuntime::init_conversations() {
             basalt::prefill::Prefill& stage_sp = i == 0 ? sp : stages[i - 1]->sp;
             basalt::core::SessionState& stage_ss = i == 0 ? ss : stages[i - 1]->ss;
             stage_sp.on_stage_chunk = [&, i](int64_t done, std::string& e) -> bool {
-                if (o.prompt_cache <= 0 || o.prompt_cache_every <= 0 || done < part_next[i]) return true;
+                if (o.prompt_cache <= 0 || o.prompt_cache_every <= 0 || side_req || done < part_next[i]) return true;
                 part_next[i] = done + o.prompt_cache_every;
                 ConvCheckpoint part;   // this stage's state at `done` (its stream is synchronized)
                 part.ids.assign(cur.begin(), cur.begin() + done);

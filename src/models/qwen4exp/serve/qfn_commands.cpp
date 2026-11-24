@@ -221,6 +221,7 @@ Flow QfnRuntime::run_request() {
 }
 
 int QfnRuntime::init_before_input() {
+    init_arbiter();
     if (const int code = init_prompt()) return code;
     if (const int code = init_verify()) return code;
     if (const int code = init_conversations()) return code;

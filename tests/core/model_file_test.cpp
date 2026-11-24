@@ -2,7 +2,7 @@
 // its refusals, the JSON of `meta`, the GGUF view of the `gguf` section, the expert layout read from its section's
 // text, and the hc8 table round trip.  No model, no GPU.
 #include "basalt/artifact/gguf_reader.hpp"
-#include "basalt/core/layout.hpp"
+#include "basalt/models/qwen4exp/decode/layout.hpp"
 #include "basalt/core/model_file.hpp"
 #include "basalt/kernels/cpu/expert_layout.hpp"
 

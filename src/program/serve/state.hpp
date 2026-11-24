@@ -134,6 +134,7 @@ public:
     virtual void enc_command(const std::string& cmd) = 0;
     virtual size_t spill_to_disk(bool at_exit, size_t limit) = 0;
     virtual bool park_idle_engine(std::string& e) = 0;
+    virtual void vram_commit_sweep() {}   // a model on Windows gives back the commit its GPU allocations are charged between requests
     virtual void kv_ceiling_note() {}   // a model with an elastic KV sends its ceiling again when it moves
     // ---- the console's figures (console_stats.hpp), once the server sends STATS
     ConsoleStats stats{};
