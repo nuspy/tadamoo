@@ -114,11 +114,22 @@ sys.path.insert(0, str(HERE.parent))   # for model_file, gguf_reader, tokenizer
 import arch as A  # noqa: E402
 import hc8 as H  # noqa: E402
 import model_sections as S  # noqa: E402
-from model_file import SECTION_ALIGN, TENSOR_ALIGN, ModelFile, ModelWriter, Stream, append_section, undo_append  # noqa: E402
+from model_file import SECTION_ALIGN, TENSOR_ALIGN, ModelFile, ModelWriter, Stream, append_section, gguf_sampling, undo_append  # noqa: E402
 
 FINGERPRINT_BYTES = 64 << 20
 
 QWEN = A.for_architecture("qwen4exp")
+
+
+# the sampling block of the meta, for a source GGUF that declares none of llama.cpp's general.sampling.* keys
+SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0}
+
+
+def model_sampling(kv: dict) -> tuple[dict, str]:
+    """(the sampling block, its source): the source GGUF's general.sampling.* keys over the fallback SAMPLING;
+    "gguf" when at least one came from the file, else "converter"."""
+    found = gguf_sampling(kv)
+    return {**SAMPLING, **found}, "gguf" if found else "converter"
 
 
 def model_license(kv: dict) -> dict:
@@ -530,6 +541,7 @@ def convert(a) -> None:
                 "converter": {"tool": "tools/convert/convert.py"},
                 "sources": sources,
                 "gguf_kv": kv,
+                "sampling": model_sampling(kv)[0], "sampling_source": model_sampling(kv)[1],
                 "tensors": {**{n: {"type": t.type_name, "type_id": t.type_id, "shape": [int(d) for d in t.shape],
                                    "bytes": nb, "offset": tensor_offsets[n]}
                                for n, _, _, nb, t in tensors}, **own_entries},
@@ -704,6 +716,7 @@ def from_checkpoint(a) -> None:
                 "sources": [{"path": p.name, "size": p.stat().st_size,
                              "fingerprint_sha256_first_last_64mib_and_size": fingerprint(p)} for p in ck_files],
                 "gguf_kv": kv,
+                "sampling": model_sampling(kv)[0], "sampling_source": model_sampling(kv)[1],
                 "tensors": tens,
                 "conversions": {"compat_bf16": False, "tensors": [{"name": "per_layer_token_embd.weight", **ple.conversion}]},
                 "license": model_license(kv),

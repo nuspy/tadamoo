@@ -69,8 +69,8 @@ class InTheServer(Base):
         item = next(m for m in models.listing(True)["models"] if m["path"].endswith("s.basalt"))
         self.assertEqual(item["sampling"]["top_p"], 0.95)
         self.assertEqual(item["sampling_source"], "gguf")
-        with mock.patch.object(modelfile, "extract_tokenizer", return_value=self.root):
-            cfg = modelfile.model_config(str(p), "basalt.exe")
+        with mock.patch.object(modelfile, "tokenizer_files", return_value={}):
+            cfg = modelfile.model_config(modelfile.ModelSpec(path=str(p)), "basalt.exe")
         self.assertEqual(cfg["sampling"], {"temperature": 1.0, "top_p": 0.95, "top_k": 20})
 
 
