@@ -11,6 +11,7 @@ import requests
 
 from serve import settings
 from tadamoo import untrusted
+from tadamoo.llm.usage import counts as usage_counts
 from tadamoo.llmswitch.providers import TYPES
 from tadamoo.rag.recall import CLOSING, SOURCE
 from tadamoo.rag.rt_block import LOCAL_BLOCK
@@ -63,7 +64,7 @@ def forward(handler, svc, raw: bytes) -> bool:
     except requests.RequestException as e:
         handler._json(502, {"error": {"type": "server_error", "message": f"{prov.get('name') or prov['id']} did not answer: {e}"}})
         return True
-    tokens = 0
+    tokens, said = 0, {}
     try:
         handler.send_response(reply.status_code)
         for k, v in reply.headers.items():
@@ -75,6 +76,7 @@ def forward(handler, svc, raw: bytes) -> bool:
             if not chunk:
                 continue
             tokens = max(tokens, _usage(chunk))
+            said = _counts(chunk) or said
             handler.wfile.write(chunk)
             handler.wfile.flush()
     except (ConnectionError, OSError):
@@ -84,6 +86,9 @@ def forward(handler, svc, raw: bytes) -> bool:
         handler.close_connection = True
         if tokens:
             _record(prov["id"], tokens)
+        log = getattr(svc, "usage_log", None)
+        if log is not None and said:
+            log.record(prov["id"], prov.get("name") or prov["id"], model or "", function, said["prompt"], said["completion"], said["cached"])
     return True
 
 
@@ -105,6 +110,20 @@ def without_archives(messages):
 
 def _strip(text: str) -> str:
     return LOCAL_BLOCK.sub("", ARCHIVE.sub("", text))
+
+
+def _counts(chunk: bytes) -> dict:
+    """The prompt, completion and cached tokens a piece of the answer reports (empty when it reports none)."""
+    best: dict = {}
+    for line in chunk.decode("utf-8", "replace").splitlines():
+        text = line[5:].strip() if line.startswith("data:") else line.strip()
+        if '"total_tokens"' not in text:
+            continue
+        try:
+            best = usage_counts(json.loads(text) or {}) or best
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return best
 
 
 def _usage(chunk: bytes) -> int:

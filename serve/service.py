@@ -122,7 +122,8 @@ class Service:
         self.rate = collections.deque(maxlen=RATE_SAMPLES)   # (time, generated) samples
         # parallel mode: each running request's own status and rate window; self.status shows the newest
         self.live_reqs: dict[int, tuple[dict, collections.deque]] = {}
-        self.request_ctx = threading.local()            # .path, .model: the API path and model name of this request
+        self.request_ctx = threading.local()            # .path, .model, .function: the API path, the model name and the function (from the page's header) of this request
+        self.usage_log = None                           # the log of the tokens each call used (tadamoo/llm/usage.py); the server sets it, a test has none
         self.slot_last: dict[int, dict] = {}            # per slot: context held and draft counts of its last request
         self.waiting: dict[int, dict] = {}              # single stream: requests waiting for the turn
         self.best: dict[str, dict] = {}                 # fastest whole request since start: "decode", "prefill"
@@ -1403,6 +1404,9 @@ class Service:
             trace.run_done(done)
         if self.lengths is not None:
             self.lengths.note(done)                     # a reply that ended well above the known length raises it
+        if self.usage_log is not None:
+            self.usage_log.record("local", "Local engine", getattr(self.request_ctx, "model", None) or self.model, getattr(self.request_ctx, "function", None) or "",
+                                  getattr(ids, "n", None) or len(ids), n, done.get("reused") or 0, getattr(self.request_ctx, "path", None) or "")
         yield "done", done
 
 

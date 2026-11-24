@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="web/human.css">
 <link rel="stylesheet" href="web/cron.css">
 <link rel="stylesheet" href="web/connectors.css">
+<link rel="stylesheet" href="web/usage.css">
 <link rel="stylesheet" href="web/sesschat.css">
 <link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
@@ -123,6 +124,7 @@
 <script defer src="web/langcheck.js"></script>
 <script defer src="web/chatvoice.js"></script>
 <script defer src="web/gate.js"></script>
+<script defer src="web/usage.js"></script>
 <script defer src="web/vrambroker.js"></script>
 <script defer src="web/heavyjobs.js"></script>
 <script defer src="web/admin.js"></script>
@@ -1050,12 +1052,14 @@
     </div>
     <div class="subtabs" role="tablist" aria-label="Models">
       <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-usage" aria-selected="false" aria-controls="ld-usage" data-t="us.sub">Usage</button>
       <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
       <button type="button" class="btn subtab" role="tab" id="sub-converter" aria-selected="false" aria-controls="ld-converter" data-t="pv.sub.converter">Model converter</button>
       <button type="button" class="btn subtab" role="tab" id="sub-llamacpp" aria-selected="false" aria-controls="ld-llamacpp" data-t="pv.sub.llamacpp">llama.cpp</button>
       <button type="button" class="btn subtab" role="tab" id="sub-voicesvc" aria-selected="false" aria-controls="ld-voicesvc" data-t="vl.sub">Voice services</button>
     </div>
     <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
+    <div class="pv us" id="ld-usage" role="tabpanel" aria-labelledby="sub-usage" hidden></div>
     <div id="ld-converter" role="tabpanel" aria-labelledby="sub-converter" hidden></div>
     <div class="eng-panel" id="ld-llamacpp" role="tabpanel" aria-labelledby="sub-llamacpp" hidden></div>
     <div class="vl" id="ld-voicesvc" role="tabpanel" aria-labelledby="sub-voicesvc" hidden></div>
