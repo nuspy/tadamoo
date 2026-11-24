@@ -7,8 +7,8 @@ _Aggiornato il 24/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 33 |
-| in corso | 4 |
-| in attesa | 11 |
+| in corso | 5 |
+| in attesa | 12 |
 | non iniziato | 1 |
 
 ## Il motore: adapter fusi all'avvio
@@ -696,6 +696,7 @@ Studio del codice di bytedance/deer-flow (docs/study-deerflow.md): dove fa megli
 **Fatto e problemi risolti**
 
 - Letto il codice (23 novembre sera) e confrontato con il nostro: otto punti dove fanno meglio, di cui quattro verificati nel codice (release con controllo delle versioni, un AGENTS.md per modulo, contratti JSON condivisi, errori dei fornitori con Retry-After e interruttore) e uno (citazioni dei subagenti) verificato come assente da noi; tre solo plausibili con la prova economica scritta nel documento.
+- Deciso e fatto il 24 novembre: un AGENTS.md per progetto in cascata con quelli generali, e la sessione tecnica toglie i concetti ripetuti (tadamoo/guidelines.py, uso guidelines_merge). Le altre idee restano da decidere.
 
 **Decisioni e punti aperti**
 
@@ -759,6 +760,7 @@ Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLM
 - Verificato: il server ha già l'API HTTP delle conversazioni (`POST /api/agent/sessions` con la cartella di lavoro, `POST .../send`, `GET .../events?after=N`, le risposte alle domande, dal PC e da un telefono con la chiave: docs/harness.md): il modulo PowerShell può fare da solo il client, anche verso un server su un altro PC.
 - Fatto il 24 novembre (API-CLI, ramo feat/tadamoo-terminal, commit 20726c1, non pubblicato): `Enable-TaDaMooPrefix`, `Invoke-TaDaMooLine` (§ e §§), il comando `tadamoo`, colore, domande di permesso nel terminale, comando lasciato sul prompt; si importa in PowerShell 5.1 e 7. Provato contro un server finto che parla il protocollo, nelle due versioni: § , §§ (stessa conversazione), domanda di permesso, comando in attesa. NON provato: il gancio su Invio di PSReadLine e la scrittura sul prompt (servono una finestra vera e le tue mani), il testo del terminale con Start-Transcript, e un server TaDaMoo vero con un modello vero.
 - Fatto il 24 novembre: API-CLI ha il ramo feat/tadamoo-terminal (versione 0.4.0) con il modulo che gira in PowerShell 5.1 e 7. Per la distribuzione serve unire quel ramo a master di API-CLI e creare il tag v0.4.0 su GitHub: è un'azione tua da approvare.
+- 24 novembre sera: porta predefinita 37421 al posto della 8080, licenza uguale a TaDaMoo, tutto su master di API-CLI (8ed7972).
 
 **Decisioni e punti aperti**
 
@@ -772,7 +774,7 @@ Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLM
 
 ### 49. Il Basalt originale è alla 0.5.7: cosa importare (da decidere) (in corso)
 
-Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Nessuna importazione è stata avviata.
+Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Importazione in corso nel ramo `merge/upstream-2026-11-24`: il motore è ricollegato e compila, restano il lato Python, il convertitore Qwen3.6 e le prove sulla GPU.
 
 **Fatto e problemi risolti**
 
@@ -781,6 +783,11 @@ Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il l
 - 24 novembre: master contiene tutti i rami con storia comune (45, 44, 46-48 compresi). Aperto il ramo `merge/upstream-2026-11-24` (partito da master c42cd7f4a) con la sua copia di lavoro su D: (`D:/Projects/basalt-wt-upstream`); la base dei confronti è il loro commit 4a591d96, il loro main è 351039841 (0.5.7). Non è stato importato niente: aspetta le tue indicazioni su cosa prendere e cosa trascurare.
 - Correzione del 24 novembre: la base giusta per il confronto è il loro tag v0.2.0 (1 novembre), non 4a591d96. Il nostro motore è v0.2.0 più 9.112 righe aggiunte in 102 file (247 tolte). Un'unione a tre vie di tutto il loro main (0.5.7) con quella base dà 97 conflitti: 86 di contenuto, 10 modify/delete, 1 add/add (src/program 12, src/models 7, include 7, kernels 3, core e platform 2, serve e prove 20, docs circa 7).
 - 24 novembre: il ramo `merge/upstream-2026-11-24` ha il loro v0.2.0 come antenato comune e la fusione con `v0.5.6` è cominciata senza commit nella copia di lavoro su D: (94 file in conflitto, 1.097 modifiche in attesa). Nulla è stato risolto né compilato.
+- 24 novembre (sera): nel ramo `merge/upstream-2026-11-24` il motore è ricollegato sul loro `v0.5.6` in quattro commit (1942ff4ec, e0a1e00bc, 55510d524, 611d28bd0). Compila su Windows e supera 108 dei 109 test solo-CPU (il 109° è `migration_tests`, lato Python). NON provato sulla GPU.
+- Rimesso sul motore loro: LoRA (fusione nelle matrici dense e negli esperti) con i quantizzatori IQ4 e i kernel Q4_K/Q5_K/Q6_K; arbitro della VRAM con KV elastico e prestito insieme (`reserve_max`, `capped`); restituzione del commit di Windows tra una richiesta e l'altra; impronta della cache delle conversazioni che include gli adattatori; opzioni `--lora`, `--lora-scaled`, `--no-lora-partial`, `--side-context`, `--vision-mmproj`, `--vision-release`, `--keep-vram-commit`, `--no-vram-elastic` (la VRAM elastica è accesa di default), `--no-pdl`; slot laterale con contesto per richiesta e riga INFO; motore Qwen3.6 (`src/qwen35`, circa 4.700 righe) agganciato prima del registro dei modelli.
+- Letture dirette di Windows: non riportato il nostro codice in `pinned.cu`, perché il loro Loader unico legge già senza buffer su Windows. Differenza da misurare al collaudo: la nostra scelta a freddo o a caldo (teneva la cache dei file se la RAM bastava) non c'è più; si confrontano avvio a caldo, avvio a freddo e commit prima e dopo.
+- Il margine di RAM scelto dall'utente (`BASALT_RAM_FREE_PCT`) non esiste più nel motore: si usa il loro `--ram-reserve-mib`, da calcolare lato Python.
+- 24 novembre sera: i 81 file Python che fallivano sono riparati; il formato v1 della configurazione è tolto; il router dell'originale, la sua console web e la politica delle immagini non sono adottati (test tolti); trovati e corretti sei difetti veri (lettura immagine da 1 TiB, nome documento da file://C:\, lanciatore sul vecchio formato, stream Responses, spiegazioni mancanti, 408 del corpo).
 
 **Decisioni e punti aperti**
 
@@ -790,11 +797,56 @@ Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il l
 - Deciso da te (24 novembre): da importare 0.3.0 (Qwen 4 e DeepSeek), 0.3.2, 0.3.3 (video, punto di ripresa dei media, logprobs, answer-room, answer now, session affinity, /props), 0.4.0, 0.4.1, 0.5.0, 0.5.5, 0.5.6; le schede multiple della 0.5.7 si integrano anche se non si possono provare. Docker: per ora no.
 - BOCCIATE: la politica delle immagini della 0.2.1 (da altre macchine solo `data:`, `--image-url-host`, `--image-dir`, `--image-remote-only`), i limiti di 32 MB e 64 megapixel e il rifiuto di EPS, ICO e JPEG 2000: un PC remoto deve poter far leggere un file locale al server, come prima. Si tiene Q8_0 come riferimento di qualità. Si tiene il nostro proiettore della visione (scelta, riscrittura in BF16, rilascio fra immagini; è BF16, non FP8). PDF e Office: si tengono i nostri e si integrano i loro. Lo scambio dei modelli resta il nostro. Answer now si collega al router dell'harness (guida, coda, urgente) e la session affinity usa gli identificatori di conversazione.
 - Da non perdere: la restituzione a Windows del commit di memoria quando si carica la VRAM (`vram_backing`): si misura il commit prima e dopo il caricamento.
+- Lasciati perdere (tua decisione 24 novembre): controllo di qualità, docs/precision, valutazione della 0.5.7, prove su GPU (la GPU serve alla demo). Resta tua scelta se portare la console web dell'originale.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - La 0.5.7 rompe le opzioni multi-scheda (`gpu`, `gpu-mode`, `gpu-share`; `gpu: auto` tolto) e il Loader e il supervisore le passano. Ogni modifica che cambia i numeri o la velocità vuole l'A/B e il controllo di qualità di AGENTS.md.
 - Le due zone che ti preoccupano (24 novembre). VRAM elastica: l'originale ha già esperti e cache elastici, prestiti (`loans`, `image_loan`), `POST /v1/vram` e dalla 0.3.0 un router che scambia i modelli (config v2 con `models`); da noi sopra ci sono `vram_arbiter` (110+82 righe), `vram_backing` (164+37, memoria di commit di Windows), letture dirette di Windows in `pinned.cu` (+152), crescita della KV (`kv.cpp` +127) e `memory.cpp`; i conflitti stanno proprio dove il nostro arbitro si aggancia al loro runtime rifatto (`state.hpp`, `runtime.cpp`, `kv.cpp`, `memory.cpp`, `pinned.cu`, `platform/memory.*`). LoRA: i file nuovi (`lora.cpp`, `lora_experts.cpp`, `cli/lora.cpp`, circa 850 righe, e i quantizzatori IQ, 1.420 righe) non hanno conflitti; i conflitti sono solo negli aggancio (`native_dense.cpp`, opzioni `--lora`, avvio, identità della conversazione).
+- Resta da fare: lato Python (answer now con il router dell'harness e il pulsante in Chat, logprobs, documenti PDF e Office, video, id di sessione, `/props`, flag e configurazione v2 con un solo modello, `--ram-reserve-mib` al posto di BASALT_RAM_FREE_PCT, tolta la politica delle immagini 0.2.1 arrivata come file loro), convertitore Qwen3.6 (`tools/convert/convert.py`, 5 blocchi), `tests/vision/cuda_parity.cu`, architettura `120f-real` dei kernel fp4, pagine `docs/precision`, collaudi sulla GPU con il tuo via libera.
+
+### 50. Modifica di documenti (PDF, Word, Excel, PowerPoint e gli altri formati): harness e modello (in corso)
+
+Compito primario (24 novembre, tua richiesta): l'harness deve saper MODIFICARE i documenti, non solo leggerli e scriverli da zero, e sia l'harness sia il modello devono sapere di poterlo fare e come. Il motore Basalt (originale e nostro) legge soltanto: la modifica sta tutta negli strumenti dell'harness.
+
+**Fatto e problemi risolti**
+
+- Inventario (verificato nel codice): Word ha già quattro strumenti (`docx_outline`, `docx_read`, `docx_edit`, `docx_create`, con python-docx, a livello di run e con revisioni tracciate), registrati solo se python-docx è installato, e nel `.venv` dell'app non c'è. Per PDF, Excel e PowerPoint non esiste nessuno strumento di modifica. I formati di testo si modificano con `edit_file`; le immagini e i video con le competenze dedicate.
+- Consapevolezza oggi: `tadamoo/awareness.py` dice al modello di leggere i documenti difficili con `read_document` e di usare `docx_edit` per inserire immagini; non dice quando e come modificare un PDF o un file Office.
+- Prove di lettura a 131.072 token di contesto (24 novembre, motore reale con visione, tre vie: O = come l'originale, il file intero nel prompt; OC = come l'originale a pezzi con `pages`; U = il nostro agente con allegato e lettura a pezzi). Word breve: O e U giusti, O in 5 s con 830 token, U in 10 s con circa 35.000 token (il prompt dell'agente). PDF da 24.000 token: O e U giusti in 14 s. PDF da 238.000 token (400 pagine): O rifiutato dal motore (supera la finestra), OC 3 su 3 in 26 s di media, U 3 su 3 in 44 s. Scansione: O giusto in 41 s con 6.500 token (pagine come immagini), U sbagliato: l'agente non trova il file per `read_document` (e un allegato non è nell'area di lavoro), poi tenta un comando di shell e resta in attesa di un permesso. Foglio Excel da 20.000 righe (698.000 token): O rifiutato; U risponde 328 invece di 303 (sbaglia la riga e inventa la stringa da cercare) e sulla somma per regione e prodotto non finisce in 15 minuti. Conclusione: sotto circa il 40 per cento della finestra e per le scansioni vince la via diretta; sopra la finestra serve il lavoro a pezzi (con `pages` o con i nostri strumenti); per le tabelle grandi nessuna delle due va e serve uno strumento di interrogazione (filtro e somme) invece della lettura per righe. Lacune da chiudere: `read_document` non accetta un allegato per id; l'agente dà una risposta sicura e sbagliata sulla tabella grande invece di dire che non riesce.
+- Fatti il 24 novembre dopo il via libera: (a) nuovo strumento `query_attachment` (SQL in sola lettura su CSV, TSV ed Excel; un foglio è una tabella, i numeri sono numeri): sul foglio da 20.000 righe l'agente ora risponde giusto a entrambe le domande (303 e 304.759, in 36 e 48 s, prima 328 sbagliato e un timeout); (b) `read_document` accetta `attachment:<id>`: la scansione ora è letta con Docling e la risposta è giusta (113 s); (c) un PDF che ha solo i segnaposto di pagina è riconosciuto come scansione e il manifesto dice come leggerlo. Da sistemare: l'agente scambia l'`id` del blocco dati (il riquadro «untrusted_data») con l'id dell'allegato e perde un giro; la via diretta (file intero al motore) per l'harness non esiste ancora e richiede parti di messaggio nuove, da decidere. La modifica di PDF, Excel e PowerPoint resta da fare: oggi esistono solo gli strumenti Word.
+- Fatti il 24 novembre (branch di importazione): strumenti di modifica per Excel (`xlsx_outline`, `xlsx_read`, `xlsx_edit`, `xlsx_create`), PowerPoint (`pptx_*`) e PDF (`pdf_outline`, `pdf_find`, `pdf_edit`), e Word esteso a intestazioni, piè di pagina, note e caselle di testo; tutti con modifiche in ordine, tutto-o-niente, scrittura sicura e copia con `output` (il PDF scrive sempre un file nuovo). Limiti dichiarati: Excel rifiuta cartelle con grafici, tabelle pivot o macro e spostamenti di righe dove ci sono formule; nei PDF `replace_text` cambia le parole nella pagina solo con font semplici (sui PDF veri di Word, browser e LaTeX di solito non si può: lo dice e non cambia nulla), `cover_text` copre e riscrive ma lascia le parole vecchie nel file. Il modello lo sa: riga nel prompt costruita dagli strumenti registrati, competenza `document-editing`, pagina `docs/document-editing.md`; le librerie sono nei requisiti dell'installazione. Corretto un difetto che c'era già nel conteggio delle immagini di un Word con oggetti `pict`.
+- Verificato sul modello reale (24 novembre): chiesto all'agente di cambiare un Word (prezzo nel corpo e nell'intestazione, grassetto mantenuto), un Excel (cella e riga nuova con formula), un PowerPoint (testo su tutte le slide e slide nuova) e un PDF semplice: tutti e quattro giusti al primo colpo, sulla copia e con l'originale intatto. Sul PDF vero di Word (guida da 111 pagine) `replace_text` dice che non si può e l'agente ripiega su `cover_text`; la prima volta si è perso in programmi propri e non ha concluso entro 7 minuti, dopo aver sistemato l'adattamento del testo al riquadro e il testo dell'errore ha concluso (ma ha poi riscritto l'originale sul posto). Sistemati anche i punti di interfaccia e agente: livelli di ragionamento in più (xhigh, max) nel selettore, nel comando /effort e nelle conversazioni; campo «token di ragionamento» accanto al selettore (vuoto = illimitato, come i token massimi); video allegabile nella Chat con il solo modello; trascinamento di file e cartelle sull'area del prompt (Chat e Agente, cartelle nominate per percorso, `.git` e simili saltati); «Solo domanda» ora mostra l'allegato fin dove c'è posto e dice che il resto non c'è invece di rimandare a strumenti che non ha; `/tokenize` e `/detokenize` ripristinati; il convertitore scrive di nuovo il blocco di campionamento. Suite Python dopo tutto questo: su 722 file ne falliscono 81 (53 del server, 28 dell'harness): circa metà dipende da ciò che manca in questo PC (cv2, scipy, librosa, moduli di newscast), l'altra metà da test scritti per l'interno dell'originale (router, `HTTP_BODY_S`, `engine_echo`) o per il formato v1 della configurazione, e da pagine che l'originale organizza in altro modo. Da decidere con te quali portare e quali riscrivere.
+- Chiuso il 24 novembre sera: gli strumenti scrivono sempre una copia (nome.edited.ext, un allegato con attachment:<id>), la copia si offre con il link; nuovo ask_document (il file intero davanti al modello); provati Excel e PowerPoint veri e complessi (originale intatto; un Excel con grafico è rifiutato apposta). Il modello vero non li ha ancora usati (la GPU serve alla demo).
+
+**Decisioni e punti aperti**
+
+- Da fare: (1) provare con misure quale via conserva meglio il file per ogni formato (Word: modifica a livello di run contro giro per Markdown; PDF: sostituzione nel flusso del contenuto, sovrapposizione, rigenerazione); (2) strumenti nuovi per Excel (openpyxl) e PowerPoint (python-pptx) sul modello di quelli Word, e per PDF: moduli, estrazione e unione di pagine, rotazione, annotazioni, sostituzione di testo dove è fattibile e dichiarata come tale; (3) python-docx, python-pptx e openpyxl nei requisiti del setup; (4) istruzioni per il modello: una competenza integrata «modifica di documenti» e righe in `awareness.py` quando l'allegato o la richiesta riguardano un documento da cambiare; (5) mai riscrivere l'originale senza copia, verificare rileggendo.
+- Licenze: niente PyMuPDF (AGPL) come dipendenza del progetto MIT; si usano pypdf, pdfplumber, pikepdf e reportlab.
+- Da provare sul modello vero quando la GPU è libera: ask_document e il giro «modifica, copia, link in chat».
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Un PDF non si modifica come un Word: il testo è posizionato, non scorre. Una sostituzione di testo può cambiare l'aspetto o lasciare il testo vecchio sotto una copertura; va dichiarato al modello e alla persona, e dove esiste il file di partenza (docx) si modifica quello.
+
+### 51. Prompt dell'harness più corto: strumenti rari a caricamento a freddo (da provare con A/B) (in attesa)
+
+Il prompt dell'harness è di circa 58.000 caratteri, quasi tutti schemi di strumenti. Idea (24 novembre, tua): gli strumenti rari hanno nel prompt solo una riga e il modello chiede i dettagli prima di sceglierli. In prova, spenta di default, con un confronto A/B.
+
+**Fatto e problemi risolti**
+
+- Misurato (24 novembre): schemi e descrizioni degli strumenti pesano circa 51.000 dei 58.000 caratteri; i più grossi sono i quattro gruppi di modifica dei documenti, il browser, il computer e le competenze.
+- Costruito il 24 novembre notte (e95ac81b5): interruttore --cold-tools (spento di default), strumento tool_help, 11 strumenti freddi (i quattro gruppi di scrittura dei documenti, repo_diagram, task_*): l'elenco degli strumenti passa da 51.362 a 31.837 caratteri (-38%) in un agente nudo; le chiamate sbagliate sono rifiutate dallo schema vero con il rimando a tool_help; l'eval porta l'interruttore e ha l'insieme «documents» con quattro compiti (Word, Excel, PowerPoint, PDF su copia) controllati da uno script. Documentazione: docs/cold-tools.md.
+
+**Decisioni e punti aperti**
+
+- Progetto da verificare: la descrizione completa torna nel RISULTATO di una chiamata (`tool_help`), che è in coda ai messaggi e non cambia la cache del prefisso; l'elenco degli strumenti nel prompt non cambia durante la conversazione (cambiarlo invaliderebbe la cache). Lo strumento raro ha nel prompt una riga e uno schema largo (oggetto libero): la grammatica non obbliga più i parametri, li controlla il registro.
+- A/B da fare (serve la GPU, dopo la demo): A = prompt di oggi, B = strumenti rari a freddo; stessi compiti, k almeno 5, a livello di ragionamento fisso. Misure: caratteri e token del prefisso, riuso della cache, giri in più, chiamate sbagliate o rifiutate dal registro, compiti riusciti (insieme core delle prove e i quattro casi di modifica dei documenti). Regola di vittoria scritta prima: B vince se i compiti riusciti non calano oltre il rumore e i token del prefisso scendono almeno del 30%.
+- Da fare: l'A/B vero (serve un modello: la GPU dopo la demo, oppure il tuo account per il modellino della curiosità, qwen3.6-flash, che non usa la GPU); comandi in docs/cold-tools.md.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Plausibile, non provato: un modello piccolo può non chiedere i dettagli e usare male lo strumento, o spendere un giro in più che costa più della cache risparmiata; prova più economica: i quattro casi di modifica dei documenti con k = 5 nelle due versioni.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 
@@ -831,3 +883,4 @@ Cose che spettano a te o che ti ricordo.
 
 - Piano contro le istruzioni nascoste nelle pagine web: promemoria confermato per il 26-27 novembre.
 - OCR e PDF: confermato su GPU, non su CPU.
+- Piano contro le istruzioni nascoste nelle pagine web: RINVIATO (24 novembre), senza data; lo ripropongo quando riprendi le LoRA o me lo chiedi.

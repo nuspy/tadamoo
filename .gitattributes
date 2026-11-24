@@ -7,3 +7,5 @@ docs/community/benchmarks.json text eol=lf
 deploy/** text eol=lf
 # vendored upstream code is kept byte for byte, so an update shows only what upstream changed
 third_party/** -text
+# the documents of the evaluation are read byte for byte (the checker compares a hash of each original)
+tadamoo/eval/fixtures/documents/** binary
