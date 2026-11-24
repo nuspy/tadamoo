@@ -23,7 +23,7 @@ VARIANT_ADVICE = ("Change the question, not the parameters: write down in one se
                   "values to expect), test that belief with a different kind of check, or ask the person.")
 FOLD_NEAR = 0.9                     # the share of the masking threshold at which the agent is told a fold is near
 HALF, THREE_QUARTERS = 0.5, 0.75    # the share of the steps used with the checklist not moving
-WRITES = frozenset(("write_file", "edit_file", "docx_edit", "docx_create", "write_output_file"))     # a successful one of these is progress: it ends a run of failures
+WRITES = frozenset(("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file"))     # a successful one of these is progress: it ends a run of failures
 _DIGITS = re.compile(r"\d+")
 _WORDS = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 _EXIT = re.compile(r'^\{"exit_code":\s*(-?\d+)')

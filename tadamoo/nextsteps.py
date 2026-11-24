@@ -18,7 +18,7 @@ from tadamoo.persistence import Prefs
 FILE = "next-steps.json"
 MIN_STEPS = 6                       # steps a task needs before the card of next steps is worth showing, unless items are open
 MAX_ITEMS = 3                       # open items named in an option
-WRITE_TOOLS = frozenset(("write_file", "edit_file", "docx_edit", "docx_create", "write_output_file"))
+WRITE_TOOLS = frozenset(("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file"))
 CHECK_KINDS = ("test", "lint", "typecheck", "build")
 RECOMMENDED_KINDS = ("test", "lint", "typecheck")
 NEXT_ID, CHECKS_ID = "next", "checks"

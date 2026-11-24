@@ -17,7 +17,7 @@ from tadamoo import control_secret
 
 RESULT_CHARS = 300
 FAILURES_BEFORE_GIVING_UP = 2
-FILE_TOOLS = ("write_file", "edit_file", "docx_edit", "docx_create")
+FILE_TOOLS = ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit")
 STATUS_BY_STOP = {"final": "done", "cancelled": "closed"}
 
 

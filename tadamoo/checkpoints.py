@@ -34,7 +34,7 @@ log = logging.getLogger("tadamoo.checkpoints")
 
 MODES = ("on", "soft", "off")
 _CHECKPOINT_ID = re.compile(r"^cp_\d+_\d+$")
-FILE_PATH_TOOLS = ("write_file", "edit_file", "docx_edit", "docx_create", "delete_file", "move_file")
+FILE_PATH_TOOLS = ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "delete_file", "move_file")
 _LEGACY_EXCLUDES = ("node_modules", ".venv", "venv", "__pycache__", ".tadamoo_checkpoints", ".tadamoo", "build", "dist", ".git/objects")
 _LEGACY_GIT_KEPT = ("config", "hooks")
 _NULL_TARGETS = ("nul", "/dev/null", "$null")
@@ -185,7 +185,7 @@ def call_paths(workspace: Path, name: str, args: Any) -> List[Path]:
     if not isinstance(args, dict):
         return []
     if name in FILE_PATH_TOOLS:
-        paths = [args.get(k) for k in ("path", "source", "destination")]
+        paths = [args.get(k) for k in ("path", "source", "destination", "output")]
         out = []
         for value in paths:
             if isinstance(value, str) and value and "\x00" not in value:

@@ -183,6 +183,9 @@ def create_standard_tool_registry(
     if find_spec("docx") is not None:                         # the Word tools exist only where python-docx is installed
         from .docx_edit import register_docx_tools
         register_docx_tools(registry, sandbox)
+    if find_spec("openpyxl") is not None:                     # the Excel tools, likewise
+        from .xlsx_edit import register_xlsx_tools
+        register_xlsx_tools(registry, sandbox)
     register_search_code(registry, lambda p: sandbox.resolve_safe(p, "search_code"), sandbox.root)
     register_tree(registry, lambda p: sandbox.resolve_safe(p, "tree"), sandbox.root)
     register_repo_map(registry, lambda p: sandbox.resolve_safe(p, "repo_map"))
