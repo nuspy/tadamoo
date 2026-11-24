@@ -128,7 +128,7 @@ class ToolDefinition:
     trusted_if: Optional[Callable[[Dict[str, Any]], bool]] = None     # given a call's arguments, true when this call's answer is not from outside after all
     outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
     tier: int = 1                # where its definition goes in the tool list: STABLE, SESSION or EXTERNAL (see ToolRegistry.schemas)
-    cold: bool = False           # listed with one line and a loose schema; the full definition comes from tool_help (see ToolRegistry.set_cold)
+    cold: bool = False           # listed with one line and the skeleton of its schema; the full definition comes from tool_help (see ToolRegistry.set_cold)
 
 
 def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
@@ -169,8 +169,26 @@ TOOL_CALL_NOTE = f"The person sees your `{DESCRIPTION_KEYS[0]}` of each tool cal
 _DESCRIPTION_HELP = "One short sentence for the person, in the language they write in, saying what this call does and why."
 
 
-LOOSE_SCHEMA = {"type": "object", "additionalProperties": True}
 COLD_HINT = "Call tool_help('{name}') first: it gives the parameters."
+
+
+def skeleton(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool's parameters reduced to the names the call may carry: each property keeps its type (an enum of strings too), a list keeps the type of its
+    items and an object inside is left free; descriptions and nested schemas go. The grammar of a tool call writes only the parameters its schema names, so a
+    schema with none (a free object) lets the model write nothing: this is the least that lets it write the call, and tool_help gives the rest."""
+    def reduced(spec: Any) -> Dict[str, Any]:
+        if not isinstance(spec, dict):
+            return {}
+        kind = spec.get("type")
+        out: Dict[str, Any] = {"type": kind} if kind else {}
+        if kind == "array":
+            items = spec.get("items")
+            out["items"] = {"type": items.get("type") or "object"} if isinstance(items, dict) and items.get("type") in ("string", "number", "integer", "boolean") else {"type": "object"}
+        elif kind == "string" and isinstance(spec.get("enum"), list):
+            out["enum"] = spec["enum"]
+        return out
+    props = {name: reduced(spec) for name, spec in (parameters.get("properties") or {}).items()}
+    return {"type": "object", "properties": props, **({"required": list(parameters["required"])} if parameters.get("required") else {})}
 
 
 def cold_summary(tool: "ToolDefinition") -> str:
@@ -267,17 +285,15 @@ class ToolRegistry:
         for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
         out = []
         for t in sorted(self._tools.values(), key=lambda t: (t.tier, t.name)):
-            if t.cold:
-                out.append({"type": "function", "function": {"name": t.name, "description": cold_summary(t), "parameters": LOOSE_SCHEMA}})
-                continue
-            parameters, key = t.parameters, description_key(t.parameters)
+            key = description_key(t.parameters)
+            parameters = skeleton(t.parameters) if t.cold else t.parameters
             if key is not None:
-                parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", "description": _DESCRIPTION_HELP}}}
-            out.append({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": parameters}})
+                parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", **({} if t.cold else {"description": _DESCRIPTION_HELP})}}}
+            out.append({"type": "function", "function": {"name": t.name, "description": cold_summary(t) if t.cold else t.description, "parameters": parameters}})
         return out
 
     def set_cold(self, names: List[str]) -> List[str]:
-        """List these tools with one line and a loose schema from now on; returns the ones that exist. Their calls are still checked against
+        """List these tools with one line and the skeleton of their schema from now on; returns the ones that exist. Their calls are still checked against
         the real schema, and `describe` gives the whole definition."""
         done = []
         for name in names:

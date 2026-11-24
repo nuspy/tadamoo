@@ -21,13 +21,15 @@ def listed(reg):
     return {s["function"]["name"]: s["function"] for s in reg.schemas()}
 
 
-def test_a_cold_tool_is_listed_with_one_line_and_a_loose_schema_and_the_others_are_not_touched():
+def test_a_cold_tool_is_listed_with_one_line_and_the_skeleton_of_its_schema_and_the_others_are_not_touched():
     reg = registry()
     before = listed(reg)
     assert cold_tools.apply_cold(reg, ("docx_edit", "nothing_here")) == ["docx_edit"]
     now = listed(reg)
     assert now["read_file"] == before["read_file"]
-    assert now["docx_edit"]["parameters"] == {"type": "object", "additionalProperties": True}
+    assert now["docx_edit"]["parameters"] == {"type": "object", "properties": {"path": {"type": "string"}, "edits": {"type": "array", "items": {"type": "object"}},
+                                                             "description": {"type": "string"}},       # the sentence for the person every tool offers
+                                              "required": ["path", "edits"]}
     assert now["docx_edit"]["description"].startswith("Changes a Word document in the workspace.") and "tool_help('docx_edit')" in now["docx_edit"]["description"]
     assert len(json.dumps(now["docx_edit"])) < len(json.dumps(before["docx_edit"])) / 3
     assert "tool_help" in now
@@ -90,3 +92,14 @@ def test_the_evaluation_carries_the_switch_and_a_resumed_run_cannot_mix_the_two_
     tasks = load_task_set("documents")[1]
     a, b = EvalRunner(client=object()), EvalRunner(client=object(), cold_tools=True)
     assert a.fingerprint(tasks, 5) != b.fingerprint(tasks, 5)
+
+
+def test_the_skeleton_keeps_names_types_enums_and_required_and_drops_the_rest():
+    from tadamoo.tools.registry import skeleton
+    full = {"type": "object", "required": ["a"], "properties": {
+        "a": {"type": "string", "description": "long text", "enum": ["x", "y"]},
+        "b": {"type": "array", "description": "d", "items": {"type": "object", "properties": {"k": {"type": "string"}}, "required": ["k"]}},
+        "c": {"type": "array", "items": {"type": "string"}},
+        "d": {"type": "integer", "minimum": 1}}}
+    assert skeleton(full) == {"type": "object", "required": ["a"], "properties": {
+        "a": {"type": "string", "enum": ["x", "y"]}, "b": {"type": "array", "items": {"type": "object"}}, "c": {"type": "array", "items": {"type": "string"}}, "d": {"type": "integer"}}}
