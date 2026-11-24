@@ -1,0 +1,1 @@
+A copy of the PowerShell module of nuspy/API-CLI (branch feat/tadamoo-terminal, commit 4da7131): Private/, Public/ and the two module files. The command line that the setup offers (the prefix in PowerShell, the tadamoo command). Update it by copying those files again.
