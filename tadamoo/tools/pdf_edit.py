@@ -247,8 +247,9 @@ def replace_text(data: bytes, item: Dict[str, Any]) -> Tuple[bytes, str]:
         raise OfficeError(f"the text '{find[:60]}' is not on {'those pages' if item.get('pages') else 'any page'}; pdf_find shows where text is. Scanned pages have no text to find.")
     out, done, notes = _stream_replace(data, find, repl, pages, limit)
     if not done:
-        raise OfficeError(f"the text is on {len(where)} places (pages {sorted({w['page'] for w in where})}) but none can be replaced in place: "
-                          + "; ".join(sorted(set(notes))[:4]) + ". cover_text hides it and writes the new words over it, but leaves the old text in the file.")
+        why = "; ".join(sorted(set(notes))[:4]) or "the page does not store these words as plain letters (its font holds glyph numbers, or the words are split into pieces)"
+        raise OfficeError(f"the text is on {len(where)} places (pages {sorted({w['page'] for w in where})}) but none can be replaced in place: {why}. "
+                          "cover_text hides it and writes the new words over it, but leaves the old text in the file.")
     wanted = len(where) if not limit else min(limit, len(where))
     if done < wanted and not item.get("partial"):
         raise OfficeError(f"only {done} of the {wanted} occurrences can be replaced in place ({'; '.join(sorted(set(notes))[:3])}). Nothing was changed, so the file does not "
@@ -300,9 +301,14 @@ def cover_text(data: bytes, item: Dict[str, Any]) -> Tuple[bytes, str]:
                 c.setFillColorRGB(*fill)
                 c.rect(h["x0"] - 1, ph - h["bottom"] - 1, h["x1"] - h["x0"] + 2, h["bottom"] - h["top"] + 2, stroke=0, fill=1)
                 if repl:
+                    from reportlab.pdfbase.pdfmetrics import stringWidth
                     c.setFillColorRGB(*ink)
-                    bold = "bold" in h["font"].lower()
-                    c.setFont("Helvetica-Bold" if bold else "Helvetica", float(item.get("size") or h["size"]))
+                    face = "Helvetica-Bold" if "bold" in h["font"].lower() else "Helvetica"
+                    size = float(item.get("size") or h["size"])
+                    room, width = h["x1"] - h["x0"], stringWidth(str(repl), face, size)
+                    if width > room * 1.02:                       # the new words must not run into the next ones: smaller, down to 60% of the old size
+                        size = max(size * 0.6, size * room / width)
+                    c.setFont(face, size)
                     c.drawString(h["x0"], ph - h["bottom"] + (h["bottom"] - h["top"]) * 0.2, str(repl))
         return draw
     out = _overlay(data, {n: drawer(b) for n, b in by_page.items()})

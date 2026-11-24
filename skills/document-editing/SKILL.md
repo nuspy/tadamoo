@@ -44,6 +44,8 @@ A PDF is not a document that reflows: its text is placed word by word, so some c
 - **Replacing words:** `replace_text` changes them where they are written, only in simple fonts that already have the letters, and all occurrences or none; most PDFs made by Word, a browser or LaTeX are
   not like that, and it says why. `cover_text` then hides the old words and writes the new ones over them; the old words stay in the file's text layer, so never use it to remove something
   confidential, and tell the person. Only Western European letters can be written.
+- **When it cannot be done exactly, do it once and say so.** Make the one change that can be made (cover_text), look at the page once if the look matters, and report what you did and its limits
+  to the person. Do not write programs to rebuild the PDF's content: that is slow and rarely better.
 - **A scan** has no text: it cannot be searched or replaced. Read it with `read_document`; to change it, write over it with `add_text` or change the source.
 - **The better way** when the PDF came from a file the person still has (Word, Excel, PowerPoint): change that file with its tools, and let the person export the PDF again. Offer it.
 
