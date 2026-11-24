@@ -1006,5 +1006,26 @@
       ],
       "branch": false
     }
+ ,
+    {
+      "id": "rm50",
+      "num": 50,
+      "group": "todo",
+      "title": "Modifica di documenti (PDF, Word, Excel, PowerPoint e gli altri formati): harness e modello",
+      "status": "run",
+      "summary": "Compito primario (24 novembre, tua richiesta): l'harness deve saper MODIFICARE i documenti, non solo leggerli e scriverli da zero, e sia l'harness sia il modello devono sapere di poterlo fare e come. Il motore Basalt (originale e nostro) legge soltanto: la modifica sta tutta negli strumenti dell'harness.",
+      "solved": [
+        "Inventario (verificato nel codice): Word ha già quattro strumenti (`docx_outline`, `docx_read`, `docx_edit`, `docx_create`, con python-docx, a livello di run e con revisioni tracciate), registrati solo se python-docx è installato, e nel `.venv` dell'app non c'è. Per PDF, Excel e PowerPoint non esiste nessuno strumento di modifica. I formati di testo si modificano con `edit_file`; le immagini e i video con le competenze dedicate.",
+        "Consapevolezza oggi: `tadamoo/awareness.py` dice al modello di leggere i documenti difficili con `read_document` e di usare `docx_edit` per inserire immagini; non dice quando e come modificare un PDF o un file Office."
+      ],
+      "decisions": [
+        "Da fare: (1) provare con misure quale via conserva meglio il file per ogni formato (Word: modifica a livello di run contro giro per Markdown; PDF: sostituzione nel flusso del contenuto, sovrapposizione, rigenerazione); (2) strumenti nuovi per Excel (openpyxl) e PowerPoint (python-pptx) sul modello di quelli Word, e per PDF: moduli, estrazione e unione di pagine, rotazione, annotazioni, sostituzione di testo dove è fattibile e dichiarata come tale; (3) python-docx, python-pptx e openpyxl nei requisiti del setup; (4) istruzioni per il modello: una competenza integrata «modifica di documenti» e righe in `awareness.py` quando l'allegato o la richiesta riguardano un documento da cambiare; (5) mai riscrivere l'originale senza copia, verificare rileggendo.",
+        "Licenze: niente PyMuPDF (AGPL) come dipendenza del progetto MIT; si usano pypdf, pdfplumber, pikepdf e reportlab."
+      ],
+      "risks": [
+        "Un PDF non si modifica come un Word: il testo è posizionato, non scorre. Una sostituzione di testo può cambiare l'aspetto o lasciare il testo vecchio sotto una copertura; va dichiarato al modello e alla persona, e dove esiste il file di partenza (docx) si modifica quello."
+      ],
+      "branch": false
+    }
   ]
 }
