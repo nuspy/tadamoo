@@ -52,3 +52,27 @@ def test_a_changed_setting_is_told_once_before_the_request_that_follows(tmp_path
     assert notes()[-1] == "[state] effort=high" and len(notes()) == 2
     assert agent.messages[0]["content"] == system                                                 # the prompt prefix is the same
     assert built.agent.tools.get("self_status").handler()["settings"]["effort"] == "high"
+
+
+def test_the_editing_line_names_only_the_tools_that_exist():
+    from tadamoo.awareness import editing_line
+    none = editing_line([])
+    assert "`docx_edit`" not in none and "`xlsx_edit`" not in none and "no tools here to change a PDF" in none and "write_file" in none
+    word = editing_line(["docx_outline", "docx_read", "docx_edit"])
+    assert "`docx_edit`" in word and "footers" in word and "`pdf_edit`" not in word
+    full = editing_line(["docx_outline", "docx_read", "docx_edit", "xlsx_outline", "xlsx_read", "xlsx_edit", "pptx_outline", "pptx_read", "pptx_edit", "pdf_outline", "pdf_edit"])
+    assert all(f"`{n}`" in full for n in ("xlsx_edit", "pptx_edit", "pdf_edit", "pdf_find")) and "no tools here to change a PDF" not in full and "document-editing" in full
+
+
+def test_every_editing_tool_is_registered_and_known_to_the_permission_and_checkpoint_lists(tmp_path):
+    pytest = __import__("pytest")
+    pytest.importorskip("docx"), pytest.importorskip("openpyxl"), pytest.importorskip("pptx"), pytest.importorskip("pikepdf")
+    from tadamoo.checkpoints import call_paths
+    from tadamoo.permissions import GROUPS
+    from tadamoo.tools import create_standard_tool_registry
+    registry, _ = create_standard_tool_registry(tmp_path)
+    for name in ("xlsx_outline", "xlsx_read", "xlsx_edit", "xlsx_create", "pptx_outline", "pptx_read", "pptx_edit", "pptx_create", "pdf_outline", "pdf_find", "pdf_edit"):
+        assert registry.get(name) is not None, name
+    assert {"xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit"} <= set(GROUPS["write"])
+    assert {"xlsx_read", "pptx_read", "pdf_find"} <= set(GROUPS["read"])
+    assert call_paths(tmp_path, "pdf_edit", {"path": "a.pdf", "output": "b.pdf"}) == [(tmp_path / "a.pdf").resolve(), (tmp_path / "b.pdf").resolve()]

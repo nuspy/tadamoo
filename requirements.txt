@@ -14,6 +14,12 @@ psutil==7.2.2
 requests==2.33.1
 cryptography==46.0.7
 python-docx==1.2.0           # the Word tools of the harness (docx_outline, docx_read, docx_edit, docx_create)
+lxml==6.1.3                  # python-docx and python-pptx are built on it, and the Word tools use it directly (BSD)
+openpyxl==3.1.5              # the Excel tools of the harness (xlsx_outline, xlsx_read, xlsx_edit, xlsx_create) (MIT)
+python-pptx==1.0.2           # the PowerPoint tools (pptx_outline, pptx_read, pptx_edit, pptx_create) (MIT)
+pikepdf==10.13.0             # the PDF tools: text replaced in the page's own content (MPL-2.0)
+pdfplumber==0.11.10          # the PDF tools: where a text is written on a page (MIT)
+reportlab==5.1.0             # the PDF tools: text, pictures and watermarks drawn onto pages (BSD)
 psycopg[binary]==3.3.9      # the knowledge archives' PostgreSQL driver (docs/rag-database.md)
 sqlite-vec==0.1.9           # the vectors of an archive kept in a SQLite file
 markitdown[docx,pptx,xlsx,pdf]==0.1.9   # a document read as Markdown by program, not by the model (MIT, Microsoft); optional: without it the plain readers stay

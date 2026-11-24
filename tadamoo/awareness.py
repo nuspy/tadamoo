@@ -27,23 +27,28 @@ FEATURES = (
 
 
 def editing_line(names) -> str:
-    """What the model is told about changing documents that already exist: the way that keeps the file, and what the tools do not reach.
+    """What the model is told about changing documents that already exist: the way that keeps the file, and what each tool does not reach.
     Built from the tools that are registered, so it never names one that is not there."""
     have = set(names)
-    word = all(t in have for t in ("docx_outline", "docx_read", "docx_edit"))
     parts = []
-    if word:
+    if all(t in have for t in ("docx_outline", "docx_read", "docx_edit")):
         parts.append(
-            "Word files (.docx) are changed in place: `docx_outline` finds the address, `docx_read` shows the text and its formatting there, `docx_edit` applies several edits in one call "
-            "(with `track_changes` when the person wants to review them). Never convert the file to Markdown and write it back, and never write its whole text again with `write_file`: that "
-            "loses styles, lists, headers, footers, page fields, tables and pictures. Headers, footers, footnotes and text boxes cannot be reached with these tools: say so when a change "
-            "belongs there, and look for the same text elsewhere in the file before you report that it is all changed. Work on a copy unless the person asked to change the original, and "
-            "read the result back with `docx_read`.")
+            "Word (.docx): `docx_outline`, `docx_read`, `docx_edit` (several edits in one call; `track_changes` when the person wants to review them); headers, footers, footnotes and text boxes "
+            "are reached with `replace_text` and the targets `headers`, `footers`, `footnotes`, `textboxes`, `everywhere`.")
+    if all(t in have for t in ("xlsx_outline", "xlsx_read", "xlsx_edit")):
+        parts.append("Excel (.xlsx): `xlsx_outline`, `xlsx_read`, `xlsx_edit` (cells, formulas, rows, sheets, formats); a workbook with charts, pivot tables or macros is refused, not damaged.")
+    if all(t in have for t in ("pptx_outline", "pptx_read", "pptx_edit")):
+        parts.append("PowerPoint (.pptx): `pptx_outline`, `pptx_read`, `pptx_edit` (text keeps its formatting, slides, notes, pictures).")
+    if all(t in have for t in ("pdf_outline", "pdf_edit")):
+        parts.append(
+            "PDF: `pdf_outline`, `pdf_find`, `pdf_edit`: forms, pages, text and pictures on a page, watermarks and highlights are exact; `replace_text` changes words in place only in simple fonts "
+            "(most PDFs are not), `cover_text` hides old words but leaves them in the file; a scan has no text to change. The result goes to a new file.")
     else:
-        parts.append("There are no tools to change Word files here.")
+        parts.append("There are no tools here to change a PDF in place: offer to change the source file, or to make a new one.")
     parts.append(
-        "There are no tools yet to change PDF, Excel or PowerPoint files in place. When asked to, say so plainly: do not rewrite the file from its text. Offer to change the source "
-        "file if the person has it (the Word file a PDF came from), or to make a new file.")
+        "Never read a file as text and write it back with `write_file` or through Markdown: that loses styles, formulas and layout. Look first (the outline), change in one call, work on a copy "
+        "unless the person asked to change the original, read the result back, and say what could not be changed. If the PDF came from a file the person still has, change that file instead. "
+        "The skill `document-editing` has the details.")
     return "- Changing documents that already exist: " + " ".join(parts)
 
 

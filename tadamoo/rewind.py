@@ -74,7 +74,7 @@ def delete_checkpoints(data_dir: Path, workspace: Path, checkpoint_id: Optional[
 KNOWN_EFFECTS: Dict[str, str] = {
     **dict.fromkeys(("read_file", "list_directory", "search_web", "browse_url", "list_attachments", "read_attachment", "search_attachment", "query_attachment",
                      "browser_open", "browser_read", "computer_screenshot", "computer_list_windows", "computer_ui_tree", "computer_wait", "find_capability", "load_capability", "ask_council", "wiki_search", "wiki_page",
-                     "wiki_context", "docx_outline", "docx_read", "xlsx_outline", "xlsx_read", "pptx_outline", "pptx_read", "pdf_outline", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall", "search_code", "tree",
+                     "wiki_context", "docx_outline", "docx_read", "xlsx_outline", "xlsx_read", "pptx_outline", "pptx_read", "pdf_outline", "pdf_find", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall", "search_code", "tree",
                      "session_status", "session_list", "session_digest", "cron_list", "plan_digest"), "pure"),
     **dict.fromkeys(("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "transcribe_attachment", "write_output_file", "publish_output_file", "plan_create", "plan_set_profile",
                      "plan_check", "plan_mark", "plan_step_start", "plan_propose_change", "plan_archive", "remember", "forget",

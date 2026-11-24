@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "tadamoo" / "requirements.txt")
 # the distribution that provides an import name when the two differ
-DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf"}
+DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf", "docx": "python-docx", "pptx": "python-pptx", "zxingcpp": "zxing-cpp"}
 # imported only inside a try block or a function, with a plain message when absent (not installed by default)
 OPTIONAL = {
     "jsonschema": "json_schema answers checked after the fact (structured_retries) without it check for one JSON object",

@@ -189,6 +189,8 @@ def create_standard_tool_registry(
     if find_spec("pptx") is not None:                         # the PowerPoint tools, likewise
         from .pptx_edit import register_pptx_tools
         register_pptx_tools(registry, sandbox)
+    from .pdf_edit import register_pdf_tools                  # False, and nothing registered, without pikepdf, pdfplumber or reportlab
+    register_pdf_tools(registry, sandbox)
     register_search_code(registry, lambda p: sandbox.resolve_safe(p, "search_code"), sandbox.root)
     register_tree(registry, lambda p: sandbox.resolve_safe(p, "tree"), sandbox.root)
     register_repo_map(registry, lambda p: sandbox.resolve_safe(p, "repo_map"))
