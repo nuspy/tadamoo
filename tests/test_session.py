@@ -434,6 +434,37 @@ def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, 
     assert "where_is_user" in offered[0]
 
 
+def test_a_terminal_described_with_a_message_brings_the_tool_the_note_and_the_command_event(tmp_path, monkeypatch):
+    import tadamoo.session as hs
+    offered = []
+
+    class Spy(Scripted):
+        def chat_completion(self, messages, tools=None, **kwargs):
+            offered.append(([t["function"]["name"] for t in tools or []], [m["content"] for m in messages if isinstance(m.get("content"), str)]))
+            return super().chat_completion(messages, tools=tools, **kwargs)
+
+    client = Spy(call("terminal_run", command="mkdir ciao; cd ciao", why="makes it and goes in"), say("Scritto sul tuo prompt."))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "tm",
+                                              "--no-memory", "--no-checkpoints", "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+    feed.put({"cmd": "send", "id": "m1", "text": "crea la cartella ciao ed entraci", "terminal": {"shell": "PowerShell", "version": "5.1", "os": "Windows 11", "cwd": str(ws)}})
+    deadline = time.monotonic() + 10
+    while '"done"' not in out.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    feed.put({"cmd": "close"})
+    t.join(10)
+    events = [json.loads(line) for line in out.getvalue().splitlines()]
+    command = next(e for e in events if e["event"] == "terminal_command")
+    assert command["command"] == "mkdir ciao; cd ciao" and command["why"] == "makes it and goes in" and command["turn"] == "m1"
+    names, texts = offered[0]
+    assert "terminal_run" in names and any(x.startswith("[terminal] The person is typing in PowerShell 5.1 on Windows 11") for x in texts)
+
+
 # ---- questions to the person: confirmations that wait, questions that end the turn, the plans note ----------------
 
 class FakePlans:

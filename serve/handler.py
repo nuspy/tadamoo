@@ -105,6 +105,7 @@ from serve import sessions_move, tab_editor
 from serve.file_owners import FileOwners, OwnersError
 from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
 from serve.gate_prefs import GateError, GatePrefs
+from serve.terminal_prefs import TerminalError, TerminalPrefs
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
@@ -818,6 +819,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/gate":
                 if self._authorized():
                     self._json(200, GatePrefs(userdata.path("gate.json")).view())
+            elif path == "/api/terminal":
+                if self._authorized():
+                    self._json(200, TerminalPrefs(userdata.path("terminal.json")).view())
             elif path == "/api/coding":
                 if self._authorized():
                     self._coding_get()
@@ -1145,6 +1149,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/gate":
                 self._gate_post()
+                return
+            if path == "/api/terminal":
+                self._terminal_post()
                 return
             if path == "/api/coding":
                 self._coding_post()
@@ -3116,6 +3123,27 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
+        def _terminal_post(self):
+            """The settings of the command line: only from this PC and the page itself, since they hold the key the module sends to a server."""
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            prefs = TerminalPrefs(userdata.path("terminal.json"))
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                prefs.write(req)
+                return self._json(200, prefs.view())
+            except TerminalError as e:
+                return self._json(400, {"error": {"type": "terminal", "message": str(e), "field": e.field}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"message": str(e)}})
+
         def _coding_get(self):
             """The checks a folder suggests and what the person accepted for it; only this PC, since accepting lets commands run here."""
             if not settings.is_loopback(self.client_address[0]):
@@ -4508,7 +4536,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "budget":
                         return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions"), self._address()))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions"), self._address(), req.get("terminal")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

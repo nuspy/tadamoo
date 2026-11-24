@@ -44,6 +44,10 @@ static class Program
                     o.Skills = ask.Chosen;
                 }
             }
+            if (o.Cli == null && Directory.Exists(Path.Combine(o.Root, "tools", "terminal", "PSLLMKit")))
+                o.Cli = MessageBox.Show(Tr.T("Vuoi la riga di comando di TaDaMoo in PowerShell? Una riga che comincia con § va all'harness, e il comando tadamoo avvia un agente nella cartella corrente. Il setup aggiunge poche righe ai tuoi profili di PowerShell (WindowsPowerShell e PowerShell 7); si tolgono cancellando il blocco « TaDaMoo command line ».",
+                                             "Do you want the TaDaMoo command line in PowerShell? A line that starts with § goes to the harness, and the tadamoo command starts an agent in the current folder. The setup adds a few lines to your PowerShell profiles (WindowsPowerShell and PowerShell 7); remove the block « TaDaMoo command line » to take them away."),
+                                       "TaDaMoo Win+GUI", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes ? "yes" : "no";
             using var form = new ProgressForm();
             int code = 1;
             log.Sink = form.Add;
@@ -68,7 +72,7 @@ static class Program
 
 sealed class Options
 {
-    public string Root, Lang, Error, Skills;
+    public string Root, Lang, Error, Skills, Cli;
     public bool NoUi, DryRun, KeepFiles, TestNoAdminCheck;
 
     public static Options Parse(string[] args)
@@ -84,11 +88,12 @@ sealed class Options
                     if (o.Lang != "it" && o.Lang != "en") o.Error = "--lang: it | en";
                     break;
                 case "--skills": o.Skills = i + 1 < args.Length ? args[++i].Trim() : null; if (string.IsNullOrEmpty(o.Skills)) o.Error = "--skills: all | none | NAME,NAME"; break;
+                case "--cli": o.Cli = i + 1 < args.Length ? args[++i].Trim().ToLowerInvariant() : null; if (o.Cli != "yes" && o.Cli != "no") o.Error = "--cli: yes | no"; break;
                 case "--no-ui": o.NoUi = true; break;
                 case "--dry-run": o.DryRun = true; break;
                 case "--keep-files": o.KeepFiles = true; break;
                 case "--test-no-admin-check": o.TestNoAdminCheck = true; break;
-                default: o.Error = $"? {args[i]}\nTaDaMooSetup.exe [--root DIR] [--lang it|en] [--skills all|none|NAME,NAME] [--no-ui] [--dry-run] [--keep-files]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMooSetup.exe [--root DIR] [--lang it|en] [--skills all|none|NAME,NAME] [--cli yes|no] [--no-ui] [--dry-run] [--keep-files]"; break;
             }
         }
         if (o.Root == null) o.Root = FindRoot(AppContext.BaseDirectory);
@@ -312,6 +317,9 @@ sealed class Installer
             Step(Tr.T("Installo le skill incluse…", "Installing the built-in skills…"));
             BuiltinSkills();
 
+            Step(Tr.T("Riga di comando di PowerShell…", "PowerShell command line…"));
+            CommandLine();
+
             Step(Tr.T("Imposto i permessi…", "Setting permissions…"));
             Permissions();
 
@@ -490,6 +498,58 @@ sealed class Installer
         int code = Run(VenvPy, "-m tadamoo.skillmanager install " + what + " --no-models", o.Root, 600000);
         if (code != 0) log.Line(Tr.T($"Avviso: le skill incluse non sono state installate (codice {code}): si possono installare dopo da Impostazioni > Skill o con 'python -m tadamoo.skillmanager install'.",
                                      $"Warning: the built-in skills were not installed (code {code}): they can be installed later from Settings > Skills or with 'python -m tadamoo.skillmanager install'."));
+    }
+
+    const string CliBegin = "# >>> TaDaMoo command line (setup)", CliEnd = "# <<< TaDaMoo command line";
+
+    void CommandLine()
+    {
+        // Only when asked for: a block in the person's own PowerShell profiles that loads the module and switches the prefix on. The same block replaces itself at the next setup.
+        if (o.Cli != "yes") { log.Line(Tr.T("Riga di comando non richiesta.", "Command line not asked for.")); return; }
+        string module = Path.Combine(o.Root, "tools", "terminal", "PSLLMKit", "PSLLMKit.psd1");
+        if (!File.Exists(module)) { log.Line(Tr.T("Avviso: il modulo della riga di comando non c'è nel pacchetto.", "Warning: the command line module is not in the package.")); return; }
+        string docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        string quoted = module.Replace("'", "''");
+        string block = CliBegin + "\r\n" + "if (Test-Path -LiteralPath '" + quoted + "') { Import-Module '" + quoted + "' -ErrorAction SilentlyContinue; if (Get-Command Enable-TaDaMooPrefix -ErrorAction SilentlyContinue) { Enable-TaDaMooPrefix } }" + "\r\n" + CliEnd + "\r\n";
+        foreach (var profile in new[] { Path.Combine(docs, "WindowsPowerShell", "profile.ps1"), Path.Combine(docs, "PowerShell", "profile.ps1") })
+        {
+            if (o.DryRun) { log.Line("would write the TaDaMoo block in " + profile); continue; }
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(profile));
+                string text = File.Exists(profile) ? File.ReadAllText(profile) : "";
+                int a = text.IndexOf(CliBegin, StringComparison.Ordinal), b = a < 0 ? -1 : text.IndexOf(CliEnd, a, StringComparison.Ordinal);
+                if (a >= 0 && b > a) text = text.Remove(a, b + CliEnd.Length - a).TrimStart('\r', '\n');
+                if (text.Length > 0 && !text.EndsWith("\n")) text += "\r\n";
+                File.WriteAllText(profile, text + block, new UTF8Encoding(true));
+                log.Line(Tr.T("Riga di comando scritta in ", "Command line written in ") + profile);
+            }
+            catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere ", "Warning: cannot write ") + profile + ": " + e.Message); }
+        }
+        WindowsTerminalProfiles(module);
+        log.Line(Tr.T("Se PowerShell 5.1 non carica il profilo, serve: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned (non lo cambio io).",
+                      "If Windows PowerShell does not load the profile, it needs: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned (the setup does not change it)."));
+    }
+
+    void WindowsTerminalProfiles(string module)
+    {
+        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file, so the person's settings.json is not touched.
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows Terminal", "Fragments", "TaDaMoo");
+        string file = Path.Combine(dir, "tadamoo.json");
+        if (o.DryRun) { log.Line("would write the Windows Terminal profiles in " + file); return; }
+        try
+        {
+            string run = "Import-Module '" + module.Replace("'", "''") + "'; Enable-TaDaMooPrefix";
+            var profiles = new object[]
+            {
+                new { name = "PowerShell 7 + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d03}", commandline = "pwsh.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{574e775e-4f2a-5b96-ac1e-a2962a402336}.png", hidden = false },
+                new { name = "Windows PowerShell + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d04}", commandline = "powershell.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png", hidden = false },
+            };
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(file, JsonSerializer.Serialize(new { profiles }, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+            log.Line(Tr.T("Profili di Windows Terminal scritti in ", "Windows Terminal profiles written in ") + file);
+        }
+        catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere i profili di Windows Terminal: ", "Warning: cannot write the Windows Terminal profiles: ") + e.Message); }
     }
 
     void Compile()

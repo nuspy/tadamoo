@@ -54,6 +54,11 @@
     dist\cache\vendored\ if it has one, else cargo builds them from third_party\).
 .PARAMETER RustToolchain
     Rare. A Rust toolchain to build the two programs with instead of the one agent-desktop pins (rust-toolchain.toml).
+.PARAMETER TerminalModuleRef
+    The tag of nuspy/API-CLI whose PowerShell module (PSLLMKit: the prefix in the terminal and the tadamoo command) goes into the setup as tools\terminal\PSLLMKit. It is
+    downloaded from GitHub once and kept in dist\cache; the setup offers it and writes the Windows Terminal profiles.
+.PARAMETER TerminalModulePath
+    Rare. A local checkout of API-CLI to take the module from instead of the tag (to build before a tag exists).
 .PARAMETER NoSetup
     Rare. Stop after the .ifp: the setup is then built by hand in InstallForge.
 .PARAMETER CudaRoot
@@ -77,6 +82,8 @@ param(
     [switch]$NoSetup,
     [switch]$SkipVendored,
     [string]$VendoredArchive = '',
+    [string]$TerminalModuleRef = 'v0.4.0',
+    [string]$TerminalModulePath = '',
     [string]$RustToolchain = '',
     [string]$CudaRoot = '',
     [string]$PythonMinor = '3.13',
@@ -297,6 +304,41 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "$n.exe does not run" }
             Info "$n.exe: $([math]::Round((Get-Item (Join-Path $dir "$n.exe")).Length / 1MB, 1)) MB"
         }
+    }
+
+    # ------------------------------------------------------------------ the command line module (nuspy/API-CLI): the PowerShell module the setup offers
+    Step "Command line module (nuspy/API-CLI $TerminalModuleRef)"
+    $termSrc = ''
+    if ($TerminalModulePath) {
+        $termSrc = $TerminalModulePath
+        Info "from the folder $termSrc"
+    } else {
+        $termZip = Join-Path $Cache "api-cli-$TerminalModuleRef.zip"
+        if (-not (Test-Path $termZip)) {
+            if ($SkipDownloads) { Warn "api-cli-$TerminalModuleRef.zip is not in the cache (run without -SkipDownloads once)" }
+            else {
+                try { Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/nuspy/API-CLI/archive/refs/tags/$TerminalModuleRef.zip" -OutFile $termZip }
+                catch { Warn "could not download API-CLI $TerminalModuleRef from GitHub: $($_.Exception.Message)"; Remove-Item $termZip -Force -ErrorAction SilentlyContinue }
+            }
+        }
+        if (Test-Path $termZip) {
+            $termTmp = Join-Path $Cache "api-cli-$TerminalModuleRef"
+            Remove-Item $termTmp -Recurse -Force -ErrorAction SilentlyContinue
+            Expand-Archive -LiteralPath $termZip -DestinationPath $termTmp -Force
+            $termSrc = (Get-ChildItem $termTmp -Directory | Select-Object -First 1).FullName
+            Info "from $termZip"
+        }
+    }
+    if ($termSrc -and (Test-Path (Join-Path $termSrc 'PSLLMKit.psd1'))) {
+        $termDir = Join-Path $Stage 'tools\terminal\PSLLMKit'
+        New-Item -ItemType Directory -Force $termDir | Out-Null
+        foreach ($n in 'PSLLMKit.psd1', 'PSLLMKit.psm1', 'Private', 'Public') { Copy-Item -LiteralPath (Join-Path $termSrc $n) -Destination $termDir -Recurse -Force }
+        Set-Content -Encoding ASCII (Join-Path $termDir 'SOURCE.txt') "The PowerShell module of nuspy/API-CLI, $(if ($TerminalModulePath) { 'taken from a local folder' } else { $TerminalModuleRef })."
+        & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -Command "Import-Module '$termDir\PSLLMKit.psd1' -ErrorAction Stop; if (-not (Get-Command Enable-TaDaMooPrefix)) { exit 1 }"
+        if ($LASTEXITCODE -ne 0) { throw 'the command line module does not load in Windows PowerShell' }
+        Info "PSLLMKit loads in Windows PowerShell"
+    } else {
+        Warn 'no command line module in this package: the setup will not offer it'
     }
 
     # ------------------------------------------------------------------ Python assets (for PCs without Python)

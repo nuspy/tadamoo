@@ -436,6 +436,8 @@ class BuiltAgent:
     skills: Optional[Any] = None              # the SkillCatalog of the skill folders given at the start (rescanned by /reload-skills)
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (tadamoo/personal_memory.py Recall)
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (tadamoo/place.py)
+    take_terminal: Optional[Callable[[Any], bool]] = None  # keeps what the person's terminal says of itself and offers terminal_run (tadamoo/terminal.py)
+    terminal: Optional[Any] = None                         # the Terminal of this conversation: its note for the model, and where its commands go
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
     refresh_budget: Optional[Callable[[], None]] = None            # asks the server for its context again and sets the context budget by it
     memory_min_score: float = DEFAULT_MEMORY_MIN_SCORE
@@ -1190,8 +1192,17 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         register_place_tool(registry, here, local=away)                           # a conversation with no position carries no such tool
         return True
 
+    from tadamoo.terminal import Terminal, register_terminal_tool
+    shell_here = Terminal()
+
+    def take_terminal(raw: Any) -> bool:
+        if not shell_here.set(raw):
+            return False
+        register_terminal_tool(registry, shell_here)                              # a conversation with no terminal carries no such tool
+        return True
+
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, persona_use=persona_use, persona_switch=switch_persona, project_recall=project_recall, knowledge_switch=switch_knowledge, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
+                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, persona_use=persona_use, persona_switch=switch_persona, project_recall=project_recall, knowledge_switch=switch_knowledge, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place, take_terminal=take_terminal, terminal=shell_here,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices,
                       skills=catalog)

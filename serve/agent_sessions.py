@@ -1775,7 +1775,7 @@ class SessionManager:
             return [{"id": m, "name": self._mention_name(by_id[m])} for m in dict.fromkeys(mentions) if m in by_id and m != own][:MENTIONS_MAX]
 
     def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None, mentions: Any = None,
-             address: Any = None) -> Dict[str, Any]:
+             address: Any = None, terminal: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         mentioned = self._check_mentions(mentions, sid)
@@ -1795,7 +1795,8 @@ class SessionManager:
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
                    **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {}),
-                   **({"address": rec["address"]} if isinstance(address, str) else {}), **({"mentions": mentioned} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
+                   **({"address": rec["address"]} if isinstance(address, str) else {}), **({"mentions": mentioned} if mentioned else {}),
+                   **({"terminal": terminal} if isinstance(terminal, dict) else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
