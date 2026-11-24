@@ -15,6 +15,8 @@ protected:
     Runtime& runtime_;
     using BSlot = Runtime::BSlot;
     using SlotHeld = Runtime::SlotHeld;
+    // the context the request must fit: its slot's (BGEN, SGEN), else the solo session's
+    int64_t req_ctx{};
     bool geni{};
     char* endp{};
     long long max_new{};

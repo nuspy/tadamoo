@@ -218,7 +218,7 @@ inline void QfnRequest::tier_before(int T, int e0, bool from_sfx) {
     // the guess: this window is accepted whole and the target's next token is the chain's draft T - 1; the next
     // window then holds that draft and the ones the chain made after it
         try_pair = pair_req && pair_hint && !held.on && !first_window && !from_sfx && e0 == 0 &&
-                              p + T + runtime_.S_mtp + 64 < runtime_.o.max_context;
+                              p + T + runtime_.S_mtp + 64 < req_ctx;
         // the window's adaptive step, decided before it runs (the window changes none of its inputs)
         adapt_ok = true;
         do_adapt = !runtime_.drive.d.usage.empty() && ((runtime_.rounds + 1) % runtime_.o.adapt_every) == 0 &&

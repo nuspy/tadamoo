@@ -1,6 +1,7 @@
 // src/models/qwen4exp/serve/vision.cpp - vision operations for the persistent engine.
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "qfn_state.hpp"
+#include "../cli/vision_source.hpp"
 #include "basalt/vision/video.hpp"
 
 #include <future>
@@ -135,6 +136,23 @@ void QfnRuntime::enc_command(const std::string& cmd) {
         jobs.push_back(std::move(j));
     }
     const int tokens = std::max(max_patches / 4, geo.min_tokens);
+    // the weights come back from the file when they were let go; with --vision-release they go again however this ends
+    if (!vis_enc.staged()) {
+        basalt::vision::Mmproj mp;
+        std::string serr;
+        basalt::core::ModelSources pack;
+        basalt::core::model_sources(model_file, pack);
+        if (!mp.open(cli::vision_source(o, pack.vision), serr) || !vis_enc.stage(mp, true, serr)) {
+            reply_err("the encoder weights could not be read again: " + serr);
+            return;
+        }
+        mp.release();
+    }
+    struct Unstage {
+        basalt::vision::CudaEncoder& enc;
+        bool on;
+        ~Unstage() { if (on) enc.unstage(); }
+    } unstage_after{vis_enc, o.vision_release};
     const auto t_dec = Clock::now();
     // the work that touches the cache starts from a quiet cache and device
     std::string e;

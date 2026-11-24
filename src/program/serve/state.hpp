@@ -185,6 +185,7 @@ public:
     // the request in hand runs in the side slot: it takes no checkpoints and finds no parked conversation, and when
     // it reads in the slot's own state (`side_own`) what the slot held before is dropped, not parked
     bool side_req{}, side_own{};
+    int side_slot = -1;   // the batch slot carved as the side slot (--side-context), else -1
     std::vector<ConvCheckpoint> checks{};
     /// The checkpoint save in flight (see ckd_finish).  Declared after `checks`: its wait runs before their bytes are freed.
     basalt::core::CheckpointDeferral ckd{};

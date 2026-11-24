@@ -167,7 +167,7 @@ int resident_plan(Context& context) {
                     ok = basalt::core::host_plan((size_t) chunk_max * (size_t) (g.hc * g.n_embd) * sizeof(float));
         }
         if (ok && o.serve && o.prompt_cache > 0) {
-            const size_t keep = (size_t) (o.prompt_cache + 1) * (size_t) std::max(o.batch, 1);
+            const size_t keep = (size_t) (o.prompt_cache + 1) * (size_t) std::max(basalt::program::slot_contexts::checkpoint_slots(o.batch, o.side_context), 1);
             auto reserve = [&](const basalt::core::SessionState& u) {
                 basalt::core::ConversationStateSizes z;
                 std::string ze;

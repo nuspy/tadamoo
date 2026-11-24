@@ -21,20 +21,23 @@ Flow Request::begin_quality_gate(const std::string& base, const std::string& out
 
 Flow Request::prepare_prompt() {
     if (const Flow flow = prepare_image(); flow != Flow::proceed) return flow;
+    // the slot the request runs in (a BGEN's, or an SGEN's) and so the context it must fit; GEN: the solo session's
+    const int ctx_slot = runtime_.admit_slot >= 0 ? runtime_.admit_slot : runtime_.solo_slot;
+    req_ctx = ctx_slot >= 0 ? runtime_.slot_context(ctx_slot) : runtime_.o.max_context;
     if (from_text && req_clip && runtime_.admit_slot < 0) {
-        const long long room = (long long) (runtime_.o.max_context - 8 - n);
+        const long long room = (long long) (req_ctx - 8 - n);
         if (room < 1) {
-            basalt::protocol::emit_text(basalt::protocol::context_no_room_line((long long) n, (long long) runtime_.o.max_context));
+            basalt::protocol::emit_text(basalt::protocol::context_no_room_line((long long) n, (long long) req_ctx));
             return Flow::next;
         }
         max_new = std::min(max_new, room);
     }
     {
-        const int64_t ctx = runtime_.admit_slot >= 0 ? runtime_.slot_context(runtime_.admit_slot) : runtime_.o.max_context;
+        const int64_t ctx = req_ctx;
         const long long want = runtime_.admit_slot >= 0 ? runtime_.admit_max_new : (long long) max_new;   // a slot's request: its own max_new
         if (n + want + 8 > ctx) {
             basalt::protocol::emit_text(basalt::protocol::context_overflow_line((long long) n, want, (long long) ctx,
-                                                                                runtime_.admit_slot));
+                                                                                ctx_slot));
             runtime_.admit_slot = -1;
             return Flow::next;
         }

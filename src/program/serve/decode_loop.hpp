@@ -49,7 +49,7 @@ Flow Request::decode_loop(B& b) {
         if constexpr (kSpec) b.lookup_window(T, from_sfx, sfx_match);
         const bool timed_round = !first_window;
         const Clock::time_point round0 = Clock::now();
-        if (p + T > runtime_.o.max_context) break;
+        if (p + T > req_ctx) break;
         window[0] = x;
         if constexpr (kSpec) b.fill_drafts(T, from_sfx);
         if (e0 > 0)

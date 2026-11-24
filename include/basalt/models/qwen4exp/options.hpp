@@ -73,6 +73,8 @@ struct Options : CommonOptions {
     /// --vision-release: the image encoder's pinned copy of the weights is freed after the warm-up and after each batch
     /// of images, and read from the file again at the next one; the commit it held is free in between.
     bool vision_release = false;
+    /// --vision-mmproj: the projector GGUF to encode with, instead of the model file's own vision section.
+    std::string vision_mmproj;
     /// --lora / --lora-scaled: adapters fused into the dense native matrices and the routed experts at load.
     std::vector<std::pair<std::string, float>> lora_files;
     bool lora_partial = true;          // --no-lora-partial refuses an adapter that touches a tensor outside the fusable ones

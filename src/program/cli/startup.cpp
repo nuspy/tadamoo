@@ -3,7 +3,12 @@
 #include "help.hpp"
 #include "serve.hpp"
 
+#include "basalt/artifact/gguf_reader.hpp"
+#include "basalt/artifact/gguf_split.hpp"
 #include "basalt/core/model_file.hpp"
+#if defined(BASALT_HAVE_QWEN35)
+#include "basalt/qwen35/engine.hpp"
+#endif
 #include "basalt/log.hpp"
 #include "basalt/model/adapter.hpp"
 #include "basalt/platform/memory.hpp"
@@ -15,10 +20,47 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <string>
 
 namespace basalt::program::cli {
 
 namespace {
+
+#if defined(BASALT_HAVE_QWEN35)
+/// Whether --model / --native names a GGUF whose architecture is qwen35moe (read from the header of its first shard
+/// only), or a .basalt whose meta.family is qwen35moe.
+bool names_qwen35_model(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--native") != 0 && std::strcmp(argv[i], "--model") != 0) continue;
+        const std::string arg = argv[i + 1];
+        if (arg.size() > 7 && arg.compare(arg.size() - 7, 7, ".basalt") == 0) {
+            basalt::core::ModelFile pack;
+            std::string err;
+            return pack.open(arg, err) && pack.load_meta(err) && pack.family() == basalt::ModelFamily::Qwen35Moe;
+        }
+        try {
+            const basalt::GgufFile meta(basalt::gguf_split_paths(argv[i + 1]).front());
+            return basalt::model_family(meta) == basalt::ModelFamily::Qwen35Moe;
+        } catch (const std::exception&) {
+            return false;   // not readable as a GGUF here: the normal path reports it
+        }
+    }
+    return false;
+}
+
+/// --gpu for the qwen35moe path, which drives one card: the first number of the list, as nvidia-smi numbers them.
+void select_qwen35_gpu(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--gpu") != 0) continue;
+        const std::string first = std::string(argv[i + 1]).substr(0, std::string(argv[i + 1]).find(','));
+        if (first.empty() || first.find_first_not_of("0123456789") != std::string::npos) return;
+        basalt::platform::set_env("CUDA_DEVICE_ORDER", "PCI_BUS_ID");
+        basalt::platform::set_env("CUDA_VISIBLE_DEVICES", first.c_str());
+        return;
+    }
+}
+#endif
 
 // The architecture named in the file --model gives; empty without one. An exit code when it cannot be used.
 std::optional<int> find_model(int argc, char** argv, const model::ModelAdapter*& adapter) {
@@ -93,6 +135,14 @@ std::optional<int> start(int argc, char** argv, std::unique_ptr<CommonOptions>& 
     basalt::platform::install_crash_handler();
     // if memory runs out the kernel ends this process first, not the rest of the machine
     basalt::platform::prefer_oom_victim();
+#if defined(BASALT_HAVE_QWEN35)
+    // A Qwen3.6-35B-A3B file (GGUF architecture qwen35moe) runs on its own engine path (src/qwen35), decided from the
+    // file's header before any state of this engine exists; every other file goes on below.
+    if (names_qwen35_model(argc, argv)) {
+        select_qwen35_gpu(argc, argv);
+        return basalt::qwen35::run(argc, argv);
+    }
+#endif
     // the CPU expert pool keeps its speed while the window is in the background
     if (!basalt::platform::keep_full_speed())
         basalt::log::warn("basalt", "full-speed scheduling refused: decode slows while the window is in the background");

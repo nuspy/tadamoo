@@ -72,6 +72,8 @@ Flow Request::restore() {
     slot_b = runtime_.solo_slot >= 0 ? runtime_.solo_slot : runtime_.admit_slot;
     in_slot = runtime_.slot0_solo() && slot_b > 0;
     solo_req = in_slot && runtime_.solo_slot > 0;   // decoded here, solo-style, on the slot's own state
+    runtime_.side_req = runtime_.side_slot >= 0 && slot_b == runtime_.side_slot;
+    runtime_.side_own = runtime_.side_req && in_slot;
     if (runtime_.stats.on) {   // the slot's console figures are this request's from here
         runtime_.stats.start(slot_b);
         runtime_.stats_tick(true);
@@ -176,8 +178,10 @@ Flow Request::restore() {
     // RAM guard's wait below (the read takes RAM)
     on_disk = runtime_.disk.enabled() ? runtime_.disk.best(ids32.data(), ids32.size(), runtime_.req_imgs, want_cvec)
                        : basalt::core::ConversationStore::Match{};
-    from_disk = on_disk.tokens > std::max({resume, slot_tokens, parked.tokens});
-    if (!from_disk && parked.tokens > std::max(resume, slot_tokens)) incoming.emplace(runtime_.conversations->take(parked.index));
+    // a request in the side slot finds no parked conversation, in RAM or on disk
+    from_disk = !runtime_.side_req && on_disk.tokens > std::max({resume, slot_tokens, parked.tokens});
+    if (!runtime_.side_req && !from_disk && parked.tokens > std::max(resume, slot_tokens))
+        incoming.emplace(runtime_.conversations->take(parked.index));
     // RAM below the guard's floor (another program's peak): shed (after the conversation this request
     // continues is taken out of the cache), then let it come back before the request starts; a STOP ends the
     // wait, and the request then ends as cancelled.  A request that only continues the live conversation by a

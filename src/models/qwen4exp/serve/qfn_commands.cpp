@@ -185,6 +185,19 @@ void QfnRuntime::print_info() {
                     gpu_ids += (gpu_ids.empty() ? "" : ",") + std::string(bus);
             }
         }
+        std::string batch_info;
+        if (o.batch > 0) {
+            std::string caps;
+            for (int b = 0; b < o.batch; ++b) caps += (b > 0 ? "," : "") + std::to_string((long long) slot_cap[(size_t) b]);
+            batch_info = " batch_slots=" + std::to_string(o.batch) +
+                         " slot_cache=" + std::to_string(o.prompt_cache > 0 ? 1 : 0) +
+                         " slot0_solo=" + std::to_string(slot0_is_solo ? 1 : 0) +
+                         " solo_any_slot=" + std::to_string(slot0_is_solo ? 1 : 0) +
+                         " slot_contexts=" + caps;
+            if (side_slot >= 0)
+                batch_info += " side_slot=" + std::to_string(side_slot) +
+                              " side_context=" + std::to_string((long long) slot_cap[(size_t) side_slot]);
+        }
         std::printf("INFO logit_bias=%lld context=%lld kv=%s kv_resident=%lld expert_slots=%lld expert_cache_mib=%lld "
                     "expert_slots_primary=%lld expert_cache_primary_mib=%lld spec=%d "
                     "mtp_max=%d lookup=%d vram_free_mib=%lld cvec=%s arena_mib=%lld pool_workers=%d pcie_frac=%.2f "
@@ -202,10 +215,7 @@ void QfnRuntime::print_info() {
                     pool.workers(), o.pcie_frac,
                     (long long) o.conversation_cache_mib, o.conversation_cache_slots,
                     (long long) o.conversation_cache_min_free_mib, o.conversation_cache_min_tokens, (long long) o.tail_role_token, o.vram_elastic && xcache.segmented() ? 1 : 0,
-                    o.batch > 0 ? (" batch_slots=" + std::to_string(o.batch) +
-                                   " slot_cache=" + std::to_string(o.prompt_cache > 0 ? 1 : 0) +
-                                   " slot0_solo=" + std::to_string(slot0_is_solo ? 1 : 0) +
-                                   " solo_any_slot=" + std::to_string(slot0_is_solo ? 1 : 0)).c_str() : "",
+                    batch_info.c_str(),
                     quant_label.c_str(), gpu_ids.c_str(),
                     // the experts held in RAM: the pinned copy, or the arena of all of them; none when the file's pages are read
                     (long long) ((srcp == &src ? (src.complement_ready() ? src.resident_bytes() : 0)

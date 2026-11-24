@@ -132,8 +132,9 @@ int vision(Context& context) {
         const auto t0 = Clock::now();
         std::string verr;
         basalt::vision::Mmproj mp;
-        if (context.srcs->vision.empty()) verr = o.model + " has no vision/mmproj section";
-        if (!verr.empty() || !mp.open(context.srcs->vision, verr) || !vis_enc.stage(mp, true, verr) || !vis_enc.create(verr)) {
+        const basalt::core::FileRange vision_range = cli::vision_source(o, context.srcs->vision);
+        if (vision_range.empty()) verr = o.model + " has no vision/mmproj section";
+        if (!verr.empty() || !mp.open(vision_range, verr) || !vis_enc.stage(mp, true, verr) || !vis_enc.create(verr)) {
             basalt::log::error("basalt generate", "the image encoder: %s", verr.c_str());
             return 1;
         }

@@ -2,6 +2,7 @@
 #include "help.hpp"
 #include "tokens.hpp"
 
+#include "basalt/kernels/pdl.hpp"
 #include "basalt/log.hpp"
 #include "basalt/model/adapter.hpp"
 #include "basalt/model/flags.hpp"
@@ -71,6 +72,7 @@ std::optional<int> parse_options(int argc, char** argv, CommonOptions& o, const 
             o.expert_cache = (v == "auto") ? -1 : std::atoi(v.c_str());
         }
         else if (a == "--gpu") o.gpu = next("--gpu");
+        else if (a == "--no-pdl") basalt::kernels::set_pdl(false);   // before the first launch: options come first
         else if (a == "--gpu-plan") o.gpu_plan = true;
         else if (a == "--ppl-base") o.ppl_base = next("--ppl-base");
         else if (a == "--ppl-out") o.ppl_out = next("--ppl-out");

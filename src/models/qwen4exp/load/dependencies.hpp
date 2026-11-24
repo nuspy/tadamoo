@@ -9,6 +9,7 @@
 #include "../cli/report.hpp"
 #include "../cli/control_vectors.hpp"
 #include "../cli/lora.hpp"
+#include "../cli/vision_source.hpp"
 #include "../measure/dump_set.hpp"
 #include "../measure/gpu_modes.hpp"
 #include "../serve/loans.hpp"

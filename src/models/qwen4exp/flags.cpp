@@ -54,6 +54,7 @@ bool parse_flag(const std::string& a, model::FlagArgs& args, Options& o, int& co
     else if (a == "--keep-vram-commit") o.release_vram_commit = false;
     else if (a == "--side-context") o.side_context = std::max<int64_t>(0, std::atoll(args.next("--side-context")));
     else if (a == "--vision-release") o.vision_release = true;
+    else if (a == "--vision-mmproj") { o.vision_mmproj = args.next("--vision-mmproj"); o.vision = true; o.vision_in_engine = true; }
     else if (a == "--lora") o.lora_files.push_back({args.next("--lora"), 1.0f});
     else if (a == "--lora-scaled") {
         // FILE:SCALE, comma-separated; the LAST colon splits

@@ -210,7 +210,9 @@ private:
 class QfnRuntime final : public Runtime, private Context {
 public:
     explicit QfnRuntime(Context& context)
-        : Runtime(context.o, context.model_file, context.err, context.n_vocab, context.grammar_vocab), Context(context) {}
+        : Runtime(context.o, context.model_file, context.err, context.n_vocab, context.grammar_vocab), Context(context) {
+        side_slot = basalt::program::slot_contexts::side_index(o.batch, o.side_context);
+    }
     int init_before_input() override;
     int init_after_input() override;
     void after_input_start() override;

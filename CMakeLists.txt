@@ -668,6 +668,15 @@ if(BUILD_TESTING)
   target_link_libraries(expert_layout_test PRIVATE model_qwen4exp_engine)
   basalt_cpu_test(NAME expert_layout_test COMMAND expert_layout_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/native_experts)
   set_tests_properties(expert_layout_test PROPERTIES TIMEOUT 60)
+  # the qwen35moe family: layout and geometry on synthetic GGUFs, and the sampling penalties (no model, no GPU)
+  add_executable(qwen35_layout_test tests/qwen35/layout_test.cpp)
+  target_link_libraries(qwen35_layout_test PRIVATE artifact)
+  basalt_embed_manifest(qwen35_layout_test)
+  basalt_cpu_test(NAME qwen35_layout_test COMMAND qwen35_layout_test)
+  add_executable(qwen35_sampling_test tests/qwen35/sampling_test.cpp)
+  target_include_directories(qwen35_sampling_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  basalt_embed_manifest(qwen35_sampling_test)
+  basalt_cpu_test(NAME qwen35_sampling_test COMMAND qwen35_sampling_test)
   # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks (host only)
   add_executable(lora_merge_test tests/core/lora_merge_test.cpp)
   target_link_libraries(lora_merge_test PRIVATE model_qwen4exp_engine ggml_quants)
@@ -818,6 +827,17 @@ add_executable(basalt src/program/generate.cpp
 basalt_ship_to_bin(basalt)
 target_include_directories(basalt PRIVATE ${_gpu_include_directories})
 target_link_libraries(basalt PRIVATE models serve_shared engine_session ${_gpu_runtime_target})
+if(BASALT_MODEL_QWEN4EXP)
+  # The qwen35moe family (Qwen3.6-35B-A3B): its own engine path (serve protocol, prompt chunks, decode graph), which
+  # `basalt` switches to when the GGUF's architecture is qwen35moe.  The Flash-Next path does not run through it.
+  add_library(basalt_qwen35 STATIC src/qwen35/q36_engine.cu)
+  target_include_directories(basalt_qwen35 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${_gpu_include_directories})
+  target_link_libraries(basalt_qwen35 PRIVATE model_qwen4exp_prefill model_qwen4exp_kernels kernels kernels_cpu platform warnings ${_gpu_blas_target} ${_gpu_runtime_target})
+  # the hybrid mode (experts that do not all fit in VRAM): the CPU expert pool
+  target_compile_definitions(basalt_qwen35 PRIVATE BASALT_Q36_CPU_POOL=1)
+  target_link_libraries(basalt PRIVATE basalt_qwen35)
+  target_compile_definitions(basalt PRIVATE BASALT_HAVE_QWEN35=1)
+endif()
 basalt_embed_manifest(basalt)
 # `basalt serve` runs the Python server from the directory above bin/; the engine reads its expert profiles from data/profiles
 
