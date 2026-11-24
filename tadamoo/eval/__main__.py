@@ -38,6 +38,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--temperature", type=_temperature, default=0.6,
                    help="above 0 so that repetitions differ, each with its own seed; 'model' sends none, so the model file's own sampling applies")
     p.add_argument("--instruction-blocks", action="store_true", help="add the working rules of tadamoo/prompt_blocks.py to the system prompt (compare a run with and without)")
+    p.add_argument("--cold-tools", action="store_true", help="list the rare tools with one line each and let the model ask tool_help for the rest (run a set with and without it to compare)")
     p.add_argument("--only", action="append", default=[], metavar="TASK_ID")
     p.add_argument("--strategies", default="none,rag,cag", help="for tasks that use reference documents: which ways to offer them")
     p.add_argument("--gpu-power-limit-w", type=float, default=None, help="the GPU power limit this run used (it labels every number)")
@@ -93,14 +94,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     env = collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w)
     timings = None if args.no_server_timings else ServerTimings(args.endpoint, args.api_key)
     runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None, council=args.council,
-                        timings=timings, instruction_blocks=args.instruction_blocks)
+                        timings=timings, instruction_blocks=args.instruction_blocks, cold_tools=args.cold_tools)
     if args.resume:
         try:
             runner.journal = Journal(Path(args.resume), runner.fingerprint(tasks, args.k, env, args.model_file))
         except ResumeMismatch as exc:
             p.error(str(exc))
     config = {"k": args.k, "temperature": "the model file's own" if args.temperature is None else args.temperature,
-              "instruction blocks": "on" if args.instruction_blocks else "off", "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off",
+              "instruction blocks": "on" if args.instruction_blocks else "off", "cold tools": "on" if args.cold_tools else "off", "seeds": "1000 + repetition", "max turns": "per task", "council": "on" if args.council else "off",
               "server timings": "off" if timings is None else "from the request log"}
 
     def show(r):

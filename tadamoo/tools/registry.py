@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import enum
+import json
 import threading
 import time
 from dataclasses import dataclass
@@ -127,6 +128,7 @@ class ToolDefinition:
     trusted_if: Optional[Callable[[Dict[str, Any]], bool]] = None     # given a call's arguments, true when this call's answer is not from outside after all
     outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
     tier: int = 1                # where its definition goes in the tool list: STABLE, SESSION or EXTERNAL (see ToolRegistry.schemas)
+    cold: bool = False           # listed with one line and a loose schema; the full definition comes from tool_help (see ToolRegistry.set_cold)
 
 
 def validate_arguments(name: str, schema: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
@@ -165,6 +167,18 @@ DESCRIPTION_KEYS = ("description", "explain")
 DESCRIPTION_CHARS = 300
 TOOL_CALL_NOTE = f"The person sees your `{DESCRIPTION_KEYS[0]}` of each tool call beside it."
 _DESCRIPTION_HELP = "One short sentence for the person, in the language they write in, saying what this call does and why."
+
+
+LOOSE_SCHEMA = {"type": "object", "additionalProperties": True}
+COLD_HINT = "Call tool_help('{name}') first: it gives the parameters."
+
+
+def cold_summary(tool: "ToolDefinition") -> str:
+    """The one line a cold tool is listed with: the first sentence of its description, and where to find the rest."""
+    first = tool.description.strip().split("\n")[0]
+    cut = first.find(". ")
+    first = first[:cut + 1] if 0 < cut <= 200 else first[:200].rstrip()
+    return f"{first} {COLD_HINT.format(name=tool.name)}"
 
 
 def description_key(parameters: Dict[str, Any]) -> Optional[str]:
@@ -253,11 +267,39 @@ class ToolRegistry:
         for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
         out = []
         for t in sorted(self._tools.values(), key=lambda t: (t.tier, t.name)):
+            if t.cold:
+                out.append({"type": "function", "function": {"name": t.name, "description": cold_summary(t), "parameters": LOOSE_SCHEMA}})
+                continue
             parameters, key = t.parameters, description_key(t.parameters)
             if key is not None:
                 parameters = {**parameters, "properties": {**(parameters.get("properties") or {}), key: {"type": "string", "description": _DESCRIPTION_HELP}}}
             out.append({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": parameters}})
         return out
+
+    def set_cold(self, names: List[str]) -> List[str]:
+        """List these tools with one line and a loose schema from now on; returns the ones that exist. Their calls are still checked against
+        the real schema, and `describe` gives the whole definition."""
+        done = []
+        for name in names:
+            tool = self._tools.get(name)
+            if tool is not None:
+                tool.cold = True
+                done.append(name)
+        return done
+
+    def cold_names(self) -> List[str]:
+        return sorted(t.name for t in self._tools.values() if t.cold)
+
+    def describe(self, name: str) -> str:
+        """The whole definition of a tool: its description and its parameters as JSON schema."""
+        tool = self.get(name)
+        if tool is None:
+            raise KeyError(f"Unknown tool: '{name}'")
+        return f"{tool.name}: {tool.description}\nParameters (JSON schema): {json.dumps(tool.parameters, ensure_ascii=False)}"
+
+    def _cold_error(self, name: str, exc: "ToolArgumentError") -> "ToolArgumentError":
+        tool = self.get(name)
+        return ToolArgumentError(f"{exc} {COLD_HINT.format(name=name)}") if tool is not None and tool.cold else exc
 
     def split_description(self, name: str, arguments: Any) -> "tuple[Any, str]":
         """`split_description` for a registered tool (an unknown name has nothing to split)."""
@@ -278,13 +320,19 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        return validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
+        try:
+            return validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
+        except ToolArgumentError as exc:
+            raise self._cold_error(name, exc) from None
 
     def execute(self, name: str, arguments: Dict[str, Any]) -> Any:
         tool = self.get(name)
         if tool is None:
             raise KeyError(f"Unknown tool: '{name}'")
-        arguments = validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
+        try:
+            arguments = validate_arguments(name, tool.parameters, self.coerce(name, arguments)[0])
+        except ToolArgumentError as exc:
+            raise self._cold_error(name, exc) from None
         limit = self.timeout_for(name)
         if not limit:
             return tool.handler(**arguments)

@@ -127,6 +127,7 @@ def load_task_set(path_or_name: str | Path) -> Tuple[Dict[str, Any], List[Task]]
             files={k: str(v) for k, v in raw.get("files", {}).items()}, checks=checks, tools=list(raw.get("tools", [])),
             allow=list(raw["allow"]) if "allow" in raw else list(DEFAULT_ALLOW), max_turns=int(raw.get("max_turns", 12)),
             system=raw.get("system"), knowledge=dict(shared_docs) if raw.get("uses_knowledge") else {},
+            workspace_from=str((SETS_DIR.parent / raw["workspace_from"]).resolve()) if raw.get("workspace_from") else "",      # a folder of tadamoo/eval, copied in before the run
         ))
     meta = {"name": data.get("name", Path(path).stem), "version": data.get("version", ""), "description": data.get("description", "")}
     return meta, tasks
@@ -189,7 +190,7 @@ def run_checks(task: Task, workspace: Path, answer: str, calls: Sequence[Dict[st
             if (workspace / path).exists():
                 failures.append(f"{path} exists but must not")
         elif kind == "command":
-            cmd = check["cmd"].replace("{python}", f'"{sys.executable}"')
+            cmd = check["cmd"].replace("{python}", f'"{sys.executable}"').replace("{eval}", SETS_DIR.parent.as_posix())     # {eval}: the eval folder (put it in quotes)
             res = sandbox.run(cmd, timeout=float(check.get("timeout", 30)))
             if res["exit_code"] != check.get("expect_exit", 0):
                 failures.append(f"`{check['cmd'][:60]}` exited {res['exit_code']}: {(res['stderr'] or res['stdout'])[-160:].strip()}")

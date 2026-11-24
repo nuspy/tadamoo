@@ -98,6 +98,7 @@ class EvalRunner:
         council: bool = False,
         timings: Optional[ServerTimings] = None,
         instruction_blocks: bool = False,
+        cold_tools: bool = False,
         journal: Optional[Journal] = None,
     ) -> None:
         self.client = client
@@ -110,6 +111,7 @@ class EvalRunner:
         self.council = council
         self.timings = timings                      # reads the server's own figures for each trial's requests
         self.instruction_blocks = instruction_blocks    # the working rules of tadamoo/prompt_blocks.py in the system prompt
+        self.cold_tools = cold_tools                    # the rare tools listed with one line each (tadamoo/cold_tools.py): the B arm of its A/B
         self.journal = journal                          # finished trials are written to it, and valid ones it holds are reused (tadamoo/eval/resume.py)
 
     def load_task_set(self, path: str | Path) -> List[Task]:
@@ -148,7 +150,7 @@ class EvalRunner:
                                   use_memory=False, use_checkpoints=False, data_dir=str(data), max_total_tokens=self.max_total_tokens,
                                   max_seconds=self.max_seconds, reference_docs=task.knowledge if task.strategy != "none" else {},
                                   reference_strategy=task.strategy, council=self.council, instruction_blocks=self.instruction_blocks,
-                                  budget_grace=False)
+                                  cold_tools=self.cold_tools, budget_grace=False)
                 built = build_agent(cfg, client=client)
                 agent = built.agent
                 agent.sampling = sampling
@@ -202,7 +204,7 @@ class EvalRunner:
         """What a resumed run must match: the code, the model file, the settings of this runner, the tasks and k."""
         env = {n: environment.get(n) for n in ("model", "gpus", "gpu_power_limit_w")} if environment else {}
         sampling = {"temperature": self.temperature, "seed_base": self.seed_base, "max_total_tokens": self.max_total_tokens, "max_seconds": self.max_seconds,
-                    "council": self.council, "instruction_blocks": self.instruction_blocks}
+                    "council": self.council, "instruction_blocks": self.instruction_blocks, "cold_tools": self.cold_tools}
         return make_fingerprint(experiment="eval", k=k, arms=[], tasks=[t.id for t in tasks], sampling=sampling, environment=env, model_file=model_file)
 
     def journaled_trial(self, task: Task, rep: int) -> Trial:
@@ -231,7 +233,7 @@ class EvalRunner:
                 return SimpleNamespace(chat_completion=lambda **kw: {"choices": [{"message": {"role": "assistant", "content": text}}]})
             runner = EvalRunner(client_factory=factory, temperature=self.temperature, seed_base=self.seed_base, keep_workspaces=self.keep,
                                 max_total_tokens=self.max_total_tokens, max_seconds=self.max_seconds, council=self.council,
-                                instruction_blocks=self.instruction_blocks)
+                                instruction_blocks=self.instruction_blocks, cold_tools=self.cold_tools)
             return runner.evaluate_task(task, k)
         trials = [self.journaled_trial(task, i + 1) for i in range(k)]
         passed = sum(t.passed for t in trials)

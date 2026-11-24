@@ -1,0 +1,75 @@
+{
+  "name": "documents",
+  "version": "1",
+  "description": "Changing a Word, Excel, PowerPoint and PDF file the way the person asked, on a copy: the A/B of the cold tools (--cold-tools) uses it.",
+  "tasks": [
+    {
+      "id": "word_price",
+      "category": "documents",
+      "prompt": "In offer.docx the price of the valve is 1,200.00 euro, in the text and in the header. Change it to 1,500.00 everywhere in the document and keep the formatting. Do not change the original file: the result is a new file; tell me its name.",
+      "workspace_from": "fixtures/documents",
+      "max_turns": 16,
+      "allow": [
+        "shell_command:python *"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "cmd": "{python} \"{eval}/fixtures/documents_check/check.py\" word",
+          "timeout": 60
+        }
+      ]
+    },
+    {
+      "id": "excel_row",
+      "category": "documents",
+      "prompt": "In budget.xlsx add a row for 'Rent' with 900 in Q1 and 950 in Q2, and in the Total column the sum of the two as a formula like the other rows. Do not change the original file: the result is a new file; tell me its name.",
+      "workspace_from": "fixtures/documents",
+      "max_turns": 16,
+      "allow": [
+        "shell_command:python *"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "cmd": "{python} \"{eval}/fixtures/documents_check/check.py\" excel",
+          "timeout": 60
+        }
+      ]
+    },
+    {
+      "id": "pptx_price",
+      "category": "documents",
+      "prompt": "In plan.pptx the price 1,200.00 euro is written on the slides, in a table and in the speaker notes. Change it to 1,500.00 everywhere, and add a last slide titled 'Next steps' with two bullet points. Do not change the original file: the result is a new file; tell me its name.",
+      "workspace_from": "fixtures/documents",
+      "max_turns": 16,
+      "allow": [
+        "shell_command:python *"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "cmd": "{python} \"{eval}/fixtures/documents_check/check.py\" powerpoint",
+          "timeout": 60
+        }
+      ]
+    },
+    {
+      "id": "pdf_price",
+      "category": "documents",
+      "prompt": "In price.pdf the valve costs 1,200.00 euro. Change the price to 1,500.00 in the text of the page. Do not change the original file: the result is a new file; tell me its name.",
+      "workspace_from": "fixtures/documents",
+      "max_turns": 16,
+      "allow": [
+        "shell_command:python *"
+      ],
+      "checks": [
+        {
+          "type": "command",
+          "cmd": "{python} \"{eval}/fixtures/documents_check/check.py\" pdf",
+          "timeout": 60
+        }
+      ]
+    }
+  ]
+}

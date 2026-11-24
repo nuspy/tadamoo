@@ -218,6 +218,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
                         help="how long a tool may run before it is stopped (every tool, or NAME=SECONDS for one; 0: no limit)")
     parser.add_argument("--no-memory", action="store_true")
     parser.add_argument("--no-checkpoints", action="store_true")
+    parser.add_argument("--cold-tools", action="store_true", help="list the rare tools with one line each and let the model ask tool_help for the rest (a shorter prompt)")
     parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
     parser.add_argument("--personas-dir", default="", help="the folder of the personalities (tadamoo/personas.py): with it the conversation can speak as one and change it while it runs")
@@ -258,7 +259,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         error_classifier=not args.no_error_classifier,
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
-        tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
+        tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints, cold_tools=args.cold_tools,
         personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, rag_dir=args.rag_dir, media_file=args.media_file, rag_project=args.rag_project, rag_attached=tuple(args.rag_attached), persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
@@ -318,6 +319,7 @@ class AgentConfig:
     max_seconds: Optional[float] = None
     use_memory: bool = True
     use_checkpoints: bool = True
+    cold_tools: bool = False            # the rare tools are listed with one line each; tool_help gives the rest (tadamoo/cold_tools.py)
     personal_memory_dir: str = ""       # the person's own memories (tadamoo/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     personas_dir: str = ""              # the personalities (tadamoo/personas.py); empty: the conversation cannot speak as one
@@ -1080,6 +1082,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         registry.default_timeout = cfg.tool_timeout or None
     for name, seconds in cfg.tool_timeouts.items():
         registry.set_timeout(name, seconds)
+    if cfg.cold_tools:
+        from tadamoo.cold_tools import apply_cold
+        apply_cold(registry)
     if cfg.instruction_blocks:
         builder.pin("discipline", instruction_blocks(registry.names()))
     edits = lambda: len(sandbox.changes)                       # the file changes recorded so far: progress for the loop guard, and what the gate looks at
