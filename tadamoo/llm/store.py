@@ -94,11 +94,11 @@ class _Assignments(dict):
     def get(self, key: Any, default: Any = None) -> Any:
         value = super().get(key)
         if functions.known(key):
-            if value == PRIMARY or (not value and self.default_primary):
+            if value == PRIMARY or (not value and self.default_primary and not functions.direct(key)):
                 value = self.primary or None
             elif value == LOCAL_EXPLICIT:
                 value = None
-            if self.swap is not None and (not value or value in self.swap["replace"]):
+            if self.swap is not None and (not value or value in self.swap["replace"]) and not functions.direct(key):
                 return self.swap["pid"]
         return default if value is None else value
 
@@ -334,7 +334,7 @@ class SecureRegistry(Registry):
 
     def assign(self, consumer: str, pid: Optional[str]) -> Dict[str, Any]:
         """A provider, `PRIMARY` (follow the Primary model), or none: the local engine (kept as a choice of its own while new functions follow the Primary model)."""
-        if pid != PRIMARY and not (not pid and self.default_primary()):
+        if pid != PRIMARY and not (not pid and self.default_primary() and not functions.direct(consumer)):
             return super().assign(consumer, pid)
         if consumer not in self.consumers:
             raise ValueError(f"consumatore sconosciuto: {consumer}")
@@ -390,12 +390,12 @@ class SecureRegistry(Registry):
         pid = assignments.get(function) or None
         if pid and TYPES.get((self._find(data, pid) or {}).get("type") or "", {}).get("this_server"):
             return None, "here"                                     # the provider "this server" is the loaded model, loaded for the function when needed
-        follows = raw == PRIMARY or (not raw and self.default_primary())
+        follows = raw == PRIMARY or (not raw and self.default_primary() and not functions.direct(function))
         base = (self.primary() if follows else "" if raw == LOCAL_EXPLICIT else raw) or None
         via = "local" if not pid else "swap" if pid != base else "primary" if follows else "direct"
         if pid and not self.check(function, pid)[0]:
             pid, via = None, "refused"                              # not allowed: the call goes on to the local engine, as `fallback_chain` says
-        if pid is None and local_loaded is False:
+        if pid is None and local_loaded is False and not functions.direct(function):
             target = self.fallback_target(function)
             if target:
                 return target, "fallback"
@@ -439,7 +439,7 @@ class SecureRegistry(Registry):
         data = self.load()
         first = (data.get("assignments") or {}).get(function) or None
         chain: List[Optional[str]] = [first]
-        if first and not is_local(self._find(data, first), self.local_hosts):
+        if first and not is_local(self._find(data, first), self.local_hosts) and not functions.direct(function):
             chain.append(None)                                      # the loaded model is always at least as local
         return chain
 

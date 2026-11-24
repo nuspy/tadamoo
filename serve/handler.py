@@ -23,7 +23,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, hardware, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, external_forward, hardware, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -978,6 +978,9 @@ def make_handler(svc: Service, remote: bool = False):
                 for k in ("started", "first_token"):
                     s.pop(k, None)
                 self._json(200, s)
+            elif path in ("/v1/models", "/models") and external_forward.listed(self):
+                if self._authorized():                       # a program outside TaDaMoo, with a provider chosen for it: that provider's model
+                    self._json(200, external_forward.models(model_list.wants_anthropic(self.headers)))
             elif engine_host.HOST.active() and (path in engine_host.PROXIED_GET or path.startswith(("/v1/models/", "/models/"))):
                 if self._authorized():                       # another engine is loaded: its answer, relayed
                     engine_host.HOST.forward(self, "GET", self.path)
@@ -1360,6 +1363,14 @@ def make_handler(svc: Service, remote: bool = False):
                     self._json(200, {"status": "loaded"})
                 except (GpuBusy, EngineDied, EngineStarting) as e:
                     self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+                return
+            if external_forward.wants(self, path):                       # a program outside TaDaMoo, with a provider chosen for it
+                try:
+                    raw = self._body()
+                except BadBody as e:
+                    self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                    return
+                external_forward.forward(self, path, raw)
                 return
             if path == "/v1/chat/completions" and not self.remote_listener and billion_context.wants(self.headers):
                 try:

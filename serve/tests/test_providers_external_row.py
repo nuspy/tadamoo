@@ -1,5 +1,5 @@
-"""Models > Providers: the line "External requests through the OpenAI and Anthropic interfaces" sits right under the table of functions, before the council,
-and says in both languages that only the loaded local model answers them (never the primary model or a chosen provider). Static checks of the page's own files."""
+"""Models > Providers: the line "Other programs through the OpenAI and Anthropic interfaces" sits right under the table of functions, before the council,
+and says in both languages who answers them: the provider chosen for the function, else the loaded local model (never the primary model). Static checks of the page's own files."""
 import json
 import os
 import re
@@ -40,8 +40,10 @@ class ExternalRequestsRowTest(unittest.TestCase):
 
     def test_the_texts_say_who_answers(self):
         who = re.findall(r'"pv\.external\.who":\s*"((?:[^"\\]|\\.)*)"', self.i18n)
+        self.assertIn("chosen for Other programs", who[0])
         self.assertIn("local engine", who[0])
         self.assertIn("Primary model", who[0])
+        self.assertIn("scelto per Altri programmi", who[1])
         self.assertIn("motore locale", who[1])
         self.assertIn("Modello primario", who[1])
 

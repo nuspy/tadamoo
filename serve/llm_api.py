@@ -1,7 +1,7 @@
 """The Providers page's side of llmswitch: which provider each internal function uses, and the providers themselves.
 
-Everything here is about TaDaMoo's own functions (the Chat, the agent's loop, the planner, the judges). What other programs see
-of this server does not change: it is the loaded model. Keys are write-only: the page can send one and is told only that there
+Everything here is about the functions: TaDaMoo's own (the Chat, the agent's loop, the planner, the judges) and `external`, the other programs that call
+this server through the OpenAI or Anthropic interface (serve/external_forward.py). Keys are write-only: the page can send one and is told only that there
 is one. All changes come from this PC and the server's own page (the handler checks).
 """
 from __future__ import annotations
