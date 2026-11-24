@@ -16,8 +16,9 @@ Counted from 1 over the body of the document:
 - table `t2`, cell `t2.r3.c1` (row 3, cell 1 of the row; a merged cell counts once);
 - `end` and `start` in `insert_paragraph`.
 
-Paragraphs inside tables are not numbered `pN`; they are reached through the cell. Headers, footers, footnotes, text boxes and content
-controls are not addressable and not listed.
+Paragraphs inside tables are not numbered `pN`; they are reached through the cell. Headers, footers, footnotes, endnotes and text boxes have no numbers: they are listed by the outline and reached with `replace_text` and a
+target (`headers`, `footers`, `footnotes`, `endnotes`, `textboxes`, `everywhere`), see [document-editing.md](document-editing.md). Content
+controls are not addressable.
 
 ## The tools
 
