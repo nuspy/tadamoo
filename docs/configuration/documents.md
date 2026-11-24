@@ -11,8 +11,8 @@ works against Basalt.
 | Responses | `{"type": "input_file", "filename": "...", "file_data": "data:application/pdf;base64,..."}` | `file_data` or `file_url` |
 
 A `url` source or a `file_url` is an `http(s)` URL, a `file:` URL or a path, read under the same rules as an image named that way
-([image sources](image-sources.md)): from this machine any of them, from elsewhere only hosts and directories the server allows. A
-harness on the same machine can name the file instead of sending its bytes on every turn.
+([image sources](image-sources.md)): any of them, for any client. A harness on the same machine can name the file instead of
+sending its bytes on every turn.
 
 ## Pages
 

@@ -62,8 +62,7 @@ A config file is one JSON object. `models` lists the models; `engine` applies to
 In the tables, "default" is what applies when the setting is absent everywhere.
 - Where a setting goes in a config file: `server` is the `server` block, `entry` a model entry or the top-level `engine`,
   `engine` (an engine flag) the same places, `model entry` a model entry only.
-- Keys are flag names without dashes. Switches are `true`. A repeatable option (`allowed-host`, `cors-origin`, `image-url-host`,
-  `image-dir`) takes a list. `model` paths are relative to the file.
+- Keys are flag names without dashes. Switches are `true`. A repeatable option (`allowed-hosts`, `allowed-origins`, `script`) takes a list. `model` paths are relative to the file.
 - A row that names its models (Flash-Next only, DeepSeek only, ...) stops the start in a model entry or on the command line of another model; in the top-level `engine` it is left out for that model, with a start line ([checks at start](models.md#checks-at-start)).
 - Precedence: command line, then config file, then defaults; `--model` and `--alias` do not go with `--config` (its entries name the models).
   A wrong block or an unknown name stops the start. `api-key` cannot be in a file.
@@ -120,8 +119,6 @@ Command line `--name`; the Where column says which config block takes it.
 | `port` | server | integer | `8080` | TCP port. |
 | `api-key` | command line | string | none | Require this key on `/v1/*` (`Authorization: Bearer` or `x-api-key`). Command line only. |
 | `api-key-file` | command line | path | none | Read that key from the first line of this file, which keeps it out of the process list. Not with `api-key`. Command line only. |
-| `allowed-host` | server | string, repeatable | none | Also answer to this `Host` name; `"*"` turns the check off. |
-| `cors-origin` | server | string, repeatable | none | Let web pages from this origin call `/v1/*`. |
 | `fit-max-tokens` | entry | switch | off | Clamp `max_tokens` to the remaining context instead of a 400. |
 | `open` | server | switch | off | Open the web page when ready. |
 | `lazy` | server | switch | off | Start unloaded; load on the first request. Drops a sidecar encoder. |
@@ -283,9 +280,6 @@ Unless `relaxed-drafting` is on, output is exactly plain decoding's.
 | `vision-projector` | server | `auto`, `embedded`, or a projector file | `auto` | The projector image input reads with. `auto`: the model file's own when the encoder reads it, else the first projector found in the models folders; `embedded`: the model file's own; a path: that GGUF (read in place when the encoder reads it as it is, else rewritten once into the cache). The Loader lists the choices with the RAM each keeps. Only used when `vision` is not `off`. |
 | `vision-hold` | server | `keep`, `release` | `keep` | With `vision` `dynamic`: `keep` leaves the projector's weights in pinned RAM (the first image is quick); `release` makes the engine free them after the warm-up and after each batch of images (`--vision-release`) and read them from the file again at the next one, so the RAM and commit they hold are free in between. The Loader leaves them out of the steady need and notes that a moment of that much free memory is needed while an image is read. Needs an engine built with `--vision-release`. |
 | `vision` | entry | `off`, `dynamic`, `cpu`, GPU number | `off` | Image input. A GPU number runs a sidecar on that card (about 2.2 GiB of its expert cache). `cpu` is slow. Needs a model with a vision projector. 32 MiB and 64 megapixels per image. [running](../running.md#vision---vision) |
-| `image-url-host` | server | `HOST` or `HOST:PORT`, repeatable | none | Allow `http(s)` image URLs on this host from other machines. [image sources](image-sources.md) |
-| `image-dir` | server | directory, repeatable | none | Allow image files under this directory from other machines. [image sources](image-sources.md) |
-| `image-remote-only` | server | switch | off | Treat this machine's requests as remote too. [image sources](image-sources.md) |
 | `video-max-tokens` | entry | 64 to 65536 | 8192 | The most image tokens one video takes over all its frames. Video needs `vision` and FFmpeg 6, 7, 8 or 9 on the machine. [running](../running.md#video) |
 
 Diagnostic flags: [diagnostics](diagnostics.md).

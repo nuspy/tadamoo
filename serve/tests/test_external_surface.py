@@ -23,7 +23,8 @@ from tadamoo.personas import PersonaStore
 ROOT = Path(__file__).resolve().parents[2]
 
 # the interfaces of the loaded model
-LLM_ROUTES = {"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models"}
+LLM_ROUTES = {"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/models",
+              "/v1/v1/messages", "/v1/v1/messages/count_tokens"}      # the last two: an Anthropic client whose base URL already ends in /v1
 # control of the loaded model, for the server's own page
 CONTROL_ROUTES = {"/v1/status", "/v1/vram", "/v1/answer_now"}      # answer now closes a running request's thinking
 # prefixes of the above: one model's entry, and the refusal for stored responses; "/v1/" alone is the namespace test
