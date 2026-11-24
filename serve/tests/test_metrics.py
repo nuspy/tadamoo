@@ -76,7 +76,7 @@ class Http(unittest.TestCase):
         code, m = self.call("/metrics")
         self.assertEqual(code, 200)
         self.assertEqual(set(m), {"engine", "live", "requests", "best", "totals", "conversation", "experts_map", "hardware", "hardware_static",
-                                 "history", "models", "swap"})
+                                 "history"})
         self.assertEqual(m["best"], {})
         self.assertEqual((m["engine"]["model"], m["engine"]["max_context"]), (self.svc.model, 16384))
         self.assertEqual((m["engine"]["version"], m["engine"]["kv"], m["engine"]["expert_slots"]), ("1.2.3", "fp8", 100))

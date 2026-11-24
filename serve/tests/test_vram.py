@@ -13,6 +13,7 @@ from serve.engine.errors import EngineDied
 from serve.engine.process import ProcessEngine
 from serve.handler import serve
 from serve.service import Service
+from serve.util import vram
 from serve.util.text import ByteTokenizer
 from serve.engine.vision import engine_args
 from serve.tests.test_lifecycle import ResidentEngine
@@ -111,9 +112,9 @@ class Route(unittest.TestCase):
         self.engine.loaded = True
         for bad in ({"reserve_mib": -1}, {"reserve_mib": "8 GiB"}, {"reserve_mib": True}, {"reserve_mib": 1.5}):
             self.assertEqual(self.request("/v1/vram", bad)[0], 400, bad)
-        self.svc.vram_wait_s = 0.2
-        with self.svc.fifo:                                   # a request is running
-            self.assertEqual(self.request("/v1/vram", {"reserve_mib": 1})[0], 409)
+        with self.svc.fifo:                                   # a request is running: the resize waits for it
+            code, body = self.request("/v1/vram", {"reserve_mib": 1})
+            self.assertEqual((code, body["status"]), (202, "pending"))
         self.assertEqual(self.engine.calls, [])
 
     def test_an_engine_without_the_flag_says_so(self):
@@ -129,6 +130,9 @@ class Route(unittest.TestCase):
         self.assertEqual(self.engine.calls, [])
         self.assertEqual(self.request("/api/control/load", {})[0], 200)
         self.assertEqual(self.engine.calls, [5000])
+
+    def test_the_not_available_marker_reads_as_unknown(self):
+        self.assertEqual(vram._NOT_AVAILABLE, 2**64 - 1)
 
 
 if __name__ == "__main__":

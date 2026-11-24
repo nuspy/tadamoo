@@ -231,11 +231,17 @@ def _read_handle(fd: int, limit: int) -> bytes:
     except BaseException:
         os.close(fd)
         raise
+    parts, total = [], 0
     with os.fdopen(fd, "rb") as f:
-        data = f.read(limit + 1)                        # also for a file that grew, or that reports no size
-    if len(data) > limit:
+        while total <= limit:                           # in pieces: also for a file that grew, or that reports no size
+            piece = f.read(min(1 << 20, limit + 1 - total))
+            if not piece:
+                break
+            parts.append(piece)
+            total += len(piece)
+    if total > limit:
         raise OverflowError
-    return data
+    return b"".join(parts)
 
 
 def _open_flags() -> int:

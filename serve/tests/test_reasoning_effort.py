@@ -12,7 +12,6 @@ from serve.frontend import ChatTemplate, anthropic_to_messages, openai_to_messag
 from serve.handler import serve
 from serve.dialects.deepseek41 import DeepSeek41, DeepseekTemplate
 from serve.dialects.qwen import Qwen
-from serve.router import Router
 from serve.service import Service
 from serve.util.text import ByteTokenizer
 
@@ -76,30 +75,21 @@ class Caps(unittest.TestCase):
         self.assertIn("reasoning_effort", enc.encode_messages.__code__.co_varnames)
         self.assertTrue(all(DeepSeek41.caps.values()))
 
-    def test_props_reports_the_shown_and_named_models_caps(self):
-        qwen, ds = qwen_service(), deepseek_service()
-        router = Router([qwen, ds])
-        httpd = serve(router, port=0)
-        try:
-            def props(path):
+    def test_props_reports_the_loaded_models_caps(self):
+        for svc, caps in ((qwen_service(), Qwen.caps), (deepseek_service(), DeepSeek41.caps)):
+            httpd = serve(svc, port=0)
+            try:
                 c = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=30)
                 try:
-                    c.request("GET", path)
+                    c.request("GET", "/props")
                     r = c.getresponse()
-                    return r.status, json.loads(r.read())
+                    self.assertEqual((r.status, json.loads(r.read())["chat_template_caps"]), (200, caps))
                 finally:
                     c.close()
-            self.assertEqual(props("/props?model=qwen")[1]["chat_template_caps"], Qwen.caps)
-            self.assertEqual(props("/props?model=ds")[1]["chat_template_caps"], DeepSeek41.caps)
-            self.assertEqual(props("/props")[1]["chat_template_caps"], Qwen.caps)
-            self.assertEqual(props("/props?model=nope")[0], 404)
-        finally:
-            router.stop()
-            httpd.shutdown()
-            httpd.server_close()
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
 
-
-class Budget(unittest.TestCase):
     def kw(self, **req):
         return openai_to_messages({"messages": [{"role": "user", "content": "hi"}], **req})[2]
 
@@ -127,7 +117,8 @@ class Budget(unittest.TestCase):
 
     def test_answer_room_auto_table(self):
         svc = qwen_service()
-        self.assertEqual(svc.answer_room, "auto")
+        self.assertEqual(svc.answer_room, 0)                # off unless the Loader or --answer-room asks for it
+        svc.answer_room = "auto"
         # (cap, configured budget, thinking limit): the formula from 1,024 up as ever, half the cap below it
         for cap, budget, want in ((700, 8192, 350), (700, None, 350), (400, None, 200), (200, None, 100),
                                   (1023, None, 512), (1024, None, 512), (1024, 8192, 512), (4096, None, 3072),
@@ -191,8 +182,7 @@ class Budget(unittest.TestCase):
                           ({"reasoning_budget": 500, "thinking": {"budget_tokens": 900}}, 500)):
             with self.subTest(req=req):
                 self.assertEqual(svc.reasoning_budget(req), want)
-        svc.reasoning_budget_tokens = 700               # the server's default, which -1 (unbounded) overrides
-        self.assertEqual(svc.reasoning_budget({}), 700)
+        self.assertIsNone(svc.reasoning_budget({}))     # no server default: the budget is a request field
         self.assertIsNone(svc.reasoning_budget({"reasoning_budget": -1}))
         self.assertIsNone(svc.answer_budget({"reasoning_budget": -1}, 8192, None))
         with self.assertRaises(ValueError):

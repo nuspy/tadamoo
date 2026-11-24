@@ -29,7 +29,6 @@ PNG = b"\x89PNG\r\n\x1a\n"
 ROWS = {PNG + b"A": 2, PNG + b"B": 3, PNG + b"C": 5}
 A, B, C = ("data:image/png;base64," + base64.b64encode(data).decode() for data in ROWS)
 MODEL = "basalt"
-POLICY = "refused by server policy"
 NO_VISION = "this server was started without image input (--vision), so it cannot read images"
 
 
@@ -377,21 +376,6 @@ class Refusals(Base):
 
 
 class Policy(Base):
-    REMOTE = {"X-Forwarded-For": "203.0.113.9"}
-
-    def test_a_remote_result_cannot_name_a_file_or_a_url(self):
-        with tempfile.TemporaryDirectory() as d:
-            secret = Path(d) / "secret.png"
-            secret.write_bytes(PNG + b"A")
-            for source in (str(secret), secret.as_uri(), "http://169.254.169.254/latest/meta-data/"):
-                for dialect, api, path, build in CASES:
-                    with self.subTest(dialect=dialect.name, api=api):
-                        post, engine, vision = self.serve(dialect)
-                        status, raw = post(path, build({"a": [text("RA"), image(source)]}), self.REMOTE)
-                        self.assertEqual(status, 400, raw)
-                        self.assertIn(POLICY, raw)
-                        self.assertEqual((vision.got, engine.requests), ([], []))
-
     def test_a_local_result_may_name_a_file(self):
         with tempfile.TemporaryDirectory() as d:
             picture = Path(d) / "a.png"

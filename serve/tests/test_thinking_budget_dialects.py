@@ -82,6 +82,7 @@ class Budget:
     def start(self, reply):
         self.engine = ScriptEngine(self.case, reply)
         self.svc = Service(self.engine, self.case.tok, self.case.template, dialect=self.case.dialect)
+        self.svc.repeat_ngram = None                    # the scripted thinking is one sentence written over and over: not what the guard is for
         self.httpd = serve(self.svc, port=0)
         self.addCleanup(self.httpd.server_close)
         self.addCleanup(self.httpd.shutdown)

@@ -81,7 +81,7 @@ class Stopping(unittest.TestCase):
     def test_shutdown_stops_the_service_first(self):
         source = (ROOT / "serve/server.py").read_text()
         closers = source[source.index("closers = ["):]
-        self.assertLess(closers.index("router.stop"), closers.index("s.engine"))
+        self.assertLess(closers.index("svc.stop"), closers.index("getattr(engine"))
 
 
 if __name__ == "__main__":

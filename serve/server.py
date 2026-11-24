@@ -41,7 +41,9 @@ from serve.dialects import dialect_for  # noqa: E402
 from serve.engine import modelfile  # noqa: E402
 from serve.security import LOOPBACK_NAMES, api_key_from_file, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
+from serve.engine.progress import load_progress  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
+from serve.util.loglevel import ERR, WARN, LevelReader  # noqa: E402
 from serve.util.reqlog import RequestLog  # noqa: E402
 from serve.util.console import LEGEND, tagged  # noqa: E402
 from serve.util.text import ByteTokenizer  # noqa: E402
@@ -72,6 +74,59 @@ def grammar_entry(on: bool, cli: list[str], used: list[str]) -> tuple[bool, str]
     names = ("--grammar", "--no-grammar")
     origin = "cli" if any(w in names for w in cli) else "config" if any(w in names for w in used) else ""
     return (on, origin) if origin else None
+
+
+def open_when_ready(svc, url, now=False, opener=None):
+    """Open the page once, after the first weights load; at once when no load is under way (mock, lazy)."""
+    if opener is None:
+        import webbrowser
+        opener = webbrowser.open
+    if now:
+        opener(url)
+        return
+    done, previous = [], svc.on_loaded
+
+    def loaded():
+        if previous is not None:
+            previous()
+        if not done:
+            done.append(1)
+            opener(url)
+    svc.on_loaded = loaded
+
+
+def drop_sidecar_vision(cfg: dict) -> None:
+    """Only a sidecar encoder holds VRAM before the first request; `dynamic` encodes inside the engine, which the
+    request loads first anyway."""
+    if not cfg.get("vision") or cfg["vision"].get("mode") == "dynamic":
+        return
+    print(tagged("warning", "lazy loading drops a sidecar image encoder, vision off; --vision dynamic stays on"), flush=True)
+    del cfg["vision"]
+
+
+def engine_echo(engine):
+    """The tail callback that repeats the engine log's warnings and errors (and the indented lines of an error's
+    report) in the server window once the engine is ready; what it wrote while loading is the load bars' business."""
+    level = LevelReader()
+    in_err_block = False
+
+    def echo_engine_line(text: str, end_pos: int) -> None:
+        nonlocal in_err_block
+        lvl = level.read(text)
+        if lvl == ERR:
+            in_err_block = True
+            echo = True
+        elif in_err_block and text.startswith(("  ", "\t")) and text.strip():
+            echo = True
+        else:
+            in_err_block = False
+            echo = lvl == WARN
+        if echo and getattr(engine, "known_ctx", 0) > 0 and not engine.loading and end_pos > getattr(engine, "log_ready_pos", 0):
+            out = getattr(sys.stdout, "_stream", sys.stdout)
+            out.write(text.rstrip() + "\n")
+            out.flush()
+
+    return echo_engine_line
 
 
 def settings_info(a, words: list[str]) -> dict:
@@ -192,11 +247,8 @@ def main() -> int:
         if standby:                                     # the Loader's Load starts the engine and the encoder
             cfg = {**cfg, "vision": None}
             print("[server] standby: the engine starts when the Loader loads the model", flush=True)
-        if lazy and cfg.get("vision"):
-            print(tagged("warning", "lazy loading is text-only, vision off"), flush=True)
-            while (at := flag_index(cfg["args"], "--vision-mmproj")) is not None:
-                del cfg["args"][at:at + 2]
-            del cfg["vision"]
+        if lazy and not standby:
+            drop_sidecar_vision(cfg)
         if cfg.get("vision"):
             mode = cfg["vision"].get("mode")
             if mode == "dynamic":
@@ -207,8 +259,10 @@ def main() -> int:
         print(vision_line(cfg.get("vision"), cfg, vision.ready_s if vision else 0.0), flush=True)
         if lazy and not standby:
             print(tagged("model", "unloaded, the first request loads it"), flush=True)
+        echo: dict = {}                                 # the engine's warnings and errors in this window, once the engine exists
         if cfg.get("log"):                              # follow the engine's log file
-            threading.Thread(target=tail_file, args=(logs, cfg["log"], "eng"), daemon=True).start()
+            threading.Thread(target=tail_file, args=(logs, cfg["log"], "eng"),
+                             kwargs={"on_line": lambda text, end: echo["line"](text, end) if "line" in echo else None}, daemon=True).start()
         else:
             ProcessEngine.stderr_sink = lambda line: logs.add("eng", line)
         listen_first = bool(a.listen_first) and not lazy   # the engine starts after the HTTP server, on a thread
@@ -226,6 +280,7 @@ def main() -> int:
             started_from = loader.system_now()            # RAM and commit before the engine starts
             engine = ProcessEngine(cfg["engine_bin"], engine_args(cfg) + gwords, log=cfg.get("log"), env=env,
                                    lazy=lazy or listen_first)
+            echo["line"] = engine_echo(engine)
             if not (lazy or listen_first):              # loaded now: what it took, against the plan, once facts are read
                 loaded_memory = (started_from, loader.system_now(0))
         except EngineStartError as e:
@@ -399,8 +454,8 @@ def main() -> int:
         if exposed_without_key(a.host, svc.api_key):
             print(tagged("warning", "no api key, open to the network (--api-key KEY)"), flush=True)
     if a.open and svc.web:
-        import webbrowser
-        webbrowser.open(f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '') else a.host}:{a.port}/")
+        open_when_ready(svc, f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '') else a.host}:{a.port}/",
+                        now=not listen_first)
     # SIGTERM takes Ctrl+C's path (QUIT to the engine) so a container stop does not orphan it
     def on_sigterm(signum, frame):
         raise KeyboardInterrupt

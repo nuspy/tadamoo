@@ -35,6 +35,11 @@ for raw in sys.stdin:
 '''
 
 
+def context_words(words):
+    """The --max-context flag and its value among the engine words (the server's own defaults, such as the technical session's, are not the test's business)."""
+    return words[words.index("--max-context"):words.index("--max-context") + 2] if "--max-context" in words else []
+
+
 def settings(cli, cfg=None):
     with tempfile.TemporaryDirectory() as d:
         argv = list(cli)
@@ -50,15 +55,15 @@ class FlagPlumbing(unittest.TestCase):
         _, _, file_words, cli_words = settings(["--max-context", "1048576"])
         self.assertEqual(cli_words, ["--max-context", "1048576"])
         _, _, file_words, cli_words = settings([], {"engine": {"max-context": NATIVE}})
-        self.assertEqual((file_words, cli_words), (["--max-context", str(NATIVE)], []))
+        self.assertEqual((context_words(file_words), cli_words), (["--max-context", str(NATIVE)], []))
         _, _, file_words, cli_words = settings(["--max-context=65536"], {"engine": {"max-context": NATIVE}})
-        self.assertEqual((file_words, cli_words), (["--max-context", str(NATIVE)], ["--max-context", "65536"]))
+        self.assertEqual((context_words(file_words), cli_words), (["--max-context", str(NATIVE)], ["--max-context", "65536"]))
 
     def test_an_absent_flag_adds_none(self):
         _, _, file_words, cli_words = settings([], {"engine": {"spec": 0}})
         self.assertNotIn("--max-context", file_words + cli_words)
         _, _, file_words, cli_words = settings([])
-        self.assertEqual((file_words, cli_words), ([], []))
+        self.assertEqual((context_words(file_words), cli_words), ([], []))
 
     def test_the_rope_flags_stay_engine_words(self):
         # not rewritten or dropped by the server: the engine refuses them for a model that sets its own scaling
