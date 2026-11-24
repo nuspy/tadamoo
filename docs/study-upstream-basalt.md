@@ -32,3 +32,7 @@ Fotografia presa con `git fetch upstream` (sola lettura). Ogni riga dice se è *
 2. Fase 1: il costo basso (1, 2, 6, 7 e le correzioni).
 3. Fase 2: velocità e ingressi (3, 4, 5), ognuno con A/B e controllo di qualità.
 4. Fase 3: la rottura delle opzioni multi-scheda e, se vuoi, il Qwen3.8-27B.
+
+## Correzione della base (24 novembre, più tardi)
+
+La base giusta non è `4a591d96` ma il loro tag **v0.2.0** (1 novembre): da `src` e `include` nostri a v0.2.0 ci sono 102 file diversi con 9.112 righe aggiunte e 247 tolte, cioè il nostro motore è v0.2.0 più il nostro lavoro. Con quella base l'unione a tre vie di tutto il loro `main` dà 97 conflitti (86 di contenuto, 10 modify/delete, 1 add/add), in `src/program` (12), `src/models` (7), `include` (7), `src/kernels` (3), `src/core` e `src/platform` (2), prove e server (circa 20) e documentazione (circa 7). Verificato con `git merge-tree`, che non ha toccato niente.

@@ -779,10 +779,13 @@ Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il l
 - Verificato: la nostra storia e la loro non hanno antenato comune (git merge-base non trova niente), quindi un git merge non si può fare: si portano le modifiche con tre vie da un commit di base (4a591d96). Cambiati da tutti e due: 247 file (72 in src, 36 in include, 46 in serve, 43 in tests).
 - Candidati dai loro registri delle versioni (numeri loro, non misurati da noi): compilazione pulita da 933 a 290 secondi; avvio e RAM più robusti; prompt lunghi di Flash-Next fino al 22% più veloci; slot paralleli che decodificano insieme; video, PDF e Office nei messaggi; richieste immagini da altre macchine; Qwen3.8-27B denso in 16 GiB su una scheda.
 - 24 novembre: master contiene tutti i rami con storia comune (45, 44, 46-48 compresi). Aperto il ramo `merge/upstream-2026-11-24` (partito da master c42cd7f4a) con la sua copia di lavoro su D: (`D:/Projects/basalt-wt-upstream`); la base dei confronti è il loro commit 4a591d96, il loro main è 351039841 (0.5.7). Non è stato importato niente: aspetta le tue indicazioni su cosa prendere e cosa trascurare.
+- Correzione del 24 novembre: la base giusta per il confronto è il loro tag v0.2.0 (1 novembre), non 4a591d96. Il nostro motore è v0.2.0 più 9.112 righe aggiunte in 102 file (247 tolte). Un'unione a tre vie di tutto il loro main (0.5.7) con quella base dà 97 conflitti: 86 di contenuto, 10 modify/delete, 1 add/add (src/program 12, src/models 7, include 7, kernels 3, core e platform 2, serve e prove 20, docs circa 7).
 
 **Decisioni e punti aperti**
 
-- Da decidere con te: se avviare la fase 0 (un ramo di prova su D: con le modifiche applicate a tre vie, per contare i conflitti veri) e quali gruppi prendere; il 27B come secondo modello.
+- Deciso da te (24 novembre): da importare 0.3.0 (Qwen 4 e DeepSeek), 0.3.2, 0.3.3 (video, punto di ripresa dei media), 0.4.0, 0.4.1, 0.5.0, 0.5.5, 0.5.6. Da discutere: 0.2.1, 0.3.1, PDF e Office (noi abbiamo il Markdown), logprobs, answer-room e le altre novità di 0.3.3, 0.5.7.
+- Proposta: le versioni sono cumulative, quindi si importa tutto fino al tag v0.5.6 in un'unica prova e le scelte da discutere si applicano come impostazioni e predefiniti dopo; la 0.5.7 si valuta a parte.
+- Avvertenza: DeepSeek-V4.1-Flash vuole circa 320 GB di RAM per andare bene; con 121 GiB e gli esperti su SSD i loro numeri danno 2,8 token al secondo. Questo PC ha 128 GiB e una RTX 5090.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 
