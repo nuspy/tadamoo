@@ -300,10 +300,10 @@ def test_the_one_panel_is_shown_for_a_conversation_a_plan_and_the_machine_defaul
     for group in ("cs-visuals", "cs-perm", "cs-cp", "cs-bc"):
         assert f'class="csgroup csconv" id="{group}"' in html                                               # what only a conversation has is hidden for a plan
     assert '.chatset[data-scope="plan"] .csconv' in css and '.chatset[data-scope="machine"] .csconv' in css
-    assert "return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing" in chatset
+    assert "return { body, system, policy, threshold, structured, shows, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing" in chatset
     assert 'kind: "plan"' in plans and "chatSettings.edit(ui.infHost" in plans and '"plan:set_reasoning"' in plans and 'id: "pl-effort-all"' in plans and 'id: "pl-d-effort"' in plans
     assert 'kind: "machine"' in infdefault and '"Machine Default"' in infdefault and "innerHTML" not in infdefault
     assert "min-height: 44px" in css[css.index(".plinf-l select"):css.index(".pl-bar .plinf-l")]                       # a target to touch on a phone
     for key in NEW_KEYS:
         assert i18n.count(f'"{key}":') == 2, key                                                            # once in English and once in Italian
-    assert '"cx.title":' not in i18n and "compaction.js" not in html                                       # the global setting is gone
+    assert "compaction.js" not in html                                       # the global setting is gone

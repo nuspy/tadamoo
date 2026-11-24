@@ -21,6 +21,13 @@ OPTIONAL = {
     "bfcl_eval": "imported only inside the BFCL process, which runs in the environment of the imported benchmark",
     "tau2": "imported only inside the tau2-bench process, which runs in the environment of the imported benchmark",
 }
+# imported only by a worker process (media, speech, RAG, the dark-web helper) that runs in an environment of its own, which installs what it imports;
+# the names of the folders those workers add to their own path are in the list too
+WORKER_ENVIRONMENT = "imported only inside a worker process that runs in its own environment"
+OPTIONAL.update({name: WORKER_ENVIRONMENT for name in (
+    "darkweb", "worker", "cv2", "imageio_ffmpeg", "inference", "flashvsr_attn", "imageio", "torch", "ltx_core", "sageattention", "flash_attn",
+    "xformers", "ltx_pipelines", "modify_job", "attention_env", "transformers", "psycopg2", "docling", "pypdfium2", "rapidocr", "scipy", "whisper",
+    "librosa", "soundfile", "TTS", "mediapipe")})
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
 # (the personal skills' runtime folder holds tadamoo_skill, which a skill's script imports from the process that runs it)
 LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "tadamoo" / "personal_skills" / "runtime", ROOT / "tadamoo" / "sandbox" / "guard")

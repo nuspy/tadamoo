@@ -77,6 +77,7 @@ def test_the_writer_stops_at_the_frames_of_the_input_and_writes_at_the_quality_a
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg is not installed")
 def test_a_picture_made_at_twice_the_size_is_brought_back_to_the_size_of_the_input_with_the_same_frames(tmp_path):
+    pytest.importorskip("cv2")                         # fit_to_input reads and writes the frames with it
     big = make_clip(tmp_path / "big.mp4", 1.0, "256x144")
     final = tmp_path / "final.mp4"
     launch.fit_to_input(str(big), str(final), 128, 72, "4", "lanczos+accurate_rnd+full_chroma_int")

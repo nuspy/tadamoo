@@ -301,6 +301,8 @@ class EngineStart(unittest.TestCase):
             eng.write_bytes(flags)
             conf = Path(d) / "c.json"
             conf.write_text(cfgv2.dumps({"server": {"model": "m.basalt", "side-slot": 0, **server_block}}))
+            from serve.tests.test_models import tiny_basalt
+            tiny_basalt(Path(d) / "m.basalt")                    # the launch check wants a model file to read
             argv = ["x", "--config", str(conf), "--engine-bin", str(eng), "--port", str(free_port()), *cli]
             tokdir = Path(d) / "tok"
             tokdir.mkdir()

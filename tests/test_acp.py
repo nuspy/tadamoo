@@ -326,7 +326,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
 
     ROOT = Path(__file__).resolve().parents[1]
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, [tool_call("write_file", path="é.txt", content="ciao è"), answer("Fatto: è scritto"), answer("Controllato: è scritto")], max_context=32768),
+    svc = Service(MockEngine(tok, [tool_call("write_file", path="é.txt", content="ciao è"), answer("Fatto: è scritto"), answer("Controllato: è scritto")], max_context=262144),
                   tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = type("T", (), {"snapshot": lambda self: {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}}})()
     httpd = serve(svc, port=0)

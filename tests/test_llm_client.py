@@ -222,6 +222,6 @@ def test_this_server_takes_every_reasoning_level_llmswitch_offers():
     from tadamoo.llmswitch import reasoning
     from serve.frontend import effort_kwargs
     shown = {level: effort_kwargs(level) for level in reasoning.LEVELS}
-    assert shown["none"] == shown["minimal"] == {"enable_thinking": False}
-    assert shown["low"] == {"reasoning_effort": "low"} and shown["medium"] == {"reasoning_effort": "medium"}
-    assert shown["high"] == shown["xhigh"] == shown["max"] == {"reasoning_effort": "xhigh"}
+    assert shown["none"] == {"enable_thinking": False} and shown["minimal"] == {"reasoning_effort": "minimal"}      # the dialect says what a template takes for minimal
+    assert shown["low"] == {"reasoning_effort": "low"} and shown["medium"] == {"reasoning_effort": "medium"} and shown["high"] == {"reasoning_effort": "high"}
+    assert shown["xhigh"] == shown["max"] == {"reasoning_effort": "max"}

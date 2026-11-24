@@ -99,10 +99,10 @@ def test_a_server_that_asks_for_nothing_is_not_signed_in_to(setup, world):
     assert code == 200 and body == {"signed_in": False, "needs_sign_in": False}
 
 
-def test_changing_things_does_not_look_at_the_origin_or_the_content_type(setup):
+def test_a_page_of_another_site_is_refused_and_the_content_type_is_not_looked_at(setup):
     base, caps, api, tmp = setup
     code, body, _ = call(base, "POST", "/api/mcp/auth/start", {"id": "mcp:remote"}, {"Origin": "http://evil.example"})
-    assert code == 200
+    assert code == 403
     req = urllib.request.Request(base + "/api/mcp/auth/start", data=b"id=mcp:remote", method="POST", headers={"Content-Type": "text/plain"})
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)

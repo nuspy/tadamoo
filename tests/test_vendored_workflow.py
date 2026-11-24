@@ -1,4 +1,4 @@
-"""The vendored-tools workflow (.github/workflows/vendored-tools.yml) is read here, not run: it starts only by hand, every action is pinned to a commit, it builds the two programs from
+"""The vendored-tools workflow (.github/workflows/vendored-tools.yml) is read here, not run: it starts by hand or from the release workflow, every action is pinned to a commit, it builds the two programs from
 third_party for Windows and Linux with the locked dependencies, lists the licences of the dependencies, and names files that exist in the vendored trees."""
 import re
 from pathlib import Path
@@ -12,9 +12,9 @@ TEXT = (ROOT / ".github" / "workflows" / "vendored-tools.yml").read_text(encodin
 WORKFLOW = yaml.safe_load(TEXT)
 
 
-def test_it_starts_only_by_hand_and_asks_for_nothing_beyond_reading_the_repository():
+def test_it_starts_by_hand_or_from_the_release_and_asks_for_nothing_beyond_reading_the_repository():
     triggers = WORKFLOW.get("on") or WORKFLOW.get(True)
-    assert list(triggers) == ["workflow_dispatch"]
+    assert list(triggers) == ["workflow_dispatch", "workflow_call"]          # by hand, or called by the release workflow that needs its archives
     assert WORKFLOW["permissions"] == {"contents": "read"}
 
 

@@ -1,5 +1,7 @@
 """The stock sites read through a browser (Pexels, Envato): what their pages say becomes a result, the choice follows the same rules as for Pixabay, a site whose list gives only part of the description is asked
 for the page of the few videos that pass the list, and the sources of a production are asked in order. No browser starts and no site is asked: the texts are those of real pages."""
+import pytest
+
 from tadamoo.media import stock, stockplace
 from tadamoo.media.stock_sites import Envato, Pexels
 
@@ -102,6 +104,7 @@ def test_the_registry_keeps_the_site_with_the_id_and_reads_a_number_written_befo
     assert used.ids() == {"pexels:5940065", "pixabay:77"} and used.recent() == {"pexels:5940065", "pixabay:77"}
 
 def test_the_credits_name_every_site_used_and_the_authors_of_its_videos_once():
+    pytest.importorskip("tadamoo.newscast")               # the newscast is a project of its own, installed beside the harness
     from tadamoo.newscast.produce import credit_lines
     items = [{"source": "pexels", "user": "George Pak"}, {"source": "envato", "user": "johntrek120"}, {"source": "pexels", "user": "George Pak"},
              {"source": "pexels", "user": "Anna Kovacs"}, {"source": "pixabay", "user": ""}, {"source": "model"}]

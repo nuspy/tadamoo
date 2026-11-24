@@ -34,6 +34,7 @@ def start(tmp_path, monkeypatch, api_key=""):
     svc.telemetry = _NoTelemetry()
     svc.control_token = SECRET
     svc.api_key = api_key
+    svc.allowed_hosts = ("box.lan",)                                   # the name a test below asks under
     return serve(svc, port=0)
 
 

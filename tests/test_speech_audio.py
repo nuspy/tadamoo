@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+pytest.importorskip("scipy")                              # the speech worker's library (the joins and the click report use it)
+
 from tadamoo.speech import audiojoin as J, clausevoice, respell, voiceprint
 
 RATE = 24000

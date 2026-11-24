@@ -31,7 +31,7 @@ def test_no_web_serves_the_api_and_not_the_page(tmp_path):
     """`no-web: true` in the config file: the root says the server has no page, the files of the page and its fonts are not there, the API answers."""
     port = free_port()
     cfg = tmp_path / "cfg.json"
-    cfg.write_text(json.dumps({"server": {"no-web": True}}), encoding="utf-8")
+    cfg.write_text(json.dumps({"version": 2, "models": [], "server": {"no-web": True}}), encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--host", "127.0.0.1", "--port", str(port), "--config", str(cfg)], cwd=ROOT,
                             env={**os.environ, "TADAMOO_DATA": str(tmp_path / "data")}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
@@ -106,7 +106,7 @@ def test_the_page_is_served_without_no_web(tmp_path):
 def test_standby_alone_starts_answers_and_keeps_the_host_rule(tmp_path):
     port = free_port()
     cfg = tmp_path / "cfg.json"
-    cfg.write_text(json.dumps({"server": {"allowed-hosts": ["tadamoo.example.org"]}}), encoding="utf-8")
+    cfg.write_text(json.dumps({"version": 2, "models": [], "server": {"allowed-hosts": ["tadamoo.example.org"]}}), encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--host", "127.0.0.1", "--port", str(port), "--config", str(cfg)], cwd=ROOT,
                             env={**os.environ, "TADAMOO_DATA": str(tmp_path / "data")}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:

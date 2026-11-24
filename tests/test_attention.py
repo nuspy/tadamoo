@@ -53,7 +53,7 @@ def test_a_finished_run_of_a_routine_is_a_result(tmp_path, manager):
         api.shutdown()
 
 
-def test_the_route_reads_both_and_says_zero_while_nothing_exists_yet(tmp_path, monkeypatch, start_server):  # noqa: F811
+def test_the_route_reads_every_source_and_says_zero_while_nothing_exists_yet(tmp_path, monkeypatch, start_server):  # noqa: F811
     from serve import handler
     from test_agent_gui_api import Api
     monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
@@ -61,4 +61,4 @@ def test_the_route_reads_both_and_says_zero_while_nothing_exists_yet(tmp_path, m
     monkeypatch.setattr(handler, "_ROUTINES", None)
     monkeypatch.setattr(handler, "_PLANS", None)
     client = Api(url)
-    assert client("GET", "/api/attention") == (200, {"cron": {"t": 0.0}, "plans": {"t": 0.0}})
+    assert client("GET", "/api/attention") == (200, {"cron": {"t": 0.0}, "plans": {"t": 0.0}, "rag": {"t": 0.0, "archive": "", "counts": {}}, "actions": {"count": 0}})

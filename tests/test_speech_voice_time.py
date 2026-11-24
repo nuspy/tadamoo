@@ -4,6 +4,10 @@ import json
 import sys
 import textwrap
 
+import pytest
+
+pytest.importorskip("librosa")                            # the voiceprint's library, which the clause measure runs
+
 from tadamoo.speech import clausevoice, voicecheck
 
 FAKE = textwrap.dedent('''

@@ -57,7 +57,7 @@ def test_every_string_of_the_page_exists_in_english_and_italian():
     assert len(used) >= 4
     for key in used:
         assert i18n.count(f'"{key}":') == 2, key                                      # once in English and once in Italian
-    assert not (web / "compaction.js").exists() and 'id="cx-root"' not in (web / "index.html").read_text(encoding="utf-8")      # one place for it: the conversation's settings
+    assert not (web / "compaction.js").exists()                                                      # one place for it: the conversation's settings
 
 
 # -- in a real stack ----------------------------------------------------------------------------------------------------

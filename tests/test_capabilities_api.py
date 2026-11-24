@@ -70,8 +70,10 @@ def test_moving_and_turning_off_and_looking_again(api, tmp_path):
     assert "skill:new-one" in {e["id"] for e in view["entries"]}
 
 
-def test_the_settings_do_not_look_at_the_origin(api):
+def test_a_page_of_another_site_is_refused_before_the_route_and_changes_nothing(api):
     code, body = api("POST", "/api/capabilities/settings", {"visual": "none"}, headers={"Origin": "http://evil.example"})
-    assert code == 200
+    assert code == 403
+    assert api("GET", "/api/capabilities")[1]["settings"]["visual"] != "none"
+    assert api("POST", "/api/capabilities/settings", {"visual": "none"})[0] == 200               # the person's own page and a script with no Origin go through
     assert api("GET", "/api/capabilities")[1]["settings"]["visual"] == "none"
     assert api("POST", "/api/capabilities/nothing", {})[0] == 404
