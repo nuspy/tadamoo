@@ -50,4 +50,29 @@ conversazioni passate.
 
 ## Idee in ordine di costo
 
-Da 1 a 3 sono lavoro piccolo e certo; da 4 a 8 vanno misurate prima.
+I numeri sono quelli dei punti di «Dove fanno meglio»: da 1 a 3 sono lavoro piccolo e certo; da 4 a 8 vanno misurati prima.
+
+## Funzioni che hanno e noi no (aggiunta del 24 novembre)
+
+Confronto sulle funzioni che una persona vede, non sul codice. «Non trovato» vuol dire cercato nel nostro codice senza risultato, non provato che manchi.
+
+1. **Pagina dei consumi di token** (verificato in loro, non trovato da noi). Per giorno e per modello, token in ingresso e in uscita, quanti riletti dalla cache,
+   storico dei lavori con filtro sui falliti, costo se configurato. Da noi c'è solo la velocità in tempo reale. Con Z.AI e Codex il consumo conta.
+2. **Abilità pronte** (verificato in loro: 23 cartelle in `skills/public`). Ricerca approfondita sul web e su GitHub, revisione di articoli scientifici,
+   revisione sistematica della letteratura, analisi di consulenza, analisi di dati, grafici, newsletter, podcast, presentazioni, musica, video, immagini.
+   Da noi: immagini, video, voce, news-research (più Videonews fuori dal repository). Non trovate: presentazioni, podcast, musica, ricerca approfondita, analisi di dati.
+3. **Citare e riscrivere un passo** (verificato in loro, non trovato da noi). Si seleziona un passo di un file: «aggiungi alla conversazione», «chiedi in una chat
+   laterale», «riscrivi la selezione» con revisione e applicazione. Da noi il pannello Modifiche mostra e annulla le modifiche, ma non parte dalla selezione.
+4. **Quali abilità hanno davvero aiutato una risposta** (verificato in loro, non trovato da noi). Sotto la risposta compare l'elenco delle abilità caricate in quel giro.
+5. **Catalogo delle capacità** (verificato in loro). Un posto dove si scoprono, si installano e si assegnano a un agente server MCP e abilità, con lo stato.
+   Da noi la scheda Connettori esiste già (catalogo, installazione, revisione del rischio, account, aggiornamento con unione a tre vie): è alla pari.
+   Non ho verificato se loro assegnano le scelte a un singolo agente meglio di noi.
+6. **Agenti di GitHub** (verificato in loro). Eventi di issue e richieste di integrazione avviano un agente. Da noi i webhook esistono solo per Telegram.
+7. **Più canali di messaggi** (verificato). Slack, Discord, Feishu, DingTalk, WeChat, QQ, GitHub, Nostr contro il nostro Telegram più l'app Android.
+8. **Agenti personalizzati e squadre di agenti** (verificato in loro: galleria con importa e crea). Da noi ci sono le personalità dell'avatar e `spawn_subagent`, senza galleria.
+9. **Registrazione delle tracce verso strumenti esterni** (Langfuse, LangSmith, Monocle): verificato in loro, non trovato da noi (abbiamo `audit.py` e `replay.py`).
+10. **Utenti multipli con ruoli, accesso unico (SSO) e token personali**, terminale a schermo intero, condivisione pubblica di una conversazione: non servono a un uso personale e locale.
+
+Alla pari: programmazione dei compiti (`once`, `cron`, intervallo: da noi `cron.js` e `cron_tools.py`), progetti con istruzioni (da noi `AGENTS.md`), memoria a lungo termine, ricerca nelle conversazioni passate (`past.py`), MCP, controllo del browser, anteprime di documenti, punti di ripristino dei file (`checkpoints.py`).
+
+Cose che abbiamo e loro no: motore locale con LoRA, voce e avatar, riunioni e telefonate, portafoglio e pagamenti, app Android, controllo del computer, ricerca nel dark web, notiziario video.

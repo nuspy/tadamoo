@@ -1,11 +1,12 @@
 {
-  "version": 1,
-  "subversion": 14,
-  "name": "bizarre-smarttv",
+  "version": 2,
+  "subversion": 1,
+  "name": "statutory-gravity",
   "names_used": [
-    "bizarre-smarttv"
+    "bizarre-smarttv",
+    "statutory-gravity"
   ],
-  "release": "bizarre-smarttv_(v_1_14)",
-  "built": "2026-11-19T00:08:40",
-  "commit": "7f13c4dd"
+  "release": "statutory-gravity_(v_2_1)",
+  "built": "2026-11-24T01:19:20",
+  "commit": "03944fc3"
 }

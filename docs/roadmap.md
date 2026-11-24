@@ -2,13 +2,13 @@
 
 Gli adapter LoRA nel motore sono fatti, esperti compresi. L'addestramento vero è in corso. In fondo ci sono anche gli altri task del progetto, fatti e da fare. Tocca una voce per le note.
 
-_Aggiornato il 23/11/2026 notte. Generato da `docs/roadmap.json`: non si modifica a mano._
+_Aggiornato il 24/11/2026 notte. Generato da `docs/roadmap.json`: non si modifica a mano._
 
 | Stato | Nodi |
 |---|---|
-| fatto | 31 |
+| fatto | 32 |
 | in attesa | 11 |
-| non iniziato | 1 |
+| non iniziato | 5 |
 
 ## Il motore: adapter fusi all'avvio
 
@@ -594,6 +594,25 @@ L'harness ora dice al modello che il contesto si compatta da solo e che quello c
 - Vale dal prossimo avvio di TaDaMoo (il processo in corso ha il testo vecchio); non l'ho riavviato.
 - Se il modello remoto continua a parlarne, la causa è nel suo modo di rispondere: si guarda il testo delle sue frasi.
 
+### 45. Models: il fornitore delle richieste esterne (OpenAI e Anthropic) si sceglie (fatto)
+
+Fatto il 24 novembre nel ramo feat/external-provider (commit 0feb7851), NON unito a master: esce con la release dopo la 2.1, per decisione tua. «Altri programmi (interfacce OpenAI e Anthropic)» è una funzione dell'elenco dei fornitori. Senza scelta risponde il modello caricato, come prima; con un fornitore scelto, chat completions e messages (anche in streaming e con strumenti) gli vengono portati e la risposta torna nell'interfaccia del programma.
+
+**Fatto e problemi risolti**
+
+- Verificato con 16 test su un server vero con fornitori finti: OpenAI→fornitore OpenAI, Anthropic→fornitore OpenAI, OpenAI→fornitore Anthropic, streaming, strumenti, errore del fornitore (il programma riceve l'errore, mai la risposta del modello locale), /v1/models con il modello del fornitore, count_tokens stimato.
+- La funzione non segue il Modello primario, non entra negli scambi pesanti e non ricade sul modello caricato. Le parti di TaDaMoo (pagina Chat, servizio voce, i suoi client, il banco di prova) si riconoscono da un'intestazione o dall'user agent e non vengono mai portate via.
+- La riga informativa sotto la tabella dice ora chi risponde; /v1/responses risponde solo il modello caricato e con un fornitore scelto dà un errore che lo dice.
+
+**Decisioni e punti aperti**
+
+- Scelto da me: la funzione non chiede il «sì» per i dati personali (passano i dati del programma, non i tuoi); chi ha la chiave del server consuma la quota del fornitore scelto, e lo dice la riga.
+- Resta da fare: /v1/responses attraverso un fornitore (Codex lo usa).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Non provato con un fornitore vero né con la pagina nel browser con una scelta fatta: i test usano fornitori finti e la tabella è guidata dai dati del server.
+
 ## Altri task da fare, senza riavviare TaDaMoo
 
 ### 32. Risposte più lunghe (in attesa)
@@ -667,6 +686,86 @@ Studio del codice di bytedance/deer-flow (docs/study-deerflow.md): dove fa megli
 **Decisioni e punti aperti**
 
 - Da decidere quali adottare. In ordine di costo: 1 controllo delle versioni più CHANGELOG (e allineare pubspec, VERSION e note), 2 AGENTS.md per modulo, 3 contratti JSON condivisi, poi le idee da misurare (Retry-After e interruttore, citazioni dei subagenti, riparazione della cronologia, compattazione a pezzi, segno «letto» nei messaggi).
+
+### 44. Models > Providers: scheda dei consumi di token (non iniziato)
+
+Una scheda sotto Models, accanto a Providers, con i token usati da ogni fornitore (cloud, locali e Basalt), con filtri fissi (ultima ora, 12 ore, giorno, settimana, mese, totali) e un periodo scelto con data e ora di inizio e di fine. Richiesta del 24 novembre, dopo lo studio di DeerFlow.
+
+**Fatto e problemi risolti**
+
+- Verificato nel codice: oggi esiste solo `Ledger` (`tadamoo/llm/store.py`), che somma i token totali per giorno e per fornitore, tiene 14 giorni e serve al tetto giornaliero. Non basta: non ha ora, né ingresso/uscita/cache, né le chiamate al motore Basalt o a LM Studio.
+- Serve un registro nuovo, una riga per chiamata (ora, fornitore, modello, funzione, token in ingresso, in uscita e riletti dalla cache, esito), scritto da ogni strada che chiama un modello, compreso il motore locale.
+
+**Decisioni e punti aperti**
+
+- Da decidere: per quanto tempo si tengono le righe (il filtro «totali» le vuole tutte), e se il costo in denaro si mostra solo dove il fornitore lo dichiara.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Plausibile, non provato: i consumi di Basalt e di LM Studio vanno letti dal campo `usage` delle risposte; se un motore non lo riporta il numero sarebbe una stima e va indicato.
+
+### 46. Il terminale come interfaccia: una riga con un prefisso va all'harness (non iniziato)
+
+In PowerShell (solo PowerShell, 7 e 5.1) una riga che comincia con § non viene eseguita dalla shell ma mandata all'harness, che risponde nel terminale. § apre una sessione nuova (la precedente di quella finestra viene dismessa e cancellata); §§ continua la sessione precedente e manda all'harness anche quello che è comparso nel terminale dall'ultima riga § o §§. Ogni riga è un solo prompt, senza limiti su strumenti, inferenze e durata. Il prefisso si cambia nelle impostazioni. Si distribuisce come scelta del setup. Richiesta del 24 novembre.
+
+**Fatto e problemi risolti**
+
+- Verificato: il terminale che ricordavi è PSLLMKit del progetto API-CLI (C:\Projects\API-CLI, con la War Room): un modulo PowerShell che fa girare un CLI (claude, codex, gemini, droid) come server HTTP o lo chiama direttamente. Non è un terminale e va nella direzione opposta: noi vogliamo un client verso il nostro server, che esiste già.
+- Verificato sulla macchina: PSReadLine 2.4.5 (PowerShell 7) e 2.0.0 (PowerShell 5.1) permettono di intercettare Invio prima che la riga venga eseguita; Windows Terminal (wt.exe) è solo il contenitore e non intercetta niente. La parte che serve sta quindi nella shell, non nel terminale.
+- Verificato (24 novembre): `python -m tadamoo session` è già un processo di conversazione di lunga durata che parla a righe di JSON (send, answer, cancel, mode… e gli eventi delta, ask, done): su di esso si costruisce un solo client da terminale, usato dal § e dal comando `tadamoo` (task 47).
+
+**Decisioni e punti aperti**
+
+- Deciso da te (24 novembre): prefisso §, configurabile in Settings; solo PowerShell; un prompt per riga, nessun limite su quello che l'harness può fare; § = sessione nuova e vecchia cancellata; §§ = stessa sessione più il contenuto del terminale dall'ultima riga § o §§; componente del setup, scelto quando si sceglie la riga di comando.
+- Da confermare: «dall'ultima riga § o §§» è la mia lettura. Da decidere: il livello di permesso delle sessioni da terminale e dove compaiono le richieste di approvazione; il posto nelle impostazioni (proposta: Settings > General, una sezione «Riga di comando», in un file `terminal.json` che il modulo legge anche a server spento).
+- Cambiato il 24 novembre: il § vive nel modulo di API-CLI (task 48), che parla con l'API HTTP delle conversazioni; niente client Python.
+- Aggiunto il 24 novembre: i comandi che cambiano lo stato della shell sono ridigitati nel terminale (task 47); il loro risultato torna all'agente con il §§.
+- Aggiunto il 24 novembre: il risultato atteso e il riepilogo finale dell'agente si stampano sotto la riga § in un colore diverso, configurabile nella stessa sezione delle impostazioni; predefinito blu elettrico (#2E7BFF, che su sfondo scuro ha contrasto circa 5:1; il #1F51FF puro ne ha circa 3,5:1). Le righe degli strumenti restano in grigio. Una barra a sinistra della riga tiene il testo riconoscibile anche senza colore.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Plausibile, non provato: Start-Transcript registra l'uscita della shell per ricavare il testo tra le righe § (in PowerShell 7 include l'uscita dei programmi nativi; in 5.1 va provato; i programmi a schermo intero come vim non si registrano). Prova più economica: un modulo di 40 righe con Start-Transcript e un Invio intercettato da PSReadLine.
+- Il file del modulo deve essere UTF-8 con BOM, o PowerShell 5.1 legge male il § (due byte).
+
+### 47. Il comando `tadamoo`: un agente TaDaMoo in qualunque cartella, come Claude Code (non iniziato)
+
+Scrivendo `tadamoo` in una cartella qualsiasi del terminale parte una conversazione interattiva con un agente TaDaMoo che lavora in quella cartella: risposta che scorre, una riga per ogni strumento, richieste di approvazione con sì o no digitato, Ctrl+C che ferma. Con `tadamoo -p "..."` fa un solo compito. Si installa con il setup, che mette il comando nel PATH. Richiesta del 24 novembre.
+
+**Fatto e problemi risolti**
+
+- Verificato: oggi `python -m tadamoo` fa solo il compito singolo (`-p` obbligatorio) e il comando `tadamoo` non esiste nel PATH di questa macchina; il processo di conversazione `python -m tadamoo session` esiste già e basta per la parte interattiva.
+
+**Decisioni e punti aperti**
+
+- Deciso da te (24 novembre): entrambe le cose. L'agente lavora nella cartella del terminale con i suoi strumenti, in un processo suo (come Claude Code); in più, alla fine, può far eseguire alla tua shell qualunque cosa la shell sappia fare (cd, variabili d'ambiente, ambienti virtuali, creare cartelle, aprire SSH): i comandi vengono «ridigitati» nel tuo terminale dal modulo.
+- Il client è il modulo PowerShell di API-CLI (task 48), non un programma Python.
+- Deciso da te (24 novembre): il comando che l'agente vuole far eseguire alla tua shell viene scritto già pronto su una nuova riga: tu lo controlli e premi Invio, oppure lo modifichi e poi premi Invio. Non parte da solo.
+- Il terminale dice all'agente in quale cartella si trova (a ogni riga § e §§, perché con un cd può essere cambiata) e che shell è; l'agente ottiene l'elenco dei file e delle cartelle con i suoi strumenti, non passando dal terminale.
+- Deciso da te (24 novembre): gli strumenti dell'agente partono da soli; solo il comando per la tua shell resta scritto in attesa del tuo Invio. Una richiesta come «crea la cartella ciao e entraci» diventa una sola riga (`mkdir ciao; cd ciao`): niente coda di comandi, la riga usa la sintassi della shell che il terminale ha dichiarato (in PowerShell 5.1 niente `&&`).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Plausibile, non provato: per ridigitare i comandi nella tua sessione il modulo mette la riga nel buffer di PSReadLine (Insert e AcceptLine) quando la shell torna al prompt, senza Invio; così, dopo il tuo Invio, il comando gira nell'ambito globale, finisce nella cronologia, e `cd`, variabili e attivazione di ambienti virtuali valgono davvero. Prova più economica: 20 righe con un gancio sul prompt che scrive `cd C:\prova`, in PowerShell 7.7 (PSReadLine 2.4.5) e in 5.1 (2.0.0), in una finestra vera di Windows Terminal.
+- Serve uno strumento nuovo per le sessioni da terminale (`terminal_run`) e un evento nuovo nelle conversazioni (`terminal_command`) che il modulo legge; l'uscita dei comandi ridigitati resta nel testo del terminale, che il §§ riporta all'agente.
+- Dopo `ssh host` il comando successivo si scrive solo quando il prompt torna, cioè dopo l'uscita da SSH; comandi da eseguire dentro la sessione SSH non sono coperti dalla prima versione.
+
+### 48. API-CLI diventa l'unico prodotto da terminale: § , comando tadamoo e War Room (non iniziato)
+
+Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLMKit di API-CLI (C:\Projects\API-CLI, repository nuspy/API-CLI) viene modificato (anche nel protocollo, se serve) e porta tutto: TaDaMoo come app raggiungibile con HTTP e la sua chiave, il prefisso § e §§ (task 46), il comando `tadamoo` interattivo in qualunque cartella (task 47) e la War Room come parte opzionale. Il setup di TaDaMoo lo include come componente «Riga di comando». Un solo comando, niente decine di CLI.
+
+**Fatto e problemi risolti**
+
+- Verificato: gli adattatori stanno in `webapp/src/server/cliAdapters/` (base.js, claude.js, codex.js, droid.js, gemini.js: `buildArgs` e `parseOutput`); PSLLMKit ha `Start-LLMServer`, `Invoke-LLMPrompt` e simili in `Public/`.
+- Verificato: il server ha già l'API HTTP delle conversazioni (`POST /api/agent/sessions` con la cartella di lavoro, `POST .../send`, `GET .../events?after=N`, le risposte alle domande, dal PC e da un telefono con la chiave: docs/harness.md): il modulo PowerShell può fare da solo il client, anche verso un server su un altro PC.
+
+**Decisioni e punti aperti**
+
+- Deciso da te: si riusa e si modifica API-CLI; un solo comando; niente client Python a parte.
+- Da fare in API-CLI prima di distribuirlo: togliere la porta predefinita 8080 (vietata qui); farlo funzionare anche in PowerShell 5.1 (oggi chiede la 7); la licenza la decidi tu. Da decidere: se il setup include il codice di API-CLI al momento della compilazione (come già fa con agent-desktop in `third_party/`).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 

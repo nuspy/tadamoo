@@ -39,6 +39,8 @@
 
 .PARAMETER NewVersion
     Start a new version instead of a new subversion.
+.PARAMETER Name
+    The name of the release, used instead of a generated one (with -NewVersion; a name already used is refused).
 .PARAMETER SkipEngine
     Rare. Do not run the CMake build even when something changed; use the binaries already in bin\. Not needed to keep the
     server running: when the engine is up to date the build is skipped by itself.
@@ -68,6 +70,7 @@
 [CmdletBinding()]
 param(
     [switch]$NewVersion,
+    [string]$Name = '',
     [string]$OutDir = 'dist',
     [switch]$SkipEngine,
     [switch]$SkipDownloads,
@@ -151,7 +154,8 @@ try {
         if ($n -and $n.InnerText -match '^(\d+)') { $curVersion = [int]$Matches[1] }
     }
     if ($NewVersion -and $relName) { $curVersion++; $curSub = 0; $relName = '' }
-    if (-not $relName) { $relName = New-ReleaseName $usedNames; $usedNames += $relName; $curSub = 0 }
+    if ($Name -and $usedNames -contains $Name) { throw "the release name '$Name' was used before" }
+    if (-not $relName) { $relName = if ($Name) { $Name } else { New-ReleaseName $usedNames }; $usedNames += $relName; $curSub = 0 }
     $newSub = $curSub + 1
     $ReleaseLabel = '{0}_(v_{1}_{2})' -f $relName, $curVersion, $newSub       # the name shown everywhere
     $Version = '{0}.{1}' -f $curVersion, $newSub                              # the number InstallForge takes

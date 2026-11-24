@@ -150,11 +150,11 @@ Il server parla entrambe le API anche verso l'esterno, così gli editor e gli st
 
 | Cosa | Dove | Per |
 |---|---|---|
-| **Windows**, completo | [windows-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/windows-v1.12.8) | app, motore, server e Python su un solo PC |
-| **Windows**, solo GUI | [windows-gui-only-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v1.12.8) | una finestra su un server che gira altrove |
+| **Windows**, completo | [windows-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.1) | app, motore, server e Python su un solo PC |
+| **Windows**, solo GUI | [windows-gui-only-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.1) | una finestra su un server che gira altrove |
 | **Linux**, completo | [linux-complete-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v1.12.8) | harness, installer e motore Basalt-Plus |
 | **Linux**, server | [server-linux-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v1.12.8) | harness e installer |
-| **Android** | [android-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/android-v1.12.8) | l'app per il telefono |
+| **Android** | [android-v2.1](https://github.com/nuspy/tadamoo/releases/tag/android-v2.1) | l'app per il telefono |
 | **Mac** | da compilare da questo repository | la finestra su un server (predisposto in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third_party/` e stanno dentro i pacchetti Windows e Linux.
