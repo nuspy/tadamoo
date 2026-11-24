@@ -45,7 +45,10 @@ class BenchFlags(unittest.TestCase):
         # Every flag the help lists is one the engine parser accepts; an empty or cut-short list would make the
         # per-flag test vacuous.
         flags = engine_flags()
-        parsed = set(re.findall(r'a == "(--[a-z0-9-]+)"', (ROOT / "src/program/cli/arguments.cpp").read_text()))
+        sources = [ROOT / "src/program/cli/arguments.cpp", ROOT / "src/model/rope_flags.cpp", ROOT / "src/model/route_flags.cpp",
+                   *sorted((ROOT / "src/models").glob("*/flags.cpp")),
+                   *sorted((ROOT / "src/models").glob("*/adapter.cpp"))]
+        parsed = {f for s in sources for f in re.findall(r'a == "(--[a-z0-9-]+)"', s.read_text())}
         self.assertTrue(parsed)
         self.assertEqual(sorted(set(flags) - parsed), [])
         for known in ("--spec", "--kv", "--max-context", "--gpu"):
@@ -64,6 +67,12 @@ class BenchFlags(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--max-context") + 1], "999999")
         self.assertEqual(cmd[cmd.index("--kv") + 1], "int8")
         self.assertEqual(cmd.count("--max-context"), 1)
+
+    def test_a_flag_the_engine_keeps_every_value_of_is_passed_each_time(self):
+        cmd = self.command("--exp", "a=1", "--exp", "b=2", "--kv", "int8", "--kv", "f16")
+        self.assertEqual([cmd[i + 1] for i, w in enumerate(cmd) if w == "--exp"], ["a=1", "b=2"])
+        self.assertEqual(cmd.count("--kv"), 1)
+        self.assertEqual(cmd[cmd.index("--kv") + 1], "f16")
 
     def test_a_switch_does_not_take_the_next_option(self):
         cmd = self.command("--peer-exclusive", "-p", "16384", "-t", "prose", "--vram-reserve-mib", "-1")
@@ -91,7 +100,6 @@ class BenchFlags(unittest.TestCase):
     def test_community_keeps_the_engine_defaults(self):
         cmd = self.command_community()
         self.assertNotIn("--spec", cmd)
-        self.assertEqual(cmd[cmd.index("--kv") + 1], "int8")
 
     def command_community(self) -> list[str]:
         r = subprocess.run([str(BENCH), "--model", "m.basalt", "--fixtures", str(self.fixtures), "--print-command",
@@ -107,6 +115,14 @@ class BenchFlags(unittest.TestCase):
                                    capture_output=True, text=True)
                 self.assertEqual(r.returncode, 2)
                 self.assertIn("incomparable", r.stderr)
+
+    def test_community_refuses_a_submitter_the_table_checker_rejects(self):
+        for name in ("two words", "x" * 41, "tab\tname"):
+            with self.subTest(name=name):
+                r = subprocess.run([str(BENCH), "--model", "m.basalt", "--community", "--submitter", name],
+                                   capture_output=True, text=True)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("--submitter", r.stderr)
 
     def test_community_uses_every_visible_card_and_refuses_gpu(self):
         cmd = self.command_community()

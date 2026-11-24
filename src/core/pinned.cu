@@ -1,6 +1,6 @@
-// src/core/pinned.cu - the pinned host arena and the parallel expert load.
-#include "basalt/core/load_progress.hpp"
+// src/core/pinned.cu - the pinned host arena.
 #include "basalt/core/pinned.hpp"
+#include "basalt/core/ram_load.hpp"
 #include "basalt/platform/file.hpp"
 #include "basalt/platform/memory.hpp"
 
@@ -16,10 +16,6 @@
 #include <thread>
 #include "basalt/log.hpp"
 
-#if defined(_WIN32)
-#include "basalt/platform/win.hpp"
-#endif
-
 namespace basalt::core {
 
 uint64_t fnv1a64(const uint8_t* p, uint64_t n, uint64_t seed) {
@@ -30,10 +26,6 @@ uint64_t fnv1a64(const uint8_t* p, uint64_t n, uint64_t seed) {
     }
     return h;
 }
-
-namespace {
-bool clear_error() { (void) cudaGetLastError(); return true; }
-}  // namespace
 
 namespace {
 std::vector<uint64_t> uniform_bounds(uint64_t bytes, uint64_t slice) {
@@ -50,8 +42,7 @@ PinnedArena::PinnedArena(uint64_t bytes, uint64_t slice) : PinnedArena(bytes, un
 }
 
 PinnedArena::PinnedArena(uint64_t bytes, const std::vector<uint64_t>& bounds,
-                         uint64_t max_pinned_bytes, const std::string& shared_file,
-                         uint64_t shared_hash) : capacity(bytes) {
+                         const std::string& shared_file, uint64_t shared_hash) : capacity(bytes) {
     if (bytes == 0) return;
     basalt::platform::RegionBacking region_backing = basalt::platform::RegionBacking::NormalPages;
     base = basalt::platform::alloc_region(bytes, region_backing, note, shared_file, shared_hash, mapping_base,
@@ -62,76 +53,25 @@ PinnedArena::PinnedArena(uint64_t bytes, const std::vector<uint64_t>& bounds,
     // Register with CUDA BEFORE any page is touched: cudaHostRegister pins what is resident now, and a region
     // that has already been faulted in page by page is far more expensive to register and may fail outright.
     if (base) {
-        uint64_t cap = max_pinned_bytes;
-        const std::string cap_why = "by the engine (remote experts)";
-        const bool capped = cap > 0 && cap < bytes && bounds.size() >= 2;
-        const cudaError_t e = capped ? cudaSuccess :
-            cudaHostRegister(base, (size_t) bytes, cudaHostRegisterPortable | cudaHostRegisterMapped);
-        if (!capped && e == cudaSuccess) {
+        const RamPin p = pin_ram(base, bytes, bytes, bounds, /*mapped=*/true);
+        registered_bytes = p.registered_bytes;
+        locked_bytes = p.locked_bytes;
+        if (p.refused.empty()) {
             note = "cudaHostRegister PORTABLE ok; " + note;
-            registered_bytes = bytes;
-        } else if (bounds.size() >= 2 && (capped || clear_error())) {
-            // the whole range is refused, so pin it slice by slice from the start.  The rest stays resident through the
-            // working-set lock below.  (Slices may differ in size, one per layer.)
+        } else if (p.sliced) {
             slice_bytes = 1;   // sliced; the uniform constructor records the size
-            bool limited = capped;
-            uint64_t limit = cap;
-            std::string limit_why;
-            // Stop below the shared-memory budget rather than at the driver's refusal, and only when the budget is
-            // actually smaller than the arena: an arena the segment can hold is pinned whole, as before.
-            if (!capped) {
-                uint64_t seg = 0;
-                std::string seg_why;
-                if (basalt::platform::pin_budget(seg, seg_why) && seg < bytes) {
-                    limited = true;
-                    limit = seg;
-                    limit_why = std::move(seg_why);
-                }
-            }
-            for (size_t i = 0; i + 1 < bounds.size(); ++i) {
-                const uint64_t off = bounds[i], n = bounds[i + 1] - bounds[i];
-                if (limited && (off > limit || n > limit - off)) break;
-                if (cudaHostRegister((uint8_t*) base + off, (size_t) n, cudaHostRegisterPortable | cudaHostRegisterMapped) != cudaSuccess) {
-                    (void) cudaGetLastError();
-                    break;
-                }
-                slice_starts.push_back(off);
-                registered_bytes = off + n;
-                ++registered_slices;
-            }
+            slice_starts = p.slice_starts;
+            registered_slices = p.slices;
             char gib[32];
-            std::snprintf(gib, sizeof gib, "%.1f", (double) limit / (double) (1ull << 30));
-            note = (capped ? "cudaHostRegister limited to " + std::to_string(cap >> 30) + " GiB " + cap_why + "; " :
-                             "cudaHostRegister of the whole arena FAILED (" + std::string(cudaGetErrorString(e)) + "); " +
-                             (limited ? "slices capped at " + std::string(gib) + " GiB (" + limit_why +
-                                        "); " : std::string())) +
+            std::snprintf(gib, sizeof gib, "%.1f", (double) p.cap / (double) (1ull << 30));
+            note = "cudaHostRegister of the whole arena FAILED (" + p.refused + "); " +
+                   (p.capped ? "slices capped at " + std::string(gib) + " GiB (" + p.cap_why + "); " : std::string()) +
                    std::to_string(registered_slices) + " slices pinned (" + std::to_string(registered_bytes >> 30) +
                    " GiB); " + note;
-            if (registered_bytes < bytes) {
-                const basalt::platform::LockResult lr =
-                    basalt::platform::lock_resident((uint8_t*) base + registered_bytes, bytes - registered_bytes);
-                locked_bytes = lr.locked_bytes;
-                note = lr.note + "; " + note;
-            }
+            if (registered_bytes < bytes) note = p.lock_note + "; " + note;
         } else {
-            note = std::string("cudaHostRegister FAILED (") + cudaGetErrorString(e) +
-                   ") - the arena is NOT pinned, so copies will be slow; " + note;
-            // **CONSUME THE ERROR, OR IT LIES ABOUT SOMETHING ELSE LATER.**
-            //
-            // `cudaGetLastError()` returns the last error and CLEARS it; until something reads it, the error
-            // state is sticky.  This failure is caught and handled right here - the arena is simply not pinned -
-            // but leaving it set meant the next `cudaGetLastError()` in the engine, which is `gr_read`'s launch
-            // check, reported "out of memory" for kernels that allocate nothing.  That cost a round: the arena
-            // was written off as not fitting the machine when in fact the only thing wrong was a stale error
-            // from this line.
-            //
-            // It is the same trap `gr.cu` warns about for ASYNC faults, in the other direction: a synchronous
-            // failure is sticky too, and it lies about where it happened just as convincingly.
-            (void) cudaGetLastError();
-            // Keep it resident instead of pinned, so the OS does not page the arena out.
-            const basalt::platform::LockResult lr = basalt::platform::lock_resident(base, bytes);
-            locked_bytes = lr.locked_bytes;
-            note = lr.note + "; " + note;
+            note = "cudaHostRegister FAILED (" + p.refused + ") - the arena is NOT pinned, so copies will be slow; " + note;
+            note = p.lock_note + "; " + note;
         }
     }
 }
@@ -141,7 +81,7 @@ PinnedArena::~PinnedArena() {
         if (locked_bytes) basalt::platform::unlock_resident((uint8_t*) base + (slice_bytes ? registered_bytes : 0), locked_bytes);
         if (slice_bytes) {
             for (uint64_t off : slice_starts) cudaHostUnregister((uint8_t*) base + off);
-        } else {
+        } else if (!platform::kBoundHostRegistration || registered_bytes > 0) {
             cudaHostUnregister(base);
         }
         basalt::platform::free_region(mapping_base ? mapping_base : base, mapping_bytes ? mapping_bytes : capacity);
@@ -149,276 +89,6 @@ PinnedArena::~PinnedArena() {
         mapping_base = nullptr;
         mapping_bytes = 0;
     }
-}
-
-LoadStats load_experts(const std::string& path, uint8_t* dst, uint64_t blob_bytes, uint64_t blobs_per_layer,
-                       uint64_t layers, int threads, uint64_t chunk) {
-    std::vector<uint64_t> off((size_t) layers), n((size_t) layers, blobs_per_layer * blob_bytes);
-    for (uint64_t L = 0; L < layers; ++L) off[(size_t) L] = L * blobs_per_layer * blob_bytes;
-    return load_experts_ranges(path, dst, off, n, threads, chunk);
-}
-
-#if defined(_WIN32)
-// Windows: FILE_FLAG_NO_BUFFERING reads straight into the arena, each reader on its own handle with positional
-// synchronous reads.  The ranges must be one contiguous run that starts 4 KiB aligned in the file and in `dst` (the
-// arena layout's are); its last partial page goes through a small aligned buffer, so nothing past the run is written.
-LoadStats load_experts_direct(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
-                              const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
-    LoadStats st;
-    st.ok = false;
-    constexpr uint64_t kAlign = 4096;
-    if (layer_off.empty() || layer_off.size() != layer_bytes.size() || chunk == 0 || chunk % kAlign != 0) return st;
-    const uint64_t start = layer_off[0];
-    uint64_t total = 0;
-    for (size_t L = 0; L < layer_off.size(); ++L) {
-        if (layer_off[L] != start + total) return st;   // not one run: the buffered reader
-        total += layer_bytes[L];
-    }
-    if (((uintptr_t) (dst + start)) % kAlign != 0 || (base + start) % kAlign != 0 || total == 0) return st;
-    const uint64_t body = total / kAlign * kAlign, tail = total - body;
-    struct Piece { uint64_t off, n; };
-    std::vector<Piece> pieces;
-    for (uint64_t p = 0; p < body; p += chunk) pieces.push_back({p, std::min<uint64_t>(chunk, body - p)});
-    if (threads < 1) threads = 1;
-    const auto t0 = std::chrono::steady_clock::now();
-    LoadProgress progress("ram", total);
-    std::atomic<size_t> next{0};
-    std::atomic<uint64_t> read_ns_sum{0};
-    std::mutex err_mu;
-    std::string err;
-    const std::wstring wpath = basalt::platform::to_wide(path);
-    auto fail = [&](const std::string& what) {
-        std::lock_guard<std::mutex> g(err_mu);
-        if (err.empty()) err = what;
-        next = pieces.size() + 1;
-    };
-    auto read_at = [](HANDLE h, uint8_t* to, uint64_t off, DWORD n, DWORD& got) {
-        OVERLAPPED ov{};
-        ov.Offset = (DWORD) (off & 0xFFFFFFFFull);
-        ov.OffsetHigh = (DWORD) (off >> 32);
-        got = 0;
-        return ReadFile(h, to, n, &got, &ov) != 0;
-    };
-    auto worker = [&](bool does_tail) {
-        HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                               FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        if (h == INVALID_HANDLE_VALUE) {
-            fail("cannot open " + path + " unbuffered (error " + std::to_string((unsigned long long) GetLastError()) + ")");
-            return;
-        }
-        uint64_t read_ns = 0;
-        for (;;) {
-            const size_t i = next.fetch_add(1);
-            if (i >= pieces.size()) break;
-            DWORD got = 0;
-            const auto tr = std::chrono::steady_clock::now();
-            const bool ok = read_at(h, dst + start + pieces[i].off, base + start + pieces[i].off, (DWORD) pieces[i].n, got);
-            read_ns += (uint64_t) std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - tr).count();
-            if (!ok || got != pieces[i].n) {
-                fail("short unbuffered read at offset " + std::to_string(base + start + pieces[i].off) + ": got " +
-                     std::to_string(got) + " of " + std::to_string(pieces[i].n) + " B (error " +
-                     std::to_string((unsigned long long) GetLastError()) + ")");
-                break;
-            }
-            progress.add(pieces[i].n);
-        }
-        if (does_tail && tail > 0 && err.empty()) {   // the last partial page, through an aligned buffer
-            uint8_t* page = (uint8_t*) VirtualAlloc(nullptr, kAlign, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-            DWORD got = 0;
-            if (page == nullptr || !read_at(h, page, base + start + body, (DWORD) kAlign, got) || got < tail) {
-                fail("short unbuffered read of the last " + std::to_string(tail) + " B (error " +
-                     std::to_string((unsigned long long) GetLastError()) + ")");
-            } else {
-                std::memcpy(dst + start + body, page, (size_t) tail);
-                progress.add(tail);
-            }
-            if (page != nullptr) VirtualFree(page, 0, MEM_RELEASE);
-        }
-        read_ns_sum.fetch_add(read_ns);
-        CloseHandle(h);
-    };
-    std::vector<std::thread> pool;
-    for (int i = 1; i < threads; ++i) pool.emplace_back(worker, false);
-    worker(true);
-    for (auto& t : pool) t.join();
-    st.layers = layer_off.size();
-    if (!err.empty()) {
-        st.seconds = -1.0;
-        st.error = err;
-        return st;
-    }
-    progress.finish();
-    st.ok = true;
-    st.bytes = total;
-    st.read_seconds = (double) read_ns_sum.load() / 1e9;
-    st.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    return st;
-}
-
-// A timed probe of random 64 KiB reads says whether the files are in the file cache; the RAM left beside the arena
-// says whether the cache could keep them for the next start.  Unbuffered only when neither holds: a warm restart then
-// never gets slower, and a start that reads the drive anyway skips the cache's copy (on Windows a buffered load of
-// tens of GB also pushes the rest of the machine's cached files out).
-bool experts_unbuffered(const std::vector<std::string>& files, uint64_t arena_bytes, std::string& why,
-                        bool cache_counts, uint64_t read_bytes) {
-    LARGE_INTEGER freq{}, a{}, b{};
-    QueryPerformanceFrequency(&freq);
-    constexpr DWORD kRead = 64 << 10;
-    constexpr int kSamples = 16;
-    std::vector<uint8_t> buf(kRead);
-    uint64_t total_bytes = 0;
-    int fast = 0, n = 0;
-    uint64_t seed = (uint64_t) GetTickCount64() * 6364136223846793005ull + 1442695040888963407ull;
-    for (const std::string& f : files) {
-        HANDLE h = CreateFileW(basalt::platform::to_wide(f).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                               FILE_FLAG_RANDOM_ACCESS, nullptr);
-        if (h == INVALID_HANDLE_VALUE) continue;
-        LARGE_INTEGER size{};
-        GetFileSizeEx(h, &size);
-        total_bytes += (uint64_t) size.QuadPart;
-        // random offsets: a probe must not find the blocks an earlier probe put into the cache
-        for (int i = 0; i < kSamples && (uint64_t) size.QuadPart > 2ull * kRead; ++i) {
-            seed = seed * 6364136223846793005ull + 1442695040888963407ull;
-            const uint64_t off = ((seed >> 17) % ((uint64_t) size.QuadPart - kRead)) / kRead * kRead;
-            OVERLAPPED ov{};
-            ov.Offset = (DWORD) off;
-            ov.OffsetHigh = (DWORD) (off >> 32);
-            DWORD got = 0;
-            QueryPerformanceCounter(&a);
-            const BOOL ok = ReadFile(h, buf.data(), kRead, &got, &ov);
-            QueryPerformanceCounter(&b);
-            if (!ok) continue;
-            ++n;
-            fast += (double) (b.QuadPart - a.QuadPart) * 1e6 / (double) freq.QuadPart < 30.0;
-        }
-        CloseHandle(h);
-    }
-    const bool cached = n > 0 && fast * 4 >= n * 3;
-    const uint64_t avail = basalt::platform::available_memory();
-    const uint64_t need = read_bytes == kAllFileBytes ? total_bytes : read_bytes;
-    const bool keepable = basalt::platform::file_cache_keeps(avail, arena_bytes, need);
-    char msg[256];
-    std::snprintf(msg, sizeof msg, "%d of %d probe reads from the file cache; %.1f GiB available, %.1f GiB of files: the "
-                  "file cache %s keep them", fast, n, (double) avail / (1ull << 30), (double) need / (1ull << 30),
-                  keepable ? "can" : "cannot");
-    why = msg;
-    return (!cached || !cache_counts) && !keepable;
-}
-#else
-LoadStats load_experts_direct(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
-                              const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
-    LoadStats st;
-    st.ok = false;
-    (void) path; (void) dst; (void) layer_off; (void) layer_bytes; (void) threads; (void) chunk; (void) base;
-    return st;
-}
-
-bool experts_unbuffered(const std::vector<std::string>& files, uint64_t arena_bytes, std::string& why,
-                        bool cache_counts, uint64_t read_bytes) {
-    (void) files; (void) arena_bytes; (void) cache_counts; (void) read_bytes;
-    why = "buffered";
-    return false;
-}
-#endif
-
-LoadStats load_experts_ranges(const std::string& path, uint8_t* dst, const std::vector<uint64_t>& layer_off,
-                              const std::vector<uint64_t>& layer_bytes, int threads, uint64_t chunk, uint64_t base) {
-    LoadStats st;
-    const uint64_t layers = (uint64_t) layer_off.size();
-    st.layers = layers;
-    st.bytes = 0;
-    for (uint64_t b : layer_bytes) st.bytes += b;
-    if (threads < 1) threads = 1;
-
-    const auto t0 = std::chrono::steady_clock::now();
-    LoadProgress progress("ram", st.bytes);
-    std::vector<uint64_t> layer_hash((size_t) layers, 1469598103934665603ull);
-    std::atomic<uint64_t> next_layer{0};
-    std::atomic<uint64_t> read_ns_sum{0};   // summed over the threads: see LoadStats::read_seconds
-    std::atomic<uint64_t> copy_ns_sum{0};
-    std::mutex err_mu;
-    std::string err;
-
-    auto worker = [&]() {
-        std::vector<uint8_t> buf((size_t) chunk);
-        // One handle per thread, seeked once per layer: a shared handle would need a lock around the seek and would
-        // serialise the very thing the threads are here to parallelise.  `fread` on a `FILE*` rather than
-        // `std::ifstream`: `fread` sees a request bigger than the stream buffer and passes it to the read call
-        // unchanged, so the chunk size reaches the disk.  Buffered: the cache should still hold what it can.
-        FILE* f = std::fopen(path.c_str(), "rb");
-        if (f == nullptr) {
-            std::lock_guard<std::mutex> g(err_mu);
-            err = "cannot open " + path;
-            return;
-        }
-        // A `FILE*` has no destructor that closes it, and this function has early returns below (open, seek and
-        // short-read failures), so the guard is what keeps the closing correct on every path.
-        struct Closer {
-            FILE* f;
-            ~Closer() { if (f != nullptr) std::fclose(f); }
-        } closer{f};
-        uint64_t read_ns = 0, copy_ns = 0;
-        for (;;) {
-            const uint64_t L = next_layer.fetch_add(1);
-            if (L >= layers) break;
-            const uint64_t off = layer_off[(size_t) L];
-            uint64_t remaining = layer_bytes[(size_t) L];
-            uint64_t pos = 0;
-            uint64_t h = 1469598103934665603ull;
-            // 64-bit seek: the file is far larger than 4 GiB, so a 32-bit `fseek` would wrap
-            if (basalt::platform::fseek64(f, (int64_t) (base + off), SEEK_SET) != 0) {
-                std::lock_guard<std::mutex> g(err_mu);
-                err = "seek to " + std::to_string(off) + " B failed in layer " + std::to_string(L);
-                return;
-            }
-            while (remaining > 0) {
-                const uint64_t n = remaining < chunk ? remaining : chunk;
-                const auto t_read = std::chrono::steady_clock::now();
-                const size_t got = std::fread(buf.data(), 1, (size_t) n, f);
-                read_ns += (uint64_t) std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               std::chrono::steady_clock::now() - t_read).count();
-                // A short read is EOF or an I/O error, never a silent zero fill: say WHERE and HOW SHORT, and
-                // keep going no further - the caller turns this into a refused load, not a wrong answer.
-                if (got != (size_t) n) {
-                    std::lock_guard<std::mutex> g(err_mu);
-                    err = "short read in layer " + std::to_string(L) + ": got " + std::to_string(got) + " of "
-                          + std::to_string(n) + " B at offset " + std::to_string(off + pos)
-                          + (std::ferror(f) != 0 ? " (ferror set)" : "");
-                    return;
-                }
-                const auto t_copy = std::chrono::steady_clock::now();
-                std::memcpy(dst + off + pos, buf.data(), (size_t) n);
-                h = fnv1a64(buf.data(), n, h);
-                copy_ns += (uint64_t) std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               std::chrono::steady_clock::now() - t_copy).count();
-                pos += n;
-                remaining -= n;
-                progress.add(n);
-            }
-            layer_hash[(size_t) L] = h;
-        }
-        read_ns_sum.fetch_add(read_ns);
-        copy_ns_sum.fetch_add(copy_ns);
-    };
-
-    std::vector<std::thread> pool;
-    for (int i = 1; i < threads; ++i) pool.emplace_back(worker);
-    worker();
-    for (auto& t : pool) t.join();
-
-    if (!err.empty()) {
-        basalt::log::error("basalt", "load_experts: %s", err.c_str());
-        st.seconds = -1.0;
-        st.ok = false;
-        st.error = err;
-        return st;
-    }
-    progress.finish();
-    st.read_seconds = (double) read_ns_sum.load() / 1e9;
-    st.copy_seconds = (double) copy_ns_sum.load() / 1e9;
-    st.layer_checksums = std::move(layer_hash);
-    st.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    return st;
 }
 
 StreamStats stream_bandwidth(const uint8_t* src, uint64_t bytes, uint64_t chunk, int iters) {

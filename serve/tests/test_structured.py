@@ -58,7 +58,7 @@ class Structured(unittest.TestCase):
     def setUp(self):
         self.tok = ByteTokenizer()
         self.engine = MockEngine(self.tok, json.dumps(STORY), max_context=16384)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(Path(__file__).resolve().parents[1] / "chat_template.jinja"),
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(Path(__file__).resolve().parents[1] / "chat_template.jinja"),
                            grammar=True)
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -70,7 +70,7 @@ class Structured(unittest.TestCase):
     def chat(self, script=None, **kwargs):
         if script is not None:
             self.engine = self.svc.engine = MockEngine(self.tok, script, max_context=16384)
-        req = {"model": "qwen3.8-flash-next", "messages": [{"role": "system", "content": "Write a film plan."},
+        req = {"model": "basalt", "messages": [{"role": "system", "content": "Write a film plan."},
                             {"role": "user", "content": "Photobooth. 15 seconds."}],
                "response_format": FORMAT, "reasoning_effort": "none", **kwargs}
         return self.request("/v1/chat/completions", req)

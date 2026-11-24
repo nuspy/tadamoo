@@ -25,8 +25,8 @@
 #define GGML_COMMON_IMPL_CUDA
 #include "basalt/ggml/ggml_common.h"
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 1200
-#error "the MMQ kernels are built for compute capability 12.0 only"
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 890
+#error "the MMQ kernels are built for compute capability 8.9 (an Ada peer) and 12.0 only"
 #endif
 
 #define WARP_SIZE 32
@@ -50,6 +50,8 @@
     } while (0)
 
 int ggml_cuda_get_device();
+// Loads kernel `symbol` into the current context now (the driver's cuFuncLoad).
+void ggml_cuda_func_load(const void * symbol);
 
 #define CUDA_SET_SHARED_MEMORY_LIMIT(kernel, nbytes)                                                       \
     do {                                                                                                   \
@@ -75,12 +77,18 @@ static __device__ __forceinline__ int ggml_cuda_dp4a(const int a, const int b, i
 }
 
 // Programmatic dependent launch: a kernel waits for its predecessor, or signals that the next may start.
+// Below sm_90 (an Ada peer tier) the intrinsics lower to griddepcontrol, which does not exist there: both
+// become no-ops and the host side launches these kernels the plain way.
 static __device__ __forceinline__ void ggml_cuda_pdl_sync() {
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 900
     cudaGridDependencySynchronize();
+#endif
 }
 
 static __device__ __forceinline__ void ggml_cuda_pdl_lc() {
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 900
     cudaTriggerProgrammaticLaunchCompletion();
+#endif
 }
 
 // Kernels that use programmatic dependent launch take no __restrict__ pointers.
@@ -181,10 +189,21 @@ struct ggml_cuda_type_traits;
 
 MMQ_TYPE_TRAITS(GGML_TYPE_Q2_0, QK2_0, QR2_0, QI2_0, block_q2_0);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q8_0, QK8_0, QR8_0, QI8_0, block_q8_0);
+MMQ_TYPE_TRAITS(GGML_TYPE_Q5_0, QK5_0, QR5_0, QI5_0, block_q5_0);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q5_1, QK5_1, QR5_1, QI5_1, block_q5_1);
+MMQ_TYPE_TRAITS(GGML_TYPE_Q2_K, QK_K, QR2_K, QI2_K, block_q2_K);
+MMQ_TYPE_TRAITS(GGML_TYPE_Q3_K, QK_K, QR3_K, QI3_K, block_q3_K);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q4_K, QK_K, QR4_K, QI4_K, block_q4_K);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q5_K, QK_K, QR5_K, QI5_K, block_q5_K);
 MMQ_TYPE_TRAITS(GGML_TYPE_Q6_K, QK_K, QR6_K, QI6_K, block_q6_K);
+#ifndef QR1_S
+#define QR1_S 8
+#endif
+#ifndef QI1_S
+#define QI1_S (QK_K / (4*QR1_S))
+#endif
+MMQ_TYPE_TRAITS(GGML_TYPE_IQ1_S, QK_K, QR1_S, QI1_S, block_iq1_s);
+MMQ_TYPE_TRAITS(GGML_TYPE_IQ1_M, QK_K, QR2_XS, QI2_XS, block_iq1_m);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_XXS, QK_K, QR2_XXS, QI2_XXS, block_iq2_xxs);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_XS, QK_K, QR2_XS, QI2_XS, block_iq2_xs);
 MMQ_TYPE_TRAITS(GGML_TYPE_IQ2_S, QK_K, QR2_S, QI2_S, block_iq2_s);
