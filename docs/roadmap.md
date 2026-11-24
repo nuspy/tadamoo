@@ -7,6 +7,7 @@ _Aggiornato il 24/11/2026 notte. Generato da `docs/roadmap.json`: non si modific
 | Stato | Nodi |
 |---|---|
 | fatto | 33 |
+| in corso | 4 |
 | in attesa | 11 |
 | non iniziato | 1 |
 
@@ -700,7 +701,7 @@ Studio del codice di bytedance/deer-flow (docs/study-deerflow.md): dove fa megli
 
 - Da decidere quali adottare. In ordine di costo: 1 controllo delle versioni più CHANGELOG (e allineare pubspec, VERSION e note), 2 AGENTS.md per modulo, 3 contratti JSON condivisi, poi le idee da misurare (Retry-After e interruttore, citazioni dei subagenti, riparazione della cronologia, compattazione a pezzi, segno «letto» nei messaggi).
 
-### 46. Il terminale come interfaccia: una riga con un prefisso va all'harness (running)
+### 46. Il terminale come interfaccia: una riga con un prefisso va all'harness (in corso)
 
 In PowerShell (solo PowerShell, 7 e 5.1) una riga che comincia con § non viene eseguita dalla shell ma mandata all'harness, che risponde nel terminale. § apre una sessione nuova (la precedente di quella finestra viene dismessa e cancellata); §§ continua la sessione precedente e manda all'harness anche quello che è comparso nel terminale dall'ultima riga § o §§. Ogni riga è un solo prompt, senza limiti su strumenti, inferenze e durata. Il prefisso si cambia nelle impostazioni. Si distribuisce come scelta del setup. Richiesta del 24 novembre.
 
@@ -724,7 +725,7 @@ In PowerShell (solo PowerShell, 7 e 5.1) una riga che comincia con § non viene 
 - Plausibile, non provato: Start-Transcript registra l'uscita della shell per ricavare il testo tra le righe § (in PowerShell 7 include l'uscita dei programmi nativi; in 5.1 va provato; i programmi a schermo intero come vim non si registrano). Prova più economica: un modulo di 40 righe con Start-Transcript e un Invio intercettato da PSReadLine.
 - Il file del modulo deve essere UTF-8 con BOM, o PowerShell 5.1 legge male il § (due byte).
 
-### 47. Il comando `tadamoo`: un agente TaDaMoo in qualunque cartella, come Claude Code (running)
+### 47. Il comando `tadamoo`: un agente TaDaMoo in qualunque cartella, come Claude Code (in corso)
 
 Scrivendo `tadamoo` in una cartella qualsiasi del terminale parte una conversazione interattiva con un agente TaDaMoo che lavora in quella cartella: risposta che scorre, una riga per ogni strumento, richieste di approvazione con sì o no digitato, Ctrl+C che ferma. Con `tadamoo -p "..."` fa un solo compito. Si installa con il setup, che mette il comando nel PATH. Richiesta del 24 novembre.
 
@@ -748,7 +749,7 @@ Scrivendo `tadamoo` in una cartella qualsiasi del terminale parte una conversazi
 - Serve uno strumento nuovo per le sessioni da terminale (`terminal_run`) e un evento nuovo nelle conversazioni (`terminal_command`) che il modulo legge; l'uscita dei comandi ridigitati resta nel testo del terminale, che il §§ riporta all'agente.
 - Dopo `ssh host` il comando successivo si scrive solo quando il prompt torna, cioè dopo l'uscita da SSH; comandi da eseguire dentro la sessione SSH non sono coperti dalla prima versione.
 
-### 48. API-CLI diventa l'unico prodotto da terminale: § , comando tadamoo e War Room (running)
+### 48. API-CLI diventa l'unico prodotto da terminale: § , comando tadamoo e War Room (in corso)
 
 Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLMKit di API-CLI (C:\Projects\API-CLI, repository nuspy/API-CLI) viene modificato (anche nel protocollo, se serve) e porta tutto: TaDaMoo come app raggiungibile con HTTP e la sua chiave, il prefisso § e §§ (task 46), il comando `tadamoo` interattivo in qualunque cartella (task 47) e la War Room come parte opzionale. Il setup di TaDaMoo lo include come componente «Riga di comando». Un solo comando, niente decine di CLI.
 
@@ -769,7 +770,7 @@ Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLM
 - Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7.
 - Trovato provando: il server rifiuta un `mode` più alto del livello della chat (messaggio «raise the level of chat in its settings»). Il modulo non lo chiede più; se vuoi che gli strumenti partano sempre da soli, il livello della chat si alza in Settings, è una tua scelta. Mancano ancora: la sezione «Riga di comando» in Settings > General, la voce nel setup, l'unione con master.
 
-### 49. Il Basalt originale è alla 0.5.7: cosa importare (da decidere) (running)
+### 49. Il Basalt originale è alla 0.5.7: cosa importare (da decidere) (in corso)
 
 Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Nessuna importazione è stata avviata.
 

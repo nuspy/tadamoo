@@ -903,7 +903,7 @@
       "num": 46,
       "group": "todo",
       "title": "Il terminale come interfaccia: una riga con un prefisso va all'harness",
-      "status": "running",
+      "status": "run",
       "summary": "In PowerShell (solo PowerShell, 7 e 5.1) una riga che comincia con § non viene eseguita dalla shell ma mandata all'harness, che risponde nel terminale. § apre una sessione nuova (la precedente di quella finestra viene dismessa e cancellata); §§ continua la sessione precedente e manda all'harness anche quello che è comparso nel terminale dall'ultima riga § o §§. Ogni riga è un solo prompt, senza limiti su strumenti, inferenze e durata. Il prefisso si cambia nelle impostazioni. Si distribuisce come scelta del setup. Richiesta del 24 novembre.",
       "solved": [
         "Verificato: il terminale che ricordavi è PSLLMKit del progetto API-CLI (C:\\Projects\\API-CLI, con la War Room): un modulo PowerShell che fa girare un CLI (claude, codex, gemini, droid) come server HTTP o lo chiama direttamente. Non è un terminale e va nella direzione opposta: noi vogliamo un client verso il nostro server, che esiste già.",
@@ -929,7 +929,7 @@
       "num": 47,
       "group": "todo",
       "title": "Il comando `tadamoo`: un agente TaDaMoo in qualunque cartella, come Claude Code",
-      "status": "running",
+      "status": "run",
       "summary": "Scrivendo `tadamoo` in una cartella qualsiasi del terminale parte una conversazione interattiva con un agente TaDaMoo che lavora in quella cartella: risposta che scorre, una riga per ogni strumento, richieste di approvazione con sì o no digitato, Ctrl+C che ferma. Con `tadamoo -p \"...\"` fa un solo compito. Si installa con il setup, che mette il comando nel PATH. Richiesta del 24 novembre.",
       "solved": [
         "Verificato: oggi `python -m tadamoo` fa solo il compito singolo (`-p` obbligatorio) e il comando `tadamoo` non esiste nel PATH di questa macchina; il processo di conversazione `python -m tadamoo session` esiste già e basta per la parte interattiva.",
@@ -955,7 +955,7 @@
       "num": 48,
       "group": "todo",
       "title": "API-CLI diventa l'unico prodotto da terminale: § , comando tadamoo e War Room",
-      "status": "running",
+      "status": "run",
       "summary": "Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLMKit di API-CLI (C:\\Projects\\API-CLI, repository nuspy/API-CLI) viene modificato (anche nel protocollo, se serve) e porta tutto: TaDaMoo come app raggiungibile con HTTP e la sua chiave, il prefisso § e §§ (task 46), il comando `tadamoo` interattivo in qualunque cartella (task 47) e la War Room come parte opzionale. Il setup di TaDaMoo lo include come componente «Riga di comando». Un solo comando, niente decine di CLI.",
       "solved": [
         "Verificato: gli adattatori stanno in `webapp/src/server/cliAdapters/` (base.js, claude.js, codex.js, droid.js, gemini.js: `buildArgs` e `parseOutput`); PSLLMKit ha `Start-LLMServer`, `Invoke-LLMPrompt` e simili in `Public/`.",
@@ -978,7 +978,7 @@
       "num": 49,
       "group": "todo",
       "title": "Il Basalt originale è alla 0.5.7: cosa importare (da decidere)",
-      "status": "running",
+      "status": "run",
       "summary": "Analisi del 24 novembre di jesdga95/basalt (docs/study-upstream-basalt.md): il loro main ha 1.477 commit oltre il punto di fine ottobre che i nostri file ricordano, undici versioni (0.2.1-0.5.7), e ha cambiato la disposizione del codice. Nessuna importazione è stata avviata.",
       "solved": [
         "Verificato: la nostra storia e la loro non hanno antenato comune (git merge-base non trova niente), quindi un git merge non si può fare: si portano le modifiche con tre vie da un commit di base (4a591d96). Cambiati da tutti e due: 247 file (72 in src, 36 in include, 46 in serve, 43 in tests).",
