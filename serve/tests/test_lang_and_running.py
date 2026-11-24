@@ -163,9 +163,9 @@ class RunningServer(Isolated):
         root = Path(self.dir.name)
         self.cfg = root / "tadamoo_config.json"
         self.model = tiny_basalt(root / "a.basalt", "A")
-        self.cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")        # no model here: a comparison that asks for none finds no difference on it
+        self.cfg.write_text(json.dumps({"version": 2, "models": [], "server": {"port": PORT}}), encoding="utf-8")        # no model here: a comparison that asks for none finds no difference on it
         mock_cfg = root / "mock_config.json"                 # --mock-engine needs no model; one in config still demands a real, loadable --engine-bin
-        mock_cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")
+        mock_cfg.write_text(json.dumps({"version": 2, "models": [], "server": {"port": PORT}}), encoding="utf-8")
         profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0, "server.port": PORT}})
         profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0, "server.port": PORT}})
         self.envs = {**os.environ, "TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name, "PYTHONUTF8": "1",

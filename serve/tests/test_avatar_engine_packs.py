@@ -3,6 +3,7 @@ source (a Hugging Face commit, or a GitHub commit for the AD-NeRF 3DMM files) wi
 download planner puts the files where the code looks for them. No network: Hugging Face is replaced by a fake tree."""
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -45,7 +46,11 @@ class ShapeTest(unittest.TestCase):
         ids = {e["id"] for e in vc.CATALOG}
         self.assertFalse({"wav2lipv2-code", "sadtalker-code", "ernerf-code"} & ids)
         self.assertIsNone(importlib.util.find_spec("serve.voice_linly_packs"))
-        from callbridge import models_store
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "voice"))
+        try:
+            from callbridge import models_store
+        finally:
+            sys.path.pop(0)
         self.assertFalse([k for k in list(models_store.MODELS) + list(models_store.FOLDERS) if k.endswith("-code")])
         for name in ("wav2lipv2", "sadtalker", "ernerf"):
             self.assertTrue((Path(__file__).resolve().parents[2] / "voice" / "avatar_engines" / "vendor" / name / "VENDORED.md").is_file(), name)

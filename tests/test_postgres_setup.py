@@ -170,6 +170,7 @@ def test_stop_on_a_data_directory_never_made_does_nothing(tmp_path):
 
 def test_a_bundled_postgres_is_found_without_any_network_address(tmp_path, monkeypatch):
     from serve import addons
+    monkeypatch.setattr(addons, "addons_dir", lambda: tmp_path / "no-addons")      # not the one this PC's setup carries
     assert ps.bundled_program() is None
     bundled = tmp_path / "bundled-addons"
     exe = bundled / "postgres" / "bin" / ps.EXE

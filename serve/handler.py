@@ -1,6 +1,7 @@
 """The HTTP server and its request handler: routes, authentication, CORS and streaming."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 import shutil
@@ -5002,20 +5003,22 @@ def make_handler(svc: Service, remote: bool = False):
             def events():
                 yield from asm.start()
                 done = None
-                for kind, x in svc.run(ids, thinking, tools, max_new, req, cancel, force=force,
-                                   session=self._session_id(req), live=self.live):
-                    if kind == "ping":
-                        yield None
-                    elif kind == "event":
-                        yield from asm.feed(x)
-                    elif kind == "logprobs":
-                        asm.logprob(*x)
-                    elif kind == "done":
-                        done = x
+                with closing(svc.run(ids, thinking, tools, max_new, req, cancel, force=force,
+                                     session=self._session_id(req), live=self.live)) as inference:
+                    for kind, x in inference:
+                        if kind == "ping":
+                            yield None
+                        elif kind == "event":
+                            yield from asm.feed(x)
+                        elif kind == "logprobs":
+                            asm.logprob(*x)
+                        elif kind == "done":
+                            done = x
                 if done is not None and done["finish"] != "cancel" and not cancel.is_set():
                     yield from asm.finish(done)
+            generation = events()
             try:
-                items = primed(events(), ids)
+                items = primed(generation, ids)
             except EngineError:
                 raise
             except ValueError as e:                          # too long for the context: found when the engine counted
@@ -5033,7 +5036,6 @@ def make_handler(svc: Service, remote: bool = False):
                     err = ResponsesError(str(e), "input", "context_length_exceeded" if "context" in str(e) else None)
                     return self._json(err.status, err.body())
                 return self._json(200, result)
-            self._sse()
             last = time.monotonic()
 
             def send(e):
@@ -5041,6 +5043,7 @@ def make_handler(svc: Service, remote: bool = False):
                                  json.dumps(e, ensure_ascii=False).encode() + b"\n\n")
 
             try:
+                self._sse()
                 for e in items:
                     if e is None:
                         # clients' idle timers count events, not SSE comments: send in_progress every 15 s
@@ -5055,12 +5058,16 @@ def make_handler(svc: Service, remote: bool = False):
                     self.wfile.flush()
             except OSError:
                 cancel.set()                                 # client left: stop the engine
-                items.close()
                 self._left()
             except EngineDied as e:                          # mid-stream: response.failed
                 self._responses_failed(asm, f"{e}; the next request restarts it", "server_error", send)
             except ValueError as e:                          # engine ERR after the stream started
                 self._responses_failed(asm, str(e), "server_error", send)
+            finally:
+                try:
+                    items.close()
+                finally:
+                    generation.close()                       # a primed replay may never have started if writing the headers failed
 
         def _responses_failed(self, asm, message, code, send):
             e = asm.failed(message, code)

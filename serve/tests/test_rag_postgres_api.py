@@ -55,6 +55,7 @@ def make(tmp_path, monkeypatch, found=None):
     vault = {}
     pkg = package(tmp_path)
     monkeypatch.setattr(postgres_setup, "RELEASE", {**postgres_setup.RELEASE, "sha256": hashlib.sha256(pkg.read_bytes()).hexdigest()})
+    monkeypatch.setattr(postgres_setup, "bundled_program", lambda: None)       # the PostgreSQL this PC's setup carries is not what these tests are about
     runner = fake_runner_factory(tmp_path / "tools" / "data")
     api = RagPostgresApi(store, tools_dir=tmp_path / "tools", detect=lambda: found or {"programs": [], "broken": [], "listening": []},
                          fetch=lambda url, dest: dest.write_bytes(pkg.read_bytes()), runner=runner, put_secret=vault.__setitem__, get_secret=lambda entry: vault[entry])
@@ -124,6 +125,7 @@ def test_use_own_postgres_starts_it_if_needed_and_asks_prepare_to_make_the_proje
     vault = {}
     pkg = package(tmp_path)
     monkeypatch.setattr(postgres_setup, "RELEASE", {**postgres_setup.RELEASE, "sha256": hashlib.sha256(pkg.read_bytes()).hexdigest()})
+    monkeypatch.setattr(postgres_setup, "bundled_program", lambda: None)       # the PostgreSQL this PC's setup carries is not what these tests are about
     runner = fake_runner_factory(tmp_path / "tools" / "postgres" / "data")
     api = RagApi(store, vault_dir=tmp_path / "vault", postgres_tools_dir=tmp_path / "tools" / "postgres")
     api.postgres._fetch = lambda url, dest: dest.write_bytes(pkg.read_bytes())

@@ -541,14 +541,15 @@ if ($ap.Codice -ne 0) { Scrivi (T "Il profilo «$Config» non si può applicare:
 $valori = ($ap.Righe | Select-Object -Last 1 | ConvertFrom-Json).values
 $cfg = Get-Content -Raw -Encoding UTF8 $usato | ConvertFrom-Json
 $srv = $cfg.server
+if ($null -eq $srv) { $srv = [pscustomobject]@{} }
 $porta = 7232
 if ($srv.PSObject.Properties['port']) { $porta = [int]$srv.port }
 if ($Port) { $porta = $Port }
 $hostIp = '127.0.0.1'
 if ($srv.PSObject.Properties['host'] -and $srv.host -notin @('', '0.0.0.0', '::')) { $hostIp = $srv.host }
 $url = "http://${hostIp}:$porta/"
-$modello = [string]$srv.model
-if (-not [System.IO.Path]::IsPathRooted($modello)) { $modello = Join-Path (Split-Path $cfgPath) $modello }
+$modello = if ($cfg.models -and @($cfg.models).Count) { [string]@($cfg.models)[0].model } else { '' }
+if ($modello -and -not [System.IO.Path]::IsPathRooted($modello)) { $modello = Join-Path (Split-Path $cfgPath) $modello }
 $exe = Join-Path $Radice 'bin\basalt.exe'
 $logDir = Join-Path $Radice 'logs'
 $log = Join-Path $logDir 'tadamoo-serve.log'

@@ -22,6 +22,13 @@ ROOT = Path(__file__).resolve().parents[2]
 CLOSE = REASONING_CLOSE.split("</think>")[0]          # what the close adds to the reasoning text
 
 
+def nap(seconds: float) -> None:
+    """A pause that is as short as asked: time.sleep(0.001) takes 15 ms on Windows, and the scripted reply would outlast the requests' timeouts."""
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        time.sleep(0)
+
+
 class SlowThinker(MockEngine):
     """Thinks THOUGHT one byte every DELAY s, then answers; a prompt that ends the thinking gets the answer at once, and
     one that carries part of the thinking goes on from there. Like the engine, a set `stop_soon` ends the pass at
@@ -61,7 +68,7 @@ class SlowThinker(MockEngine):
                 self.thinking.set()
             if self.hook is not None:
                 self.hook(at + k)
-            time.sleep(self.DELAY)
+            nap(self.DELAY)
             yield t
             if soft is not None and soft.is_set() and (at + k + 1) % self.WINDOW == 0:
                 return
@@ -69,7 +76,7 @@ class SlowThinker(MockEngine):
         for t in (self.tok.encode(self.ANSWER) + self.tok.encode("<|im_end|>", parse_special=True))[:max_new]:
             if cancel.is_set():
                 return
-            time.sleep(self.ANSWER_DELAY)
+            nap(self.ANSWER_DELAY)
             yield t
 
 
@@ -204,7 +211,7 @@ class AnswerNowServer(unittest.TestCase):
         """Asked at token 5, the first window ends at byte 8, inside the third character: the reply goes on for one more
         window and closes at byte 12, after the fourth."""
         self.engine.THOUGHT, self.engine.WINDOW = "\u20ac" * 600, 4     # three bytes a character, windows of four
-        live = self.httpd.router.live
+        live = self.svc.live_requests
         self.engine.hook = lambda k: k == 5 and live.answer_now(session="eur")
         code, _, b = self.request("/v1/chat/completions", self.chat_body("/v1/chat/completions", False),
                                   {"x-session-id": "eur"})
