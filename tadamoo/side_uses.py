@@ -84,6 +84,7 @@ USES: Tuple[Use, ...] = (
     Use("lessons", needs_session=True, params=(Param("timeout_s", 60, 5, 600, False),), prompt="tadamoo.lessons:POLISH_SYSTEM"),
     Use("completion_check", needs_session=True, params=(Param("timeout_s", 10, 2, 60, False),), prompt="tadamoo.completion:SYSTEM"),
     Use("request_review", needs_session=True, params=(Param("timeout_s", 20, 2, 120, False),), prompt="tadamoo.review:SYSTEM"),
+    Use("guidelines_merge", params=(Param("timeout_s", 60, 5, 600, False),), prompt="tadamoo.guidelines:SYSTEM"),
     Use("auto_approve", needs_session=True, default_on=False, params=(Param("max_chars", 3000, 500, 12000), Param("timeout_s", 8, 2, 60, False)),
         prompt="tadamoo.auto_approve:SYSTEM"),
     Use("inject_screen", needs_session=True, params=(Param("max_chars", 6000, 1000, 30000), Param("timeout_s", 8, 2, 60, False)),

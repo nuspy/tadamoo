@@ -7,7 +7,7 @@ from tadamoo import untrusted
 from tadamoo.context import (ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget,
                              get_eviction_candidates, html_to_markdown, trim_json, wire_messages)
 from tadamoo.memory import MemoryStore, default_db_path, fts_query
-from tadamoo.skills import (SkillCatalog, find_project_guidelines, load_project_guidelines, parse_frontmatter, register_skill_tool)
+from tadamoo.skills import (SkillCatalog, parse_frontmatter, register_skill_tool)
 from tadamoo.tools.registry import ToolRegistry
 
 
@@ -279,6 +279,14 @@ def test_load_skill_tool(tmp_path: Path):
 
 
 def test_project_guidelines_order_size_and_upward_search(tmp_path: Path):
+    from tadamoo.guidelines import files as guideline_files, merged as merged_guidelines, read as read_guidelines
+
+    def load_project_guidelines(folder):
+        return merged_guidelines(read_guidelines(guideline_files(folder))[0])
+
+    def find_project_guidelines(folder):
+        found = guideline_files(folder)
+        return (found[-1] if found else None), load_project_guidelines(folder)
     repo = tmp_path / "repo"
     (repo / "pkg" / "deep").mkdir(parents=True)
     (repo / ".git").mkdir()

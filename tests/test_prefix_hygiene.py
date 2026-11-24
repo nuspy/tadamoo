@@ -9,7 +9,8 @@ import pytest
 
 from tadamoo import commands
 from tadamoo.session import Session, SessionStore, main
-from tadamoo.skills import MAX_GUIDELINE_BYTES, find_project_guidelines, guidelines_cut_notice, read_project_guidelines
+from tadamoo.guidelines import files as guideline_files, read as read_guidelines
+from tadamoo.skills import MAX_GUIDELINE_BYTES, guidelines_cut_notice
 from tadamoo.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
 from tadamoo.tools import create_standard_tool_registry
 from tadamoo.tools.registry import EXTERNAL, SESSION, STABLE, EffectClass, ToolRegistry
@@ -100,9 +101,9 @@ def test_a_project_file_cut_at_the_limit_says_so_in_the_prompt_the_context_and_t
     body = "- rule\n" * 6000
     (ws / "AGENTS.md").write_bytes(body.encode("utf-8"))
     cut = len(body.encode("utf-8")) - MAX_GUIDELINE_BYTES
-    path, text, ignored = read_project_guidelines(ws)
+    items, ignored = read_guidelines(guideline_files(ws))
+    path, text = items[0]
     assert path.name == "AGENTS.md" and ignored == cut and len(text.encode("utf-8")) == MAX_GUIDELINE_BYTES
-    assert find_project_guidelines(ws)[1] == text                                                # the old reading is unchanged
     notice = guidelines_cut_notice("AGENTS.md", cut)
     assert notice == f"[AGENTS.md was cut at 32 KiB; {cut} bytes ignored; read the file directly]"
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
@@ -119,7 +120,7 @@ def test_a_project_file_that_fits_has_no_notice(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "AGENTS.md").write_text("short rules", encoding="utf-8")
-    assert read_project_guidelines(ws)[2] == 0
+    assert read_guidelines(guideline_files(ws))[1] == 0
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
     try:
         assert built.notices == [] and "was cut" not in built.agent.messages[0]["content"] and "short rules" in built.agent.messages[0]["content"]
