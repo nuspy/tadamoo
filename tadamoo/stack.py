@@ -1006,7 +1006,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         register_manage_tools(registry, rag_store, project_recall, server)      # and the adding of documents, the indexing and the state of an archive
     from tadamoo.rag.ingest.reading import register_document_tools
     register_document_tools(registry, sandbox.root, Path(cfg.rag_dir) if cfg.rag_dir else None,
-                            (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "")
+                            (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "",
+                            attachment=((lambda att_id: AttachmentStore(Path(cfg.attachments_dir)).named_path(cfg.run_id, att_id)) if cfg.attachments_dir and cfg.run_id else None))
     media_ready = False
     if cfg.media_file:
         from tadamoo.media import tools as media_tools

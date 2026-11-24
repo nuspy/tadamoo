@@ -72,7 +72,7 @@ def delete_checkpoints(data_dir: Path, workspace: Path, checkpoint_id: Optional[
 # What a conversation's tool calls do, by name, for histories that did not record it. A name not found here is "unknown"
 # and is treated like an effect that cannot be taken back.
 KNOWN_EFFECTS: Dict[str, str] = {
-    **dict.fromkeys(("read_file", "list_directory", "search_web", "browse_url", "list_attachments", "read_attachment", "search_attachment",
+    **dict.fromkeys(("read_file", "list_directory", "search_web", "browse_url", "list_attachments", "read_attachment", "search_attachment", "query_attachment",
                      "browser_open", "browser_read", "computer_screenshot", "computer_list_windows", "computer_ui_tree", "computer_wait", "find_capability", "load_capability", "ask_council", "wiki_search", "wiki_page",
                      "wiki_context", "docx_outline", "docx_read", "diagnostics", "go_to_definition", "find_references", "plan_list", "plan_get", "ask_user", "repo_map", "repo_diagram", "recall", "search_code", "tree",
                      "session_status", "session_list", "session_digest", "cron_list", "plan_digest"), "pure"),

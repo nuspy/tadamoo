@@ -271,6 +271,26 @@ class AttachmentStore:
         self.get(session, att_id)
         return self._folder(session, att_id) / "file"
 
+    def named_path(self, session: str, att_id: str) -> Path:
+        """The file under its own extension (the stored copy has none), for the readers that go by it."""
+        meta = self.get(session, att_id)
+        src = self._folder(session, att_id) / "file"
+        dst = src.with_name("named" + (Path(str(meta.get("name", ""))).suffix.lower() or "." + str(meta["kind"])))
+        if not dst.exists():
+            import shutil
+            shutil.copyfile(src, dst)
+        return dst
+
+    def tables(self, session: str, att_id: str) -> Dict[str, List[List[str]]]:
+        """A table file as its sheets of rows of text: one sheet for a CSV or TSV, every sheet of a workbook."""
+        meta = self.get(session, att_id)
+        path = self._folder(session, att_id) / "file"
+        if meta["kind"] == "xlsx":
+            return xlsx_sheets(path)
+        delimiter = "\t" if meta["kind"] == "tsv" else ","
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+            return {"data": [row for row in csv.reader(f, delimiter=delimiter)]}
+
     def list(self, session: str) -> List[Dict[str, Any]]:
         out = []
         base = self.dir / session
@@ -330,7 +350,7 @@ class AttachmentStore:
                 if got is None:
                     return None, "needs_pdf"
                 text = got
-                if len(text.strip()) < 20:
+                if len(re.sub(r"(?m)^(## Page \d+|\[page \d+[^\]]*\])\s*$", "", text).strip()) < 20:
                     return None, "pdf_without_text"
             elif family == "image":
                 return None, "image"
@@ -389,11 +409,13 @@ def manifest(meta: Dict[str, Any], text: Optional[str], note: str) -> str:
     """One line for the model: what the file is and how to read it, without its content."""
     base = f'{meta["name"]} ({meta["kind"]}, {meta["size"]} bytes, id {meta["id"]})'
     if text is not None:
+        if meta.get("family") == "data":
+            return f"{base}: a table, {len(_lines(text))} lines. For a value, a count or a total use query_attachment (SQL); read_attachment shows lines, not rows."
         return f"{base}: {len(_lines(text))} lines. Read it with read_attachment, search it with search_attachment."
     if note == "needs_pdf":
         return f"{base}: cannot be read yet, no PDF reader is installed. Ask the person to approve a PDF skill or to install pypdf, then read it again."
     if note == "pdf_without_text":
-        return f"{base}: has no text layer (a scan). It needs OCR: ask the person which skill to use."
+        return f"{base}: has no text layer (a scan). Read it with read_document(path='attachment:{meta['id']}'), or look at a page with analyze_image."
     if note == "image":
         return f"{base}: an image. Look at it with analyze_image(path='attachment:{meta['id']}', question=...)."
     if note == "media":
@@ -464,6 +486,75 @@ def split_documents(content: str) -> Tuple[str, List[str]]:
     rest = content[m.end():]
     rest = re.sub(r"\n\nThe documents are long: first copy the passages.*$", "", rest, flags=re.S)
     return rest, names
+
+
+def _column_names(header: List[str]) -> List[str]:
+    names: List[str] = []
+    for i, h in enumerate(header):
+        base = re.sub(r"\W+", "_", str(h).strip()).strip("_").lower() or f"col{i + 1}"
+        if base[0].isdigit():
+            base = "c_" + base
+        name, n = base, 2
+        while name in names:
+            name, n = f"{base}_{n}", n + 1
+        names.append(name)
+    return names
+
+
+def _typed(values: List[str]) -> List[Any]:
+    """The column's values as integers or floats when every non-empty one is a number, else as text; an empty cell is NULL."""
+    for kind in (int, float):
+        try:
+            return [None if v == "" else kind(v) for v in values]
+        except (TypeError, ValueError):
+            continue
+    return [None if v == "" else v for v in values]
+
+
+QUERY_ROWS = 50
+QUERY_CHARS = 6000
+
+
+def query_tables(sheets: Dict[str, List[List[str]]], sql: str) -> str:
+    """The answer to one read-only SELECT over the sheets (a table each, named after the sheet), as a pipe table with its row count."""
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    try:
+        schema: List[str] = []
+        used: List[str] = []
+        for i, (sheet, rows) in enumerate(sheets.items(), 1):
+            if not rows:
+                continue
+            table = _column_names([sheet])[0]
+            table = table if table not in used else f"{table}_{i}"
+            used.append(table)
+            cols = _column_names(rows[0])
+            body = [r + [""] * (len(cols) - len(r)) for r in rows[1:]]
+            columns = [_typed([r[c] for r in body]) for c in range(len(cols))]
+            db.execute(f"CREATE TABLE {table} (" + ", ".join(f'"{c}"' for c in cols) + ")")
+            db.executemany(f"INSERT INTO {table} VALUES (" + ",".join("?" * len(cols)) + ")", zip(*columns) if columns else [])
+            schema.append(f"{table}({', '.join(cols)}): {len(body)} rows")
+        db.execute("PRAGMA query_only = ON")
+
+        def allow(action: int, *_: Any) -> int:
+            return sqlite3.SQLITE_OK if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION) else sqlite3.SQLITE_DENY
+        db.set_authorizer(allow)
+        statement = sql.strip().rstrip(";").strip()
+        if ";" in statement or not statement.lower().startswith(("select", "with")):
+            return "One SELECT statement only. Tables: " + "; ".join(schema)
+        try:
+            cursor = db.execute(statement)
+            rows = cursor.fetchmany(QUERY_ROWS + 1)
+        except sqlite3.Error as exc:
+            return f"SQL error: {exc}. Tables: " + "; ".join(schema)
+        head = [d[0] for d in cursor.description or []]
+        shown = rows[:QUERY_ROWS]
+        out = [" | ".join(head), " | ".join("---" for _ in head)] + [" | ".join("" if v is None else str(v) for v in r) for r in shown]
+        text = "\n".join(out)
+        note = f"\n({len(shown)} rows" + (f", more were cut at {QUERY_ROWS}: narrow the query" if len(rows) > QUERY_ROWS else "") + ")"
+        return (text[:QUERY_CHARS] + ("\n[cut]" if len(text) > QUERY_CHARS else "")) + note
+    finally:
+        db.close()
 
 
 # -- reading and searching in pieces --------------------------------------------------------------------------------------

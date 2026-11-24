@@ -302,3 +302,49 @@ def test_a_file_the_agent_makes_is_checked_before_it_is_offered(tools):
     assert len(outputs.list("s1")) == 5
     with pytest.raises(KeyError):
         outputs.get("s1", "../../x")
+
+
+def _tool(store, tmp_path, session="s1"):
+    registry = ToolRegistry()
+    register_attachment_tools(registry, store, at.OutputStore(tmp_path / "out"), session, lambda p: tmp_path / p)
+    return registry
+
+
+def test_a_table_is_asked_in_sql_and_never_added_up_by_reading_lines(store, tmp_path):
+    rows = [["id", "Region", "units"]] + [[i, "North" if i % 2 else "South", i * 2] for i in range(1, 401)]
+    card = put(store, "s1", "sales.xlsx", xlsx_bytes(rows))
+    registry = _tool(store, tmp_path)
+    out = registry.execute("query_attachment", {"id": card["id"], "sql": "SELECT units FROM vendite WHERE id = 300"})
+    assert "600" in out and "(1 rows)" in out
+    assert "80000" in registry.execute("query_attachment", {"id": card["id"], "sql": "SELECT SUM(units) FROM vendite WHERE region = 'North'"})   # 2 * 200**2
+    assert "vendite(id, region, units): 400 rows" in registry.execute("query_attachment", {"id": card["id"], "sql": "SELECT * FROM nope"})
+    assert "One SELECT" in registry.execute("query_attachment", {"id": card["id"], "sql": "DROP TABLE vendite"})
+    assert "One SELECT" in registry.execute("query_attachment", {"id": card["id"], "sql": "SELECT 1; SELECT 2"})
+    assert "not authorized" in registry.execute("query_attachment", {"id": card["id"], "sql": "SELECT load_extension('x')"})
+    assert "query_attachment" in at.manifest(store.get("s1", card["id"]), store.text("s1", card["id"])[0], "")
+    csv_card = put(store, "s1", "t.csv", b"name,qty\nbolt,3\nnut,4\n")
+    assert "7" in registry.execute("query_attachment", {"id": csv_card["id"], "sql": "SELECT SUM(qty) FROM data"})
+    text_card = put(store, "s1", "n.txt", b"hello")
+    assert "not a table" in registry.execute("query_attachment", {"id": text_card["id"], "sql": "SELECT 1"})
+
+
+def test_a_pdf_with_only_page_markers_is_a_scan_that_read_document_can_open_by_id(store, tmp_path):
+    from tadamoo.rag.ingest.reading import register_document_tools
+    import pypdf
+    blank = io.BytesIO()
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(100, 100)
+    writer.write(blank)
+    pdf = blank.getvalue()
+    card = put(store, "s1", "scan.pdf", pdf)
+    text, note = store.text("s1", card["id"])
+    assert text is None and note == "pdf_without_text"
+    assert "read_document(path='attachment:" + card["id"] in at.manifest(store.get("s1", card["id"]), None, note)
+    registry = ToolRegistry()
+    work = tmp_path / "work"
+    work.mkdir()
+    register_document_tools(registry, work, tmp_path / "rag", tmp_path / "cache", attachment=lambda i: store.named_path("s1", i))
+    assert store.named_path("s1", card["id"]).name == "named.pdf"
+    assert "not there" in registry.execute("read_document", {"path": "attachment:aaaaaaaaaaaa"})["note"]
+    got = registry.execute("read_document", {"path": "attachment:" + card["id"]})
+    assert "no such file" not in str(got.get("note", ""))

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from tadamoo.attachments import AttachmentStore, OutputStore, manifest, read_range, search_chunks
+from tadamoo.attachments import AttachmentStore, OutputStore, manifest, query_tables, read_range, search_chunks
 from tadamoo.integrations._http import ServiceError
 
 MAX_OUTPUT_BYTES = 200_000_000
@@ -46,8 +46,20 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         if text is None:
             return manifest(meta, None, note)
         if meta["family"] == "data" and start <= 1 and not end and len(text) > read_chars * 3:
-            return "This is a large table. Read it in ranges with start and end, or search it; do not add up its rows yourself.\n" + read_range(text, 1, 60, read_chars)
+            return "This is a large table. Ask it with query_attachment (SQL: a lookup, a count, a total); lines are not row numbers, and adding rows up by hand goes wrong.\n" + read_range(text, 1, 60, read_chars)
         return read_range(text, start, end or None, read_chars)
+
+    def query_attachment(id: str, sql: str) -> str:
+        try:
+            meta = known(id)
+        except KeyError:
+            return f"No attachment '{id}'. list_attachments shows the ids."
+        if meta["family"] != "data":
+            return f"{meta['name']} is not a table. Use read_attachment or search_attachment."
+        try:
+            return query_tables(store.tables(session, meta["id"]), str(sql))
+        except (OSError, ValueError, KeyError) as exc:
+            return f"The table could not be read: {exc}"
 
     def search_attachment(id: str, query: str) -> str:
         try:
@@ -169,6 +181,10 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
                       obj({}, []), EffectClass.PURE, list_attachments, untrusted=True)
     registry.register("read_attachment", "Reads lines of an attached file (text read from the file, whatever its format). Use start and end to go on.",
                       obj({"id": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"}}, ["id"]), EffectClass.PURE, read_attachment, untrusted=True)
+    registry.register("query_attachment", "Asks a table file (CSV, TSV, Excel) a question in SQL: a SELECT over its sheets, as tables whose first row gives the column names "
+                      "(numbers are numbers). Use it for a value, a count, a total, a filter or a sort; it never loads the table into the conversation. Errors name the tables and columns.",
+                      obj({"id": {"type": "string"}, "sql": {"type": "string", "description": "One SELECT statement"}}, ["id", "sql"]), EffectClass.PURE,
+                      query_attachment, untrusted=True)
     registry.register("search_attachment", "Finds the passages of an attached file that match a question or words (five at most, with their line numbers).",
                       obj({"id": {"type": "string"}, "query": {"type": "string"}}, ["id", "query"]), EffectClass.PURE, search_attachment, untrusted=True)
     registry.register("convert_to_markdown", "Reads a Word, PowerPoint, Excel, PDF, web page, e-book, CSV, JSON or XML file of the workspace as Markdown (headings, lists, tables kept), made by program with no model. Use start and end to go on.",
