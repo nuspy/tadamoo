@@ -1505,6 +1505,10 @@ def make_handler(svc: Service, remote: bool = False):
                         self._anthropic(req)
                     elif path == "/v1/messages/count_tokens":
                         self._count_tokens(req)
+                    elif path == "/tokenize":
+                        self._tokenize(req)
+                    elif path == "/detokenize":
+                        self._detokenize(req)
                     else:
                         self._json(404, {"error": {"message": "not found"}})
             except EngineError as e:                         # the engine failed: not the request's fault
@@ -5089,6 +5093,27 @@ def make_handler(svc: Service, remote: bool = False):
             asm = responses_api.Assembler(req, svc.model, len(ids), names,
                                           "reasoning.encrypted_content" in include, rid=self.live.id)
             return ids, thinking, tools, max_new, asm, req, force
+
+        def _tokenize(self, req):
+            """llama.cpp's /tokenize: the model's token ids for `content`, special-token text read as its token unless
+            `parse_special` is false."""
+            content, parse = req.get("content"), req.get("parse_special", True)
+            if not isinstance(content, str):
+                raise ValueError("content: a string")
+            if not isinstance(parse, bool):
+                raise ValueError("parse_special: true or false")
+            self._json(200, {"tokens": svc.tok.encode(content, parse_special=parse)})
+
+        def _detokenize(self, req):
+            """llama.cpp's /detokenize: the text of `tokens`, a list of the model's token ids."""
+            ids = req.get("tokens")
+            if not isinstance(ids, list) or not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in ids):
+                raise ValueError("tokens: a list of token ids")
+            try:
+                text = svc.tok.decode(ids)
+            except (IndexError, KeyError):
+                raise ValueError("tokens: an id outside the model's vocabulary") from None
+            self._json(200, {"content": text})
 
         def _count_tokens(self, req):
             """Anthropic's token count: the rendered, tokenized prompt, without running the model."""
