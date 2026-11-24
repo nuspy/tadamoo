@@ -905,7 +905,7 @@
       "num": 46,
       "group": "todo",
       "title": "Il terminale come interfaccia: una riga con un prefisso va all'harness",
-      "status": "none",
+      "status": "running",
       "summary": "In PowerShell (solo PowerShell, 7 e 5.1) una riga che comincia con § non viene eseguita dalla shell ma mandata all'harness, che risponde nel terminale. § apre una sessione nuova (la precedente di quella finestra viene dismessa e cancellata); §§ continua la sessione precedente e manda all'harness anche quello che è comparso nel terminale dall'ultima riga § o §§. Ogni riga è un solo prompt, senza limiti su strumenti, inferenze e durata. Il prefisso si cambia nelle impostazioni. Si distribuisce come scelta del setup. Richiesta del 24 novembre.",
       "solved": [
         "Verificato: il terminale che ricordavi è PSLLMKit del progetto API-CLI (C:\\Projects\\API-CLI, con la War Room): un modulo PowerShell che fa girare un CLI (claude, codex, gemini, droid) come server HTTP o lo chiama direttamente. Non è un terminale e va nella direzione opposta: noi vogliamo un client verso il nostro server, che esiste già.",
@@ -930,10 +930,11 @@
       "num": 47,
       "group": "todo",
       "title": "Il comando `tadamoo`: un agente TaDaMoo in qualunque cartella, come Claude Code",
-      "status": "none",
+      "status": "running",
       "summary": "Scrivendo `tadamoo` in una cartella qualsiasi del terminale parte una conversazione interattiva con un agente TaDaMoo che lavora in quella cartella: risposta che scorre, una riga per ogni strumento, richieste di approvazione con sì o no digitato, Ctrl+C che ferma. Con `tadamoo -p \"...\"` fa un solo compito. Si installa con il setup, che mette il comando nel PATH. Richiesta del 24 novembre.",
       "solved": [
-        "Verificato: oggi `python -m tadamoo` fa solo il compito singolo (`-p` obbligatorio) e il comando `tadamoo` non esiste nel PATH di questa macchina; il processo di conversazione `python -m tadamoo session` esiste già e basta per la parte interattiva."
+        "Verificato: oggi `python -m tadamoo` fa solo il compito singolo (`-p` obbligatorio) e il comando `tadamoo` non esiste nel PATH di questa macchina; il processo di conversazione `python -m tadamoo session` esiste già e basta per la parte interattiva.",
+        "Fatto il 24 novembre (ramo feat/terminal-cli, commit 2f0adeff, non unito): il server accetta `terminal` con un messaggio, dà all'agente la nota `[terminal]` e lo strumento `terminal_run`, ed emette l'evento `terminal_command`; 12 test nuovi, compreso il processo di conversazione vero."
       ],
       "decisions": [
         "Deciso da te (24 novembre): entrambe le cose. L'agente lavora nella cartella del terminale con i suoi strumenti, in un processo suo (come Claude Code); in più, alla fine, può far eseguire alla tua shell qualunque cosa la shell sappia fare (cd, variabili d'ambiente, ambienti virtuali, creare cartelle, aprire SSH): i comandi vengono «ridigitati» nel tuo terminale dal modulo.",
@@ -954,18 +955,20 @@
       "num": 48,
       "group": "todo",
       "title": "API-CLI diventa l'unico prodotto da terminale: § , comando tadamoo e War Room",
-      "status": "none",
+      "status": "running",
       "summary": "Decisione del 24 novembre: non si distribuiscono più programmi. Il modulo PSLLMKit di API-CLI (C:\\Projects\\API-CLI, repository nuspy/API-CLI) viene modificato (anche nel protocollo, se serve) e porta tutto: TaDaMoo come app raggiungibile con HTTP e la sua chiave, il prefisso § e §§ (task 46), il comando `tadamoo` interattivo in qualunque cartella (task 47) e la War Room come parte opzionale. Il setup di TaDaMoo lo include come componente «Riga di comando». Un solo comando, niente decine di CLI.",
       "solved": [
         "Verificato: gli adattatori stanno in `webapp/src/server/cliAdapters/` (base.js, claude.js, codex.js, droid.js, gemini.js: `buildArgs` e `parseOutput`); PSLLMKit ha `Start-LLMServer`, `Invoke-LLMPrompt` e simili in `Public/`.",
-        "Verificato: il server ha già l'API HTTP delle conversazioni (`POST /api/agent/sessions` con la cartella di lavoro, `POST .../send`, `GET .../events?after=N`, le risposte alle domande, dal PC e da un telefono con la chiave: docs/harness.md): il modulo PowerShell può fare da solo il client, anche verso un server su un altro PC."
+        "Verificato: il server ha già l'API HTTP delle conversazioni (`POST /api/agent/sessions` con la cartella di lavoro, `POST .../send`, `GET .../events?after=N`, le risposte alle domande, dal PC e da un telefono con la chiave: docs/harness.md): il modulo PowerShell può fare da solo il client, anche verso un server su un altro PC.",
+        "Fatto il 24 novembre (API-CLI, ramo feat/tadamoo-terminal, commit 20726c1, non pubblicato): `Enable-TaDaMooPrefix`, `Invoke-TaDaMooLine` (§ e §§), il comando `tadamoo`, colore, domande di permesso nel terminale, comando lasciato sul prompt; si importa in PowerShell 5.1 e 7. Provato contro un server finto che parla il protocollo, nelle due versioni: § , §§ (stessa conversazione), domanda di permesso, comando in attesa. NON provato: il gancio su Invio di PSReadLine e la scrittura sul prompt (servono una finestra vera e le tue mani), il testo del terminale con Start-Transcript, e un server TaDaMoo vero con un modello vero."
       ],
       "decisions": [
         "Deciso da te: si riusa e si modifica API-CLI; un solo comando; niente client Python a parte.",
         "Da fare in API-CLI prima di distribuirlo: togliere la porta predefinita 8080 (vietata qui); farlo funzionare anche in PowerShell 5.1 (oggi chiede la 7); la licenza la decidi tu. Da decidere: se il setup include il codice di API-CLI al momento della compilazione (come già fa con agent-desktop in `third_party/`)."
       ],
       "risks": [
-        "Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7."
+        "Il valore predefinito della porta di PSLLMKit è 8080 (`Private/Configuration.ps1`), che su questa macchina è vietata: va cambiato prima di distribuirlo. API-CLI non ha un file di licenza e PSLLMKit richiede PowerShell 7.",
+        "Trovato provando: il server rifiuta un `mode` più alto del livello della chat (messaggio «raise the level of chat in its settings»). Il modulo non lo chiede più; se vuoi che gli strumenti partano sempre da soli, il livello della chat si alza in Settings, è una tua scelta. Mancano ancora: la sezione «Riga di comando» in Settings > General, la voce nel setup, l'unione con master."
       ],
       "branch": false
     },
