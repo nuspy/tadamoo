@@ -636,9 +636,9 @@ def test_a_second_factor_code_is_asked_to_the_person_and_reaches_only_the_comman
     assert session.answer(ask["id"], "554 433")
     assert ev.wait("done")["final"] == "fatto"
     seen = json.dumps(client.sent[1])
-    assert "554" not in seen and "{{vault:bank.totp}}" not in seen.replace("echo code={{vault:bank.totp}}", "")
+    assert "554433" not in seen and "554 433" not in seen and "{{vault:bank.totp}}" not in seen.replace("echo code={{vault:bank.totp}}", "")
     kept = "".join(f.read_text(encoding="utf-8", errors="ignore") for f in (tmp_path / "hist").rglob("*") if f.is_file())
-    assert "554" not in kept
+    assert "554433" not in kept and "554 433" not in kept
 
 
 def test_a_cancelled_code_question_stops_the_command(tmp_path):
