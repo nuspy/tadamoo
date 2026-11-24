@@ -81,7 +81,7 @@ class ServerTests(unittest.TestCase):
         from serve.vram_broker import BrokerPrefs, VramBroker
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"TADAMOO_DATA": d + "/data", "TADAMOO_CACHE": d + "/cache"}):
             tok = ByteTokenizer()
-            svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+            svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
             engine = FakeService()
             svc.vram_broker = VramBroker(engine, probe=lambda: engine.free, start_reserve=lambda: 1500, prefs=BrokerPrefs(Path(d) / "b.json"), timer=False)
             httpd = serve(svc, port=0)

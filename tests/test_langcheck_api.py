@@ -53,7 +53,7 @@ def stack(tmp_path, monkeypatch):
     model = HTTPServer(("127.0.0.1", 0), Proofreader)
     threading.Thread(target=model.serve_forever, daemon=True).start()
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, ["x"], max_context=65536), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, ["x"], max_context=65536), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
     httpd = serve(svc, port=0)
     prov = llm.registry().add({"type": "llamacpp", "name": "Hungarian editor", "base_url": f"http://127.0.0.1:{model.server_address[1]}/v1", "model": "hu-editor"})

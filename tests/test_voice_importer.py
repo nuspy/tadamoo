@@ -264,7 +264,7 @@ def test_the_routes_answer_this_pc_with_the_plan_and_the_run(env, source, monkey
     monkeypatch.setattr(handler, "_PERSONAS", None)
     monkeypatch.setattr(handler, "_RAG", None)
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, "ok", max_context=32768), tok, ChatTemplate(Path(handler.__file__).parent / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, "ok", max_context=32768), tok, ChatTemplate.from_file(Path(handler.__file__).parent / "chat_template.jinja"))
     httpd = handler._listen(svc, "127.0.0.1", 0)
 
     def post(path, body):

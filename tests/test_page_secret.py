@@ -30,7 +30,7 @@ class _NoTelemetry:
 def start(tmp_path, monkeypatch, api_key=""):
     monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, ["</think>\n\nok"], max_context=16384), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, ["</think>\n\nok"], max_context=16384), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
     svc.control_token = SECRET
     svc.api_key = api_key

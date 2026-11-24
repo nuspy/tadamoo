@@ -46,7 +46,7 @@ def start_server():
 
     def start(scripts, api_key=""):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, scripts, max_context=65536), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        svc = Service(MockEngine(tok, scripts, max_context=65536), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         svc.telemetry = _NoTelemetry()
         svc.api_key = api_key
         httpd = serve(svc, port=0)

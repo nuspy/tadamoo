@@ -277,7 +277,7 @@ def test_the_loop_works_with_the_real_manager_and_a_stand_in_process(world, tmp_
 
 def test_routes_create_read_annotate_stop_rerun_and_forget(tmp_path, monkeypatch):
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, answer("ok"), max_context=65536), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, answer("ok"), max_context=65536), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
     httpd = serve(svc, port=0)
     url = f"http://127.0.0.1:{httpd.server_address[1]}"

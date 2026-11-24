@@ -112,7 +112,7 @@ def api_with_side(tmp_path, monkeypatch):
     """The settings route of a server whose engine may or may not have a technical session (set `svc.engine.side_slot`)."""
     monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, [answer("x")], max_context=65536), tok, ChatTemplate(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, [answer("x")], max_context=65536), tok, ChatTemplate.from_file(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
     svc.start_telemetry = lambda: None
     httpd = serve(svc, port=0)
     url = f"http://127.0.0.1:{httpd.server_address[1]}"

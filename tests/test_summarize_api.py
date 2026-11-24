@@ -28,7 +28,7 @@ def server(tmp_path, monkeypatch):
 
     def start(scripts):
         tok = ByteTokenizer()
-        svc = Service(MockEngine(tok, scripts, max_context=65536), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        svc = Service(MockEngine(tok, scripts, max_context=65536), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
         svc.telemetry = _NoTelemetry()
         httpd = serve(svc, port=0)
         started.append(httpd)

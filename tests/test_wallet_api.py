@@ -247,7 +247,7 @@ def guarded(monkeypatch):
     spy = Spy()
     monkeypatch.setattr(handler, "_WALLET", spy)
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, answer("x"), max_context=4096), tok, ChatTemplate(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, answer("x"), max_context=4096), tok, ChatTemplate.from_file(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
     svc.control_token = SECRET
     httpd = serve(svc, port=0)

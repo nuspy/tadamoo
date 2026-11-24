@@ -38,7 +38,7 @@ class TaDaMoo:
     def __init__(self, script):
         self.tok = ByteTokenizer()
         self.engine = MockEngine(self.tok, script, max_context=16384)
-        self.svc = Service(self.engine, self.tok, ChatTemplate(TEMPLATE), grammar=True)
+        self.svc = Service(self.engine, self.tok, ChatTemplate.from_file(TEMPLATE), grammar=True)
         with contextlib.redirect_stdout(io.StringIO()):
             self.httpd = serve(self.svc, port=0)
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/v1"

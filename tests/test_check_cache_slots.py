@@ -132,7 +132,7 @@ def real_server():
     from serve.service import Service
     from serve.util.text import ByteTokenizer
     tok = ByteTokenizer()
-    svc = Service(MockEngine(tok, "</think>\nok", max_context=65536), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+    svc = Service(MockEngine(tok, "</think>\nok", max_context=65536), tok, ChatTemplate.from_file(ROOT / "serve" / "chat_template.jinja"))
     with contextlib.redirect_stdout(io.StringIO()):
         httpd = serve(svc, port=0)
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
