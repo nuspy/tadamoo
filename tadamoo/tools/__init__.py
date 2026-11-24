@@ -186,6 +186,9 @@ def create_standard_tool_registry(
     if find_spec("openpyxl") is not None:                     # the Excel tools, likewise
         from .xlsx_edit import register_xlsx_tools
         register_xlsx_tools(registry, sandbox)
+    if find_spec("pptx") is not None:                         # the PowerPoint tools, likewise
+        from .pptx_edit import register_pptx_tools
+        register_pptx_tools(registry, sandbox)
     register_search_code(registry, lambda p: sandbox.resolve_safe(p, "search_code"), sandbox.root)
     register_tree(registry, lambda p: sandbox.resolve_safe(p, "tree"), sandbox.root)
     register_repo_map(registry, lambda p: sandbox.resolve_safe(p, "repo_map"))
