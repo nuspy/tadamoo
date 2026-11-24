@@ -1475,6 +1475,159 @@ void quantize_row_nvfp4_ref(const float * GGML_RESTRICT x, block_nvfp4 * GGML_RE
     }
 }
 
+// IQ4_NL and IQ4_XS quantizers (ggml-quants.c, quantize_iq4_nl / quantize_iq4_xs without an importance matrix: the
+// 7-step scale search llama-quantize runs).  They are not in the format table; ggml_quantize_chunk routes to them.
+static inline int best_index_int8(int n, const int8_t * val, float x) {
+    if (x <= val[0]) return 0;
+    if (x >= val[n-1]) return n-1;
+    int ml = 0, mu = n-1;
+    while (mu-ml > 1) {
+        int mav = (ml+mu)/2;
+        if (x < val[mav]) mu = mav; else ml = mav;
+    }
+    return x - val[mu-1] < val[mu] - x ? mu-1 : mu;
+}
+
+static void quantize_row_iq4_nl_impl(const int super_block_size, const int block_size, const float * GGML_RESTRICT x,
+        ggml_fp16_t * dh, uint8_t * q4, uint16_t * scales_h, uint8_t * scales_l,
+        float * scales, float * weight, uint8_t * L,
+        const int8_t * values, const int ntry) {
+
+    memset(q4, 0, super_block_size/2);
+    dh[0] = GGML_FP32_TO_FP16(0.f);
+
+    float max_scale = 0, amax_scale = 0;
+    for (int ib = 0; ib < super_block_size/block_size; ++ib) {
+        const float * xb = x + ib*block_size;
+        uint8_t * Lb = L + ib*block_size;
+        for (int j = 0; j < block_size; ++j) weight[j] = xb[j]*xb[j];
+        float amax = 0, max = 0;
+        for (int j = 0; j < block_size; ++j) {
+            float ax = fabsf(xb[j]);
+            if (ax > amax) {
+                amax = ax; max = xb[j];
+            }
+        }
+        if (amax < GROUP_MAX_EPS) {
+            scales[ib] = 0;
+            continue;
+        }
+        float d = ntry > 0 ? -max/values[0] : max/values[0];
+        float id = 1/d;
+        float sumqx = 0, sumq2 = 0;
+        for (int j = 0; j < block_size; ++j) {
+            float al = id*xb[j];
+            int l = best_index_int8(16, values, al);
+            Lb[j] = l;
+            float q = values[l];
+            float w = weight[j];
+            sumqx += w*q*xb[j];
+            sumq2 += w*q*q;
+        }
+        d = sumq2 > 0 ? sumqx/sumq2 : 0.f;
+        float best = d*sumqx;
+        for (int itry = -ntry; itry <= ntry; ++itry) {
+            id = (itry + values[0])/max;
+            sumqx = sumq2 = 0;
+            for (int j = 0; j < block_size; ++j) {
+                float al = id*xb[j];
+                int l = best_index_int8(16, values, al);
+                float q = values[l];
+                float w = weight[j];
+                sumqx += w*q*xb[j];
+                sumq2 += w*q*q;
+            }
+            if (sumq2 > 0 && sumqx*sumqx > best*sumq2) {
+                d = sumqx/sumq2; best = d * sumqx;
+            }
+        }
+        scales[ib] = d;
+        float abs_d = fabsf(d);
+        if (abs_d > amax_scale) {
+            amax_scale = abs_d; max_scale = d;
+        }
+    }
+
+    if (super_block_size/block_size > 1) {
+        int nb = super_block_size/block_size;
+        memset(scales_h, 0, ((nb+7)/8)*sizeof(uint16_t));
+        float d = -max_scale/32;
+        dh[0] = GGML_FP32_TO_FP16(d);
+        float id = d ? 1/d : 0.f;
+        for (int ib = 0; ib < super_block_size/block_size; ++ib) {
+            int l = nearest_int(id*scales[ib]);
+            l = MAX(-32, MIN(31, l));
+            float dl = d * l;
+            float idl = dl ? 1/dl : 0.f;
+            uint8_t * Lb = L + ib*block_size;
+            const float * xb = x + ib*block_size;
+            for (int j = 0; j < block_size; ++j) {
+                Lb[j] = best_index_int8(16, values, idl*xb[j]);
+            }
+            l += 32;
+            uint8_t l_l = l & 0xf;
+            uint8_t l_h = l >>  4;
+            if (ib%2 == 0) scales_l[ib/2] = l_l;
+            else scales_l[ib/2] |= (l_l << 4);
+            scales_h[ib/8] |= (l_h << 2*(ib%8));
+        }
+    } else {
+        dh[0] = GGML_FP32_TO_FP16(scales[0]);
+        if (ntry > 0) {
+            float id = scales[0] ? 1/scales[0] : 0;
+            for (int j = 0; j < super_block_size; ++j) {
+                L[j] = best_index_int8(16, values, id*x[j]);
+            }
+        }
+    }
+
+    for (int i = 0; i < super_block_size/32; ++i) {
+        for (int j = 0; j < 16; ++j) {
+            q4[16*i + j] = L[32*i + j] | (L[32*i + 16 + j] << 4);
+        }
+    }
+}
+
+static size_t quantize_iq4_nl_rows(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row) {
+    GGML_ASSERT(n_per_row%QK4_NL == 0);
+    const int64_t nblock = n_per_row/QK4_NL;
+    char * qrow = (char *)dst;
+    uint8_t L[QK4_NL];
+    float weight[QK4_NL];
+    uint16_t unused_h;
+    uint8_t * unused_l = NULL;
+    float scale;
+    for (int64_t row = 0; row < nrow; ++row) {
+        block_iq4_nl * iq4 = (block_iq4_nl *)qrow;
+        for (int ibl = 0; ibl < nblock; ++ibl) {
+            quantize_row_iq4_nl_impl(QK4_NL, 32, src + QK4_NL*ibl, &iq4[ibl].d, iq4[ibl].qs, &unused_h, unused_l,
+                    &scale, weight, L, kvalues_iq4nl, 7);
+        }
+        src += n_per_row;
+        qrow += nblock*sizeof(block_iq4_nl);
+    }
+    return nrow * nblock * sizeof(block_iq4_nl);
+}
+
+static size_t quantize_iq4_xs_rows(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row) {
+    GGML_ASSERT(n_per_row%QK_K == 0);
+    const int64_t nblock = n_per_row/QK_K;
+    char * qrow = (char *)dst;
+    uint8_t L[QK_K];
+    float weight[32];
+    float scales[QK_K/32];
+    for (int64_t row = 0; row < nrow; ++row) {
+        block_iq4_xs * iq4 = (block_iq4_xs *)qrow;
+        for (int ibl = 0; ibl < nblock; ++ibl) {
+            quantize_row_iq4_nl_impl(QK_K, 32, src + QK_K*ibl, &iq4[ibl].d, iq4[ibl].qs, &iq4[ibl].scales_h, iq4[ibl].scales_l,
+                    scales, weight, L, kvalues_iq4nl, 7);
+        }
+        src += n_per_row;
+        qrow += nblock*sizeof(block_iq4_xs);
+    }
+    return nrow * nblock * sizeof(block_iq4_xs);
+}
+
 static inline float ggml_ue8m0_to_fp32(uint8_t u) {
     if (u == 0xFFu) return 0.0f;
     const uint32_t bits = u == 0u ? 0x00400000u : ((uint32_t) u << 23);
@@ -1621,7 +1774,16 @@ const char* ggml_type_name(enum ggml_type type) {
 size_t ggml_quantize_chunk(enum ggml_type type, const float* src, void* dst, int64_t start, int64_t nrows,
                            int64_t n_per_row) {
     const struct ggml_type_traits* t = ggml_get_type_traits(type);
-    if (t == NULL || t->from_float_ref == NULL) return 0;
+    if (t == NULL) return 0;
+    if (type == GGML_TYPE_IQ4_NL || type == GGML_TYPE_IQ4_XS || type == GGML_TYPE_IQ2_S || type == GGML_TYPE_IQ3_XXS ||
+        type == GGML_TYPE_IQ3_S) {
+        GGML_ASSERT(start % n_per_row == 0);
+        char* out = (char*) dst + (size_t) (start / n_per_row) * ggml_row_size(type, n_per_row);
+        if (type == GGML_TYPE_IQ4_NL) return quantize_iq4_nl_rows(src + start, out, nrows, n_per_row);
+        if (type == GGML_TYPE_IQ4_XS) return quantize_iq4_xs_rows(src + start, out, nrows, n_per_row);
+        return ggml_quantize_iq_rows(type, src + start, out, nrows, n_per_row);
+    }
+    if (t->from_float_ref == NULL) return 0;
     GGML_ASSERT(start % t->blck_size == 0);
     GGML_ASSERT(start % n_per_row == 0);
     const size_t row_size = ggml_row_size(type, n_per_row);

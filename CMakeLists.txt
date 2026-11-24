@@ -6,6 +6,19 @@ endif()
 project(basalt VERSION 0.5.6 LANGUAGES C CXX CUDA)
 add_compile_definitions(BASALT_VERSION="${PROJECT_VERSION}")
 
+# CL and _CL_ add options to EVERY cl.exe call, behind CMake's back: a user-wide _CL_=/std:c++20 breaks the C sources,
+# and it made ggml's SIMD probes fail so the CPU kernels were silently built as scalar code.  The same environment
+# reaches the build, so a configure that sees them stops (tools/windows/vsenv.ps1 clears them).
+if(MSVC)
+  foreach(_v CL _CL_)
+    if(NOT "$ENV{${_v}}" STREQUAL "")
+      message(FATAL_ERROR "the environment variable ${_v}='$ENV{${_v}}' adds options to every MSVC compile (and to the "
+                          "C sources, and to any feature probe): clear it for the configure and the build, e.g. "
+                          "`Remove-Item env:${_v}` or dot-source tools/windows/vsenv.ps1, then configure again")
+    endif()
+  endforeach()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -188,6 +201,7 @@ add_library(model_qwen4exp STATIC src/models/qwen4exp/adapter.cpp src/models/qwe
   src/models/qwen4exp/measure/dump_set.cpp
   src/models/qwen4exp/cli/options.cpp
   src/models/qwen4exp/cli/control_vectors.cpp
+  src/models/qwen4exp/cli/lora.cpp
   src/models/qwen4exp/cli/report.cpp
   src/models/qwen4exp/load/qfn_run.cpp)
 target_include_directories(model_qwen4exp PRIVATE ${_gpu_include_directories})
@@ -608,7 +622,7 @@ set_source_files_properties(src/kernels/cuda/native_mmvq.cu src/kernels/cuda/nat
 # library is the honest shape of the dependency graph: core knows about devices and weights, kernels know
 # about arithmetic, and this one knows the ORDER the arithmetic happens in.
 # ---- tiers: the storage and transfer tier shared by the models (VRAM slots, RAM and file source, peer card) ----
-add_library(tiers STATIC src/core/expert_source.cpp src/core/expert_cache.cpp src/core/peer_experts.cpp src/core/conversation_store.cpp src/core/conversation_memory.cpp)
+add_library(tiers STATIC src/core/expert_source.cpp src/core/expert_cache.cpp src/core/segment_plan.cpp src/core/peer_experts.cpp src/core/conversation_store.cpp src/core/conversation_memory.cpp)
 target_include_directories(tiers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(tiers PUBLIC core kernels kernels_cpu ${_gpu_runtime_target})
 # the routed-expert tier: slots, per-layer LRU, RAM tier with CPU compute, file reads, second cards
@@ -654,6 +668,19 @@ if(BUILD_TESTING)
   target_link_libraries(expert_layout_test PRIVATE model_qwen4exp_engine)
   basalt_cpu_test(NAME expert_layout_test COMMAND expert_layout_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/native_experts)
   set_tests_properties(expert_layout_test PROPERTIES TIMEOUT 60)
+  # LoRA adapter reading and the merge into a dense tensor's own Q8_0 blocks (host only)
+  add_executable(lora_merge_test tests/core/lora_merge_test.cpp)
+  target_link_libraries(lora_merge_test PRIVATE model_qwen4exp_engine ggml_quants)
+  basalt_cpu_test(NAME lora_merge_test COMMAND lora_merge_test
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tools/convert/testdata/lora_sample_expected.gguf)
+  set_tests_properties(lora_merge_test PROPERTIES TIMEOUT 120)
+  # the routed-expert deltas fused into an experts section (IQ4_XS gate/up, IQ4_NL down), the IQ4 quantizers against
+  # llama.cpp's bytes, and an adapter written by llama.cpp's trainer (host only)
+  add_executable(lora_experts_test tests/core/lora_experts_test.cpp)
+  target_link_libraries(lora_experts_test PRIVATE model_qwen4exp_engine ggml_quants)
+  basalt_cpu_test(NAME lora_experts_test COMMAND lora_experts_test
+                   ${CMAKE_CURRENT_SOURCE_DIR}/tools/lora_training/testdata)
+  set_tests_properties(lora_experts_test PROPERTIES TIMEOUT 300)
   endif()
   # the conversation cache: retention bookkeeping (header-only), the memory budget, the snapshot's validation (host
   # only: CUDA is linked but never initialized) and its transfer-failure paths, and a snapshot round trip on a device
@@ -1703,7 +1730,7 @@ target_link_libraries(kernels_cpu PUBLIC Threads::Threads platform)
 # The parts of ggml (MIT, llama.cpp commit 3cf03257f219afbe7334045ff7c6a06ac68c627d) the engine uses, in
 # src/kernels/cpu/ggml and src/prefill/mmq: the reference quantizers and the format table, the CPU row dot
 # products, and the prompt path's MMQ kernels.  Nothing is fetched at build time.
-add_library(ggml_quants STATIC src/kernels/cpu/ggml/ggml_quants.c)
+add_library(ggml_quants STATIC src/kernels/cpu/ggml/ggml_quants.c src/kernels/cpu/ggml/ggml_quants_iq.c)
 target_include_directories(ggml_quants PUBLIC include PRIVATE src/kernels/cpu/ggml)
 set_target_properties(ggml_quants PROPERTIES C_STANDARD 11 C_EXTENSIONS ON POSITION_INDEPENDENT_CODE ON)
 # The CPU dot products are built for AVX2 and for AVX-512, each with its own name for the table lookup;

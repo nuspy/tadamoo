@@ -7,11 +7,11 @@
 namespace basalt::core {
 class LoraSet;
 }
-namespace basalt::program {
+namespace basalt::models::qwen4exp {
 struct Options;
 }
 
-namespace basalt::program::cli {
+namespace basalt::models::qwen4exp::cli {
 
 /// Opens every adapter in `o.lora_files` and gives NativeDense the resulting set (NativeDense::set_lora). The
 /// adapters and the set are owned here, with process lifetime: NativeDense only keeps a pointer to them, read
@@ -26,4 +26,4 @@ bool load_lora(const Options& o, std::string& summary, size_t& skipped, std::str
 /// The set `load_lora` opened, or null when no adapter was given.
 const basalt::core::LoraSet* lora_set();
 
-}  // namespace basalt::program::cli
+}  // namespace basalt::models::qwen4exp::cli

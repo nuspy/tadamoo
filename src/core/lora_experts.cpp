@@ -34,7 +34,7 @@ struct Geometry {
 Geometry geometry(const NativeFmt& f, ExpertRole role) {
     switch (role) {
         case ExpertRole::Gate: return {f.gu_type, f.n_ff, f.n_embd, f.gu_row, 0};
-        case ExpertRole::Up:   return {f.gu_type, f.n_ff, f.n_embd, f.gu_row, f.up_off};
+        case ExpertRole::Up:   return {f.up_type >= 0 ? f.up_type : f.gu_type, f.n_ff, f.n_embd, f.up_row != 0 ? f.up_row : f.gu_row, f.up_off};
         default:               return {f.d_type, f.n_embd, f.n_ff, f.d_row, f.down_off};
     }
 }
@@ -135,6 +135,7 @@ std::string lora_experts_path(const LoraSet& set, const FileRange& experts, cons
     h = fnv(h, identity(experts.path));
     for (size_t l = 0; l < layout.fmt.size(); ++l) {
         h = fnv(h, (uint64_t) layout.fmt[l].gu_type);
+        h = fnv(h, (uint64_t) layout.fmt[l].up_type);
         h = fnv(h, (uint64_t) layout.fmt[l].d_type);
         h = fnv(h, layout.bytes[l]);
     }

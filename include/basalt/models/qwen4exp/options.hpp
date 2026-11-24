@@ -4,6 +4,10 @@
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "basalt/program/options.hpp"
 
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace basalt::models::qwen4exp {
 
 struct Options : CommonOptions {
@@ -57,8 +61,21 @@ struct Options : CommonOptions {
     bool stats = false;
     /// Opt-in: the expert cache in physical segments (CUDA virtual memory management), so the serve loop's
     /// `VRAM <reserve_mib>` command can give part of it back to other programs and take it again.  Off: one cudaMalloc.
-    bool vram_elastic = false;
+    bool vram_elastic = true;          // on by default; --no-vram-elastic turns it off (a setup it does not fit leaves it off, said only when it was asked for)
+    bool vram_elastic_asked = false;   // --vram-elastic or --no-vram-elastic on the command line
+    /// Windows: decommit the eviction backing WDDM charges to the commit for every GPU allocation, once loaded and
+    /// after each command (platform/vram_backing.hpp says what it risks).  `--keep-vram-commit` turns it off.
+    bool release_vram_commit = true;
     int64_t vram_segment_mib = 512;
+    /// --side-context N: the last --batch slot is the side slot and holds N cells (at most --max-context), for short
+    /// calls beside the conversations in the other slots.  0 = off.  It keeps no conversation checkpoints.
+    int64_t side_context = 0;
+    /// --vision-release: the image encoder's pinned copy of the weights is freed after the warm-up and after each batch
+    /// of images, and read from the file again at the next one; the commit it held is free in between.
+    bool vision_release = false;
+    /// --lora / --lora-scaled: adapters fused into the dense native matrices and the routed experts at load.
+    std::vector<std::pair<std::string, float>> lora_files;
+    bool lora_partial = true;          // --no-lora-partial refuses an adapter that touches a tensor outside the fusable ones
     /// Batched prompt processing in chunks of this many tokens (0 = the token path).
     int64_t prefill_chunk = 0;
     /// `--prefill auto`: the largest chunk (up to 8192) whose buffers the expert cache can lend.  Every expert a chunk

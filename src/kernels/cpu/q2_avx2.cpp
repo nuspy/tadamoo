@@ -5,6 +5,9 @@
 // `maddubs` and `madd` and in q2_avx2_vnni.cpp with the AVX-VNNI instruction that does both; this file picks one at
 // run time.  The quantizer is the scalar rule, bit for bit.
 #include "basalt/kernels/cpu/expert.hpp"
+#if !defined(__AVX2__)
+#error "q2_avx2.cpp must be compiled with AVX2 enabled (the per-source flags in CMakeLists.txt, BASALT_ISA_*)"
+#endif
 #include "basalt/kernels/cpu/expert_layout.hpp"
 
 #include <immintrin.h>

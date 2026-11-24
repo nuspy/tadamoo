@@ -49,7 +49,28 @@ bool parse_flag(const std::string& a, model::FlagArgs& args, Options& o, int& co
         o.prefill_auto_max = o.prefill_auto_fit || want_max >= 32768 ? 32768 : want_max >= 16384 ? 16384 : 8192;
         o.prefill_chunk = o.prefill_auto ? o.prefill_auto_max : std::atoll(v.c_str());
     }
-    else if (a == "--vram-elastic") o.vram_elastic = true;
+    else if (a == "--vram-elastic") { o.vram_elastic = true; o.vram_elastic_asked = true; }
+    else if (a == "--no-vram-elastic") { o.vram_elastic = false; o.vram_elastic_asked = true; }
+    else if (a == "--keep-vram-commit") o.release_vram_commit = false;
+    else if (a == "--side-context") o.side_context = std::max<int64_t>(0, std::atoll(args.next("--side-context")));
+    else if (a == "--vision-release") o.vision_release = true;
+    else if (a == "--lora") o.lora_files.push_back({args.next("--lora"), 1.0f});
+    else if (a == "--lora-scaled") {
+        // FILE:SCALE, comma-separated; the LAST colon splits
+        std::stringstream list(args.next("--lora-scaled"));
+        std::string item;
+        while (std::getline(list, item, ',')) {
+            const size_t colon = item.rfind(':');
+            char* end = nullptr;
+            const float sc = colon == std::string::npos ? 0.0f : std::strtof(item.c_str() + colon + 1, &end);
+            if (colon == std::string::npos || colon == 0 || end == item.c_str() + colon + 1 || *end != '\0') {
+                basalt::log::error("basalt", "--lora-scaled: expected FILE:SCALE, got '%s'", item.c_str());
+                { code = 2; return true; }
+            }
+            o.lora_files.push_back({item.substr(0, colon), sc});
+        }
+    }
+    else if (a == "--no-lora-partial") o.lora_partial = false;
     else if (a == "--vram-segment-mib") o.vram_segment_mib = std::atoll(args.next("--vram-segment-mib"));
     else if (a == "--prefill-until") o.prefill_until = std::atoll(args.next("--prefill-until"));
     else if (a == "--dump-final-r") o.dump_final_r = args.next("--dump-final-r");

@@ -1,4 +1,5 @@
 // src/models/qwen4exp/serve/slots.cpp - slots operations.
+#include "basalt/program/slot_contexts.hpp"
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "qfn_request.hpp"
 

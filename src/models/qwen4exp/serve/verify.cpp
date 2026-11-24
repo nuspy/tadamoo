@@ -1,4 +1,5 @@
 // src/models/qwen4exp/serve/verify.cpp - verify operations for the persistent engine.
+#include "basalt/platform/vram_backing.hpp"
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "qfn_state.hpp"
 #include "basalt/core/load_progress.hpp"

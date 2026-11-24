@@ -412,17 +412,22 @@ bool plan_cache_slots(LoadPlan& plan, ExpertSource& src, ExpertCache& cache, int
 
 bool FileExpertSource::advise_pairs(const std::pair<int32_t, int32_t>* pairs, int64_t n) const {
     if (base_ == nullptr || !basalt::platform::read_ahead_enabled()) return false;
-    std::vector<basalt::platform::WillNeedRange> ranges;
-    ranges.reserve(pairs != nullptr && n > 0 ? (size_t) n : 0);
+    std::vector<const void*> addrs;
+    std::vector<uint64_t> sizes;
+    addrs.reserve(pairs != nullptr && n > 0 ? (size_t) n : 0);
+    sizes.reserve(addrs.capacity());
     for (int64_t i = 0; pairs != nullptr && i < n; ++i) {
         const int64_t l = pairs[i].first, e = pairs[i].second;
         if (l < 0 || e < 0 || l >= n_layers_ || e >= n_expert_) continue;
         // an expert held in RAM is not read from the file
         if (complement_ready_ && complement_offsets_[(size_t) l * (size_t) n_expert_ + (size_t) e] != kNoComplement)
             continue;
-        if (const uint8_t* b = mapped_blob(l, e)) ranges.push_back({b, layer_blob_bytes_[(size_t) l]});
+        if (const uint8_t* b = mapped_blob(l, e)) {
+            addrs.push_back(b);
+            sizes.push_back(layer_blob_bytes_[(size_t) l]);
+        }
     }
-    basalt::platform::advise_willneed_batch(ranges.data(), ranges.size());
+    basalt::platform::advise_willneed(addrs.data(), sizes.data(), addrs.size());
     return true;
 }
 

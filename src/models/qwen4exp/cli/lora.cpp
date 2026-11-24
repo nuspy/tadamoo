@@ -1,12 +1,12 @@
 #include "lora.hpp"
 
 #include "basalt/core/lora.hpp"
-#include "basalt/core/native_dense.hpp"
-#include "basalt/program/options.hpp"
+#include "basalt/models/qwen4exp/decode/native_dense.hpp"
+#include "basalt/models/qwen4exp/options.hpp"
 
 #include <vector>
 
-namespace basalt::program::cli {
+namespace basalt::models::qwen4exp::cli {
 
 namespace {
 // Process lifetime: NativeDense::set_lora keeps a pointer to `g_set`, whose entries point into `g_adapters`.
@@ -36,4 +36,4 @@ bool load_lora(const Options& o, std::string& summary, size_t& skipped, std::str
 
 const basalt::core::LoraSet* lora_set() { return g_set.empty() ? nullptr : &g_set; }
 
-}  // namespace basalt::program::cli
+}  // namespace basalt::models::qwen4exp::cli

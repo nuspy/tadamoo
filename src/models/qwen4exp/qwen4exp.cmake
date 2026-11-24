@@ -58,6 +58,8 @@ add_library(model_qwen4exp_engine STATIC src/models/qwen4exp/decode/layer.cpp sr
   src/models/qwen4exp/decode/layout.cpp
   src/models/qwen4exp/decode/native_head.cpp
   src/models/qwen4exp/decode/native_dense.cpp
+  src/core/lora.cpp
+  src/core/lora_experts.cpp
   src/models/qwen4exp/decode/verify/batch_capture.cpp
   src/models/qwen4exp/decode/verify/batch_execution.cpp
   src/models/qwen4exp/decode/verify/batch_sessions.cpp
@@ -101,7 +103,7 @@ add_library(model_qwen4exp_engine STATIC src/models/qwen4exp/decode/layer.cpp sr
   src/models/qwen4exp/conversation/conversation_snapshot.cpp
   src/models/qwen4exp/conversation/conversation_state.cpp)
 target_include_directories(model_qwen4exp_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(model_qwen4exp_engine PUBLIC core model tiers model_qwen4exp_kernels kernels_cpu ${_gpu_runtime_target})
+target_link_libraries(model_qwen4exp_engine PUBLIC core model tiers model_qwen4exp_kernels kernels_cpu ggml_quants ${_gpu_runtime_target})
 
 # The prompt path: batched prompt processing (tensor-core GEMMs through cuBLAS).
 add_library(model_qwen4exp_prefill STATIC src/models/qwen4exp/prefill/gemm.cu src/models/qwen4exp/prefill/kernels.cu

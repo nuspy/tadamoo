@@ -1,5 +1,7 @@
 // The whole start of a Flash-Next engine, in order: its stack frames hold the resources while the server runs.
+#include "basalt/core/lora_experts.hpp"
 #include "basalt/core/shipped_profiles.hpp"
+#include <thread>
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "basalt/platform/file.hpp"
 #include "context.hpp"
@@ -13,6 +15,20 @@ int run_engine(Options& o, std::vector<program::GpuCard>& chosen_cards) {
     Context context;
     std::string& ppl_base = o.ppl_base;
     std::string& ppl_out = o.ppl_out;
+    // Before anything else reads a LoRA-covered tensor's planned type or bytes (the loading phases ahead all do,
+    // starting with the first NativeDense::served_names call): a control vector waits for ModelGeometry, but nothing a
+    // LoRA merge needs does.
+    std::string lora_summary = "0";
+    size_t lora_skipped = 0;
+    {
+        std::string lora_err;
+        if (!cli::load_lora(o, lora_summary, lora_skipped, lora_err)) {
+            basalt::log::error("basalt", "lora: %s", lora_err.c_str());
+            return 2;
+        }
+    }
+    context.lora_summary = &lora_summary;
+    context.lora_skipped = &lora_skipped;
     basalt::core::ModelSources srcs;
     basalt::core::ModelFile model_file;
     {
@@ -58,7 +74,7 @@ int run_engine(Options& o, std::vector<program::GpuCard>& chosen_cards) {
         basalt::core::hc8_set_table(std::move(table));
     }
     const basalt::core::PackFiles pack_files = basalt::core::PackFiles::from(srcs);
-    const basalt::core::ExpertFiles expert_files = basalt::core::ExpertFiles::from(srcs);
+    basalt::core::ExpertFiles expert_files = basalt::core::ExpertFiles::from(srcs);
     // ---- two or more cards: what they do together is priced and the cheapest mechanism the engine has runs (one card:
     // nothing to choose, and no other card is touched)
     if (chosen_cards.size() >= 2) {
@@ -235,6 +251,23 @@ int run_engine(Options& o, std::vector<program::GpuCard>& chosen_cards) {
                                                                        g0.n_expert, err, g0.n_embd, g0.n_ff);
         if (!layout_ok) {
             return fatal_start_error(err);
+        }
+        // An adapter with routed-expert tensors: the experts are loaded from a copy with its deltas fused in.
+        if (const auto* lora = cli::lora_set(); lora != nullptr && lora->touches_experts()) {
+            const unsigned hw = std::thread::hardware_concurrency();
+            basalt::core::FileRange fused;
+            basalt::core::ExpertFuseStats fuse;
+            if (!basalt::core::lora_prepare_experts(*lora, srcs.experts, basalt::kernels::cpu::expert_layout(),
+                                                    (int) (hw > 4 ? hw - 2 : 2), fused, fuse, err)) {
+                return fatal_start_error("lora: " + err);
+            }
+            srcs.experts = fused;
+            expert_files.experts = fused;
+            if (fuse.reused)
+                basalt::log::info("basalt lora", "experts: reusing %s", fused.path.c_str());
+            else
+                basalt::log::info("basalt lora", "experts: %llu blobs of %d layers fused in %.0f s into %s",
+                                  (unsigned long long) fuse.blobs_fused, fuse.layers, fuse.seconds, fused.path.c_str());
         }
         // Every layer's formats must have GPU expert kernels and a prompt-path dequantizer, checked here, before
         // anything is allocated: an unsupported type would otherwise fail from inside the first verify window or leave
