@@ -19,6 +19,7 @@ from tadamoo.client import TadamooError, _collect_stream
 from tadamoo import side_uses
 from tadamoo.llm import functions
 from tadamoo.llm.profile import RouteProfile, route_profile
+from tadamoo.llm.usage import UsageLog, counts
 from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
 from tadamoo.llmswitch import reasoning
 from tadamoo.llmswitch.providers import TYPES
@@ -190,8 +191,9 @@ def keep_the_json(result: Dict[str, Any]) -> None:
 
 class RoutedClient:
     def __init__(self, function: str, registry: SecureRegistry, local: Any, ledger: Optional[Ledger] = None,
-                 level: str = reasoning.INHERIT, session: Optional[requests.Session] = None, loader: Any = None) -> None:
+                 level: str = reasoning.INHERIT, session: Optional[requests.Session] = None, loader: Any = None, usage: Optional[UsageLog] = None) -> None:
         functions.spec(function)
+        self.usage = usage                                   # where the tokens of each call are written (None: nowhere, as in a test)
         self.loader = loader                                 # QwenLoader: makes sure the model is there before this server is used
         self.function, self.registry, self.local = function, registry, local
         self.ledger = ledger or Ledger()
@@ -374,6 +376,7 @@ class RoutedClient:
             raise _http_error(prov, resp)
         result = _collect_stream(_lines(resp), on_delta) if on_delta is not None else resp.json()
         self.ledger.record(pid, int((result.get("usage") or {}).get("total_tokens") or 0))
+        self._note(prov, model, result)
         return result
 
     def _anthropic(self, prov, base, key, model, messages, tools, temperature, max_tokens, timeout, on_delta,
@@ -405,7 +408,13 @@ class RoutedClient:
         if on_delta is not None and result["choices"][0]["message"].get("content"):
             on_delta("content", result["choices"][0]["message"]["content"])          # whole, not in pieces: this route does not stream
         self.ledger.record(prov["id"], int(result["usage"]["total_tokens"]))
+        self._note(prov, model, result)
         return result
+
+    def _note(self, prov: Dict[str, Any], model: Any, result: Dict[str, Any]) -> None:
+        if self.usage is not None:
+            c = counts(result)
+            self.usage.record(prov["id"], prov.get("name") or prov["id"], str(model or prov.get("model") or ""), self.function, c["prompt"], c["completion"], c["cached"])
 
     def _post_messages(self, prov, base, body, headers, timeout) -> "requests.Response":
         try:

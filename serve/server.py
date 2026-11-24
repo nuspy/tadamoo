@@ -279,6 +279,8 @@ def main() -> int:
     svc.gpu_index = svc.gpu_indices[0]
     os.environ["TADAMOO_URL"] = f"http://127.0.0.1:{a.port}"      # the workers and helpers this server starts ask it for VRAM leases here
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
+    from tadamoo.llm.usage import UsageLog
+    svc.usage_log = UsageLog()
     svc.engine_installed = bool(a.mock_engine or a.engine_bin)
     svc.web = not a.no_web
     svc.remote_admin = bool(getattr(a, "remote_admin", False) and svc.api_key)

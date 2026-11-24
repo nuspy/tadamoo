@@ -1,0 +1,20 @@
+/* Models > Usage: presets, a period, the totals, a bar chart over time and the tables. Mobile first: controls are at least 44 px; the tables scroll inside their own box. */
+.us { display: grid; gap: 12px; max-width: 980px; padding-bottom: 24px; }
+.us h2 { margin: 0; font-size: 17px; }
+.us h3 { margin: 0 0 6px; font-size: 15px; }
+.us-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.us-presets .btn { min-height: 44px; min-width: 44px; padding: 6px 14px; }
+.us-range { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); align-items: end; }
+.us-range input { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.us-tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.us-tile { display: grid; gap: 2px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.us-tile-k { color: var(--fg-2); font-size: 12px; }
+.us-tile-v { font-size: 20px; font-variant-numeric: tabular-nums; }
+.us-bars { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.us-bar { flex: 1 1 0; min-width: 2px; height: var(--h); background: var(--accent); border-radius: 2px 2px 0 0; }
+.us-axis { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0 0; }
+.us-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.us-table th, .us-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.us-table th[scope="row"] { font-weight: 600; overflow-wrap: anywhere; }
+.us-table .us-n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.us-share { display: block; height: 4px; margin-top: 3px; width: var(--w); background: var(--accent); border-radius: 2px; }

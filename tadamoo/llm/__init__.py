@@ -31,7 +31,8 @@ def client_for(function: str, local: Any, reg: Optional[SecureRegistry] = None, 
     from tadamoo.llm.qwen_loader import QwenLoader
     base = getattr(local, "base_url", "")
     loader = QwenLoader(base, getattr(local, "api_key", None)) if base and load_if_needed else None
-    return RoutedClient(function, reg or registry(), local, Ledger(), level=level, loader=loader)
+    from tadamoo.llm.usage import UsageLog
+    return RoutedClient(function, reg or registry(), local, Ledger(), level=level, loader=loader, usage=UsageLog())
 
 
 def judge_for(function: str, local: Any, reg: Optional[SecureRegistry] = None):

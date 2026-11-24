@@ -106,6 +106,7 @@ from serve.file_owners import FileOwners, OwnersError
 from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
 from serve.gate_prefs import GateError, GatePrefs
 from serve.terminal_prefs import TerminalError, TerminalPrefs
+from tadamoo.llm.usage import UsageLog
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
@@ -822,6 +823,17 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/terminal":
                 if self._authorized():
                     self._json(200, TerminalPrefs(userdata.path("terminal.json")).view())
+            elif path == "/api/usage":
+                if self._authorized():
+                    query = parse_qs(urlsplit(self.path).query)
+
+                    def when(name: str):
+                        try:
+                            return float((query.get(name) or [""])[0])
+                        except ValueError:
+                            return None
+                    start, end = when("from"), when("to")
+                    self._json(200, UsageLog().report(start if start is not None and start > 0 else 0.0, end))
             elif path == "/api/coding":
                 if self._authorized():
                     self._coding_get()
@@ -1435,6 +1447,7 @@ def make_handler(svc: Service, remote: bool = False):
                     return
                 svc.request_ctx.path = path
                 svc.request_ctx.model = req.get("model") if isinstance(req.get("model"), str) else None
+                svc.request_ctx.function = heavy_forward.function_of(self)
                 if path in ("/v1/chat/completions", "/v1/messages", "/v1/responses"):
                     # a listed model that is not loaded: say so instead of answering with the loaded one
                     refused = model_list.refusal(svc, req.get("model"),

@@ -32,7 +32,7 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertIn('vcPanel.hidden = !vc', PROVIDERS)
         self.assertIn("qwen.hidden = prov || cv || lc || vc", PROVIDERS)
         self.assertIn('vcTabBtn.onclick = () => sub("voicesvc")', PROVIDERS)
-        self.assertIn('["providers", "converter", "llamacpp", "voicesvc"].includes(saved)', PROVIDERS)
+        self.assertIn('["providers", "converter", "llamacpp", "voicesvc", "usage"].includes(saved)', PROVIDERS)
         self.assertIn('"llamacpp", "voicesvc"];', ENGINES)
         self.assertIn('"ld-llamacpp", "ld-voicesvc"', ENGINES)
 
