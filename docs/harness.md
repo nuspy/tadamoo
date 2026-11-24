@@ -1029,7 +1029,13 @@ the mode is meant to be compared on the same tasks with `tadamoo.eval` before it
 
 TaDaMoo's own functions (the Chat, the agent's loop, the planner, the judges) can each use a different model: the one loaded in
 this TaDaMoo, another one on this PC, a cloud service, a command-line agent, or Jev for judging. The choice is made on the
-Models page, sub-tab Providers; other programs that use this server still see only the loaded model.
+Models page, sub-tab Providers. Other programs that call this server through the OpenAI or Anthropic interface are one more function there,
+`external` ("Other programs"): with no provider chosen they meet the loaded model, as ever; with one chosen, `/v1/chat/completions` and
+`/v1/messages` (streamed or not, with tools) are carried to that provider and answered in the interface the program spoke, and `/v1/models`
+lists the provider's model. The function never follows the Primary model, never joins a swap and never falls back to the loaded model, so the
+program is told when the provider fails. `/v1/responses` is answered only by the loaded model, and `/v1/messages/count_tokens` is an estimate.
+TaDaMoo's own pieces (the Chat page, the voice service, its clients) name themselves by a header or by `TaDaMoo` in the user agent and are never
+carried away. Whoever holds this server's key spends the chosen provider's quota.
 
 - `tadamoo/llmswitch/` is the vendored llmswitch package (see its `UPSTREAM.md`); `tadamoo/llm/` is TaDaMoo's layer over it.
 - Keys and tokens are kept in the Windows credential manager (the registry file holds only a reference). The page can send

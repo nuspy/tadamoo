@@ -173,12 +173,12 @@ class Session:
 
     # requests
     def post(self, body: dict, timeout: float = 900) -> dict:
-        req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "User-Agent": "TaDaMoo-bench"})
         return json.load(urllib.request.urlopen(req, timeout=timeout))
 
     def stream(self, body: dict, timeout: float = 900):
         """(text, tokens, time to the first token, decode tokens per second, total seconds)."""
-        req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps({**body, "stream": True}).encode(), headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps({**body, "stream": True}).encode(), headers={"Content-Type": "application/json", "User-Agent": "TaDaMoo-bench"})
         t0 = time.time()
         first = last = None
         n = 0

@@ -166,7 +166,7 @@
     return sec;
   }
 
-  /* ---- other programs calling this server with the OpenAI or the Anthropic interface: always the loaded local model, never a provider chosen above ---- */
+  /* ---- other programs calling this server with the OpenAI or the Anthropic interface: the provider chosen for them in the table, else the loaded local model ---- */
   function externalRequests() {
     const sec = h("section", "sec pv-external");
     sec.append(h("div", "sh", h("b", "", T("pv.external"))), h("p", "pv-external-who", T("pv.external.who")), h("p", "setnote", T("pv.external.help")));

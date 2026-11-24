@@ -63,6 +63,18 @@ def test_a_function_is_pointed_at_a_provider_only_if_the_rules_allow_it(api):
     assert call("POST", "/api/llm/assign", {"function": "relevance", "provider": "ghost"})[0] == 409
 
 
+def test_other_programs_are_a_function_of_the_list_that_needs_no_consent_and_stays_on_the_loaded_model_until_chosen(api):
+    call, reg = api
+    pid = call("POST", "/api/llm/providers", {"type": "openai", "api_key": "k" * 12, "model": "m"})[1]["provider"]["id"]
+    call("POST", "/api/llm/primary", {"provider": pid, "default_for_new": True})
+    row = next(f for f in call("GET", "/api/llm")[1]["functions"] if f["id"] == "external")
+    assert (row["label"], row["needs_consent"], row["provider"], row["now"]["via"]) == ("Other programs (OpenAI and Anthropic interfaces)", False, "", "local")
+    code, view = call("POST", "/api/llm/assign", {"function": "external", "provider": pid})
+    assert code == 200 and next(f for f in view["functions"] if f["id"] == "external")["provider"] == pid
+    code, view = call("POST", "/api/llm/assign", {"function": "external", "provider": ""})
+    assert next(f for f in view["functions"] if f["id"] == "external")["now"]["via"] == "local"
+
+
 def test_a_key_is_changed_only_when_a_new_one_is_sent(api):
     call, reg = api
     pid = call("POST", "/api/llm/providers", {"type": "openai", "api_key": "sk-first-123456", "model": "m"})[1]["provider"]["id"]

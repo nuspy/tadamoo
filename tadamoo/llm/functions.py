@@ -1,7 +1,7 @@
 """The functions inside TaDaMoo that use a language model, and what each of them needs from its provider.
 
-Only these internal functions can be pointed at another provider. What other applications see of this server stays the
-loaded model, whatever is chosen here (see `docs/harness.md`). A function names a kind of work:
+Only these functions can be pointed at another provider. `external` is the one for other programs that call this server through the OpenAI or
+Anthropic interface (see `docs/harness.md`). A function names a kind of work:
 
 * `voice`: what the voice service asks of the model: the copilot, the spoken replies of a meeting or a call, the avatar's direct brain, the minutes;
 * `chat`: a conversation with tools or without (Chat, the agent's loop, the planner and its targets, the memory workers, the skill writers, summaries);
@@ -33,6 +33,7 @@ FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "triage": {"label": "Plan events (triage)", "kind": "judge", "data": "personal"},
     "relevance": {"label": "Relevance of excerpts", "kind": "judge", "data": "general"},
     "rag_enrich": {"label": "Knowledge archives (summaries and questions)", "kind": "chat", "data": "personal", "tools": False},
+    "external": {"label": "Other programs (OpenAI and Anthropic interfaces)", "kind": "chat", "data": "general", "tools": True, "direct": True},
 }
 
 COUNCIL_PREFIX = "council:"                        # one function for each role of the council, made from the role's id (tadamoo/council.py)
@@ -49,6 +50,12 @@ def is_council(function: Any) -> bool:
 
 def known(function: Any) -> bool:
     return function in FUNCTIONS or is_council(function)
+
+
+def direct(function: Any) -> bool:
+    """Whether the function is only what the person chose for it: it never follows the Primary model, never reads as a swap's provider and never falls back
+    to another route. Without a choice it is the model loaded in this server."""
+    return FUNCTIONS.get(function, {}).get("direct", False) if isinstance(function, str) else False
 
 
 def names() -> tuple[str, ...]:
