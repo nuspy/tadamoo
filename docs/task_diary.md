@@ -40,6 +40,8 @@ Ultimo aggiornamento: 24 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
 
 **Decisioni del 24 novembre, notte.** Release: la 2.1 pubblicata non è uguale al codice locale (manca tutta l'importazione dell'originale), quindi si pubblica la 2.2 per tutti (Windows, solo-GUI, Android, Linux completo, Linux server); la costruzione di Windows parte dall'albero principale `E:\Projects\basalt` e vuole il servizio fermo (motore da ricompilare, app da sostituire): aspetta che tu dica quando. La console web dell'originale non ti interessa. Task 51, in prova con confronto A/B: prompt dell'harness più corto con caricamento a freddo (gli strumenti rari hanno una descrizione minima e il modello chiede i dettagli prima di sceglierli), da tenere spento di default finché l'A/B non dice che conviene.
 
+**Task 51, primo A/B sul modello vero (24 novembre notte).** Strumenti freddi con scheletro dello schema, 600 W, k = 5: documenti 20 su 20 e core 50 su 50 in entrambe le versioni, nessuna chiamata rifiutata; prompt letto per prova -11% (documenti) e -29% (core), un giro in più per `tool_help` dove gli strumenti freddi servono (tempo da 24-39 s a 29-45 s). Per la regola scritta prima (-30%) manca un punto: resta un'opzione spenta; prossimo passo, misurarla con l'elenco vero (browser, computer, server esterni). Trovato strada facendo: uno schema «libero» per lo strumento freddo non funziona (la grammatica scrive solo i parametri che lo schema nomina: il modello mandava `{}` undici volte).
+
 ## 23 novembre
 
 **Studio di DeerFlow (23 novembre sera, su tua richiesta).** Letto il codice di bytedance/deer-flow e confrontato con il nostro: `docs/study-deerflow.md`.

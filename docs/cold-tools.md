@@ -25,3 +25,20 @@ python -m tadamoo.eval --set documents --k 5 --endpoint http://127.0.0.1:7232 --
 Also `--set core` (the cold arm must not hurt ordinary tasks). Rule written before the run: B wins if the tasks passed do not drop beyond the
 noise (the difference of two runs of A) and the prompt's tokens fall by at least 30%. Read besides: extra turns, calls refused by the registry,
 and whether the model asked `tool_help` before the first call of a cold tool.
+
+## Result of the first A/B (24 November 2026)
+
+The real model (Qwen3.8-Flash-Next Uncensored IQ4_XS), 600 W, temperature 0.6, k = 5, the same tasks and seeds in both arms, a limit of 400,000 tokens
+per trial, a bare agent (no browser, computer or outside tools in the list).
+
+| Set | Passed A | Passed B | Prompt tokens read per trial (all turns) | Turns per trial | Seconds per trial |
+|---|---|---|---|---|---|
+| `documents` (4 tasks) | 20 of 20 | 20 of 20 | 90,386 -> 80,545 (-11%) | 5.8 -> 6.9 | 24-39 -> 29-45 |
+| `core` (10 tasks) | 50 of 50 | 50 of 50 | 51,111 -> 36,251 (-29%) | 3.4 -> 3.4 | the same |
+
+- B asked `tool_help` before the first use of every cold tool in 19 of 20 trials (in the other one it called the tool first, and the call was accepted) and made no call the registry refused.
+- Read it with its limits: one model, 14 tasks, five repetitions, and A already passes everything, so this can show that B does not lose, not that
+  it gains in quality. Where the cold tools are used the saving is small (-11%) because each trial pays one more turn for `tool_help` and the PDF
+  and PowerPoint tasks took 45 s instead of 31-39 s; where they are not used (`core`) the prompt is 29% shorter at the same time.
+- By the rule written before the run (prompt tokens down at least 30%) B misses by a point on `core`. It is kept as an option, off by default.
+  A prompt with the browser, the computer and outside servers listed is longer and has more to make cold: that is the next measure.
