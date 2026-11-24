@@ -1,37 +1,38 @@
 #!/bin/bash
-# deploy/linux/package.sh - builds the two Linux release tarballs from a built tree: tadamoo-linux-complete-vX.Y.tar.gz (the
-# harness, the installer and the compiled Basalt-Plus engine) and tadamoo-server-linux-vX.Y.tar.gz (the harness and the
-# installer alone, for a machine that uses a provider or Strata instead). Run from the repository root, after `cmake --build`
-# has put bin/basalt, bin/basalt-bench, bin/basalt-probe and bin/basalt-vision in place.
-set -e
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
-OUT="${1:-dist}"
+# deploy/linux/package.sh COMPLETE.tar.gz [OUT] - makes the server archive of a Linux release from its complete archive.
+#
+# The complete archive (TaDaMoo-linux-complete-vX.Y.tar.gz) is built by the release-linux workflow: the harness tree, the installer,
+# agent-desktop and agent-browser in tools/vendored/, and the Basalt-Plus engine in engines/basalt/. The server archive
+# (TaDaMoo-server-linux-vX.Y.tar.gz) is the same tree without the engine, for a machine that answers through providers or Strata.
+# Both get a .sha256 file in OUT (default dist); the complete archive is copied there unchanged.
+set -euo pipefail
+
+COMPLETE="${1:?usage: deploy/linux/package.sh COMPLETE.tar.gz [OUT]}"
+OUT="${2:-dist}"
+BASE="$(basename "$COMPLETE")"
+case "$BASE" in
+  TaDaMoo-linux-complete-v*.tar.gz) ;;
+  *) echo "the first argument must be TaDaMoo-linux-complete-vX.Y.tar.gz, not $BASE" >&2; exit 1 ;;
+esac
+VERSION="${BASE#TaDaMoo-linux-complete-v}"
+VERSION="${VERSION%.tar.gz}"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
-VERSION=$(python3 -c "import json; d=json.load(open('VERSION')); print(f\"v{d['version']}.{d['subversion']}\")")
-WORK=$(mktemp -d)
-STAGE="$WORK/tadamoo-${VERSION}"
-mkdir -p "$STAGE"
 
-echo "== staging tracked files (release: ${VERSION}) =="
-git ls-files | while read -r f; do
-  mkdir -p "$STAGE/$(dirname "$f")"
-  cp "$f" "$STAGE/$f"
-done
+tar -xzf "$COMPLETE" -C "$WORK"
+TOP="$(ls "$WORK")"
+if [ "$(echo "$TOP" | wc -l)" -ne 1 ] || [ ! -d "$WORK/$TOP/engines/basalt" ]; then
+  echo "$BASE does not hold one folder with engines/basalt inside" >&2
+  exit 1
+fi
 
-echo "== engine binaries =="
-mkdir -p "$STAGE/bin"
-cp bin/basalt bin/basalt-bench bin/basalt-probe bin/basalt-vision "$STAGE/bin/"
-chmod +x "$STAGE/bin/"*
+rm -rf "$WORK/$TOP/engines/basalt"
+rmdir "$WORK/$TOP/engines" 2>/dev/null || true
+SERVER="TaDaMoo-server-linux-v${VERSION}.tar.gz"
+tar -czf "$OUT/$SERVER" -C "$WORK" "$TOP"
+[ "$(cd "$(dirname "$COMPLETE")" && pwd)" = "$(cd "$OUT" && pwd)" ] || cp "$COMPLETE" "$OUT/$BASE"
 
-echo "== linux-complete (harness + installer + engine) =="
-tar czf "$OUT/tadamoo-linux-complete-${VERSION}.tar.gz" -C "$WORK" "tadamoo-${VERSION}"
-
-echo "== server-linux (harness + installer, no engine) =="
-rm -rf "$STAGE/bin"
-tar czf "$OUT/tadamoo-server-linux-${VERSION}.tar.gz" -C "$WORK" "tadamoo-${VERSION}"
-
-rm -rf "$WORK"
-echo "== done =="
-ls -la "$OUT"/tadamoo-*-"${VERSION}".tar.gz
-sha256sum "$OUT"/tadamoo-*-"${VERSION}".tar.gz
+(cd "$OUT" && sha256sum "$BASE" > "$BASE.sha256" && sha256sum "$SERVER" > "$SERVER.sha256" && cat "$BASE.sha256" "$SERVER.sha256")
+ls -la "$OUT/$BASE" "$OUT/$SERVER"
