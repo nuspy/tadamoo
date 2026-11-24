@@ -1093,7 +1093,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
-            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True, voice=voice_tools.KNOWLEDGE if cfg.voice else ""))
+            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True, voice=voice_tools.KNOWLEDGE if cfg.voice else "",
+            editing=awareness.editing_line(registry.names())))
     agent = AgentLoop(
         client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,

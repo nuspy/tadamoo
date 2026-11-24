@@ -178,7 +178,7 @@ write_config() {
   [ "$NO_WEB" = 1 ] && web=', "no-web": true'
   [ "$REMOTE_ADMIN" = 1 ] && web="$web"', "remote-admin": true'
   if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo_config.json (allowed-hosts $hosts${web:+, no-web})"; else
-    printf '{"server": {"allowed-hosts": %s%s}}\n' "$hosts" "$web" > "$CONF/tadamoo_config.json"
+    printf '{"version": 2, "server": {"allowed-hosts": %s%s}, "models": []}\n' "$hosts" "$web" > "$CONF/tadamoo_config.json"
   fi
   [ "$GENERATE_KEY" = 1 ] && [ -z "$API_KEY" ] && API_KEY="$(head -c 24 /dev/urandom | base64 | tr -d '=+/' | cut -c1-32)"
   if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo.env (mode 600)"; else

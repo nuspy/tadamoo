@@ -776,8 +776,7 @@ class Service:
 
     def start_telemetry(self):
         """Start the hardware sampler behind GET /metrics, including this server's speeds."""
-        current = getattr(self, "telemetry", None)
-        if current is None or current.stopped():
+        if getattr(self, "telemetry", None) is None:
             from serve.util.telemetry import Telemetry
             self.telemetry = Telemetry(extra=self.telemetry_extra, gpu_indices=getattr(self, "gpu_indices", None) or [0])
 

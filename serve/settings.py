@@ -332,8 +332,8 @@ def read_file(path: str) -> dict:
     OSError / ValueError when it cannot be read or is another format."""
     raw = read_config(path)
     entries = raw["models"]
-    if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
-        raise ValueError('this page edits a config file with one model: "models" must hold one entry')
+    if not isinstance(entries, list) or len(entries) > 1 or not all(isinstance(e, dict) for e in entries):
+        raise ValueError('this page edits a config file with one model: "models" holds one entry (or none yet)')
     return raw
 
 
@@ -389,8 +389,10 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
         sec = _block(out, where)
         if sec is None:
             if where[0] == "models":
-                raise ValueError('"models" in the config file holds no entry')
-            sec = out.setdefault(where[0], {})
+                out.setdefault("models", []).append({})         # the first model of a file that had none
+                sec = out["models"][0]
+            else:
+                sec = out.setdefault(where[0], {})
             if not isinstance(sec, dict):
                 raise ValueError(f'"{where[0]}" in the config file is not an object')
         present = [k for k in sec if norm(k) == key]

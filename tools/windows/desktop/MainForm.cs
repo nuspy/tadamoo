@@ -477,7 +477,7 @@ sealed class MainForm : Form
     string EnsureConfig()
     {
         if (File.Exists(cfgPath) || opt.ConfigFile != null) return null;
-        try { File.WriteAllText(cfgPath, "{\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {}\n}\n"); return null; }
+        try { File.WriteAllText(cfgPath, "{\n  \"version\": 2,\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {},\n  \"models\": []\n}\n"); return null; }
         catch (Exception e) { return e.Message; }
     }
 
@@ -1316,7 +1316,7 @@ sealed class MainForm : Form
         if (opt.ConfigFile == null)
         {
             cfgPath = Path.Combine(dir, "mock_config.json");
-            File.WriteAllText(cfgPath, "{\"server\": {\"port\": 7288, \"vision\": \"dynamic\", \"listen-first\": true}}");
+            File.WriteAllText(cfgPath, "{\"version\": 2, \"server\": {\"port\": 7288, \"listen-first\": true}, \"engine\": {\"vision\": \"dynamic\"}, \"models\": []}");
         }
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TADAMOO_CACHE")))
             Environment.SetEnvironmentVariable("TADAMOO_CACHE", Path.Combine(dir, "cache"));

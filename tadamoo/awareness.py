@@ -26,8 +26,29 @@ FEATURES = (
 )
 
 
+def editing_line(names) -> str:
+    """What the model is told about changing documents that already exist: the way that keeps the file, and what the tools do not reach.
+    Built from the tools that are registered, so it never names one that is not there."""
+    have = set(names)
+    word = all(t in have for t in ("docx_outline", "docx_read", "docx_edit"))
+    parts = []
+    if word:
+        parts.append(
+            "Word files (.docx) are changed in place: `docx_outline` finds the address, `docx_read` shows the text and its formatting there, `docx_edit` applies several edits in one call "
+            "(with `track_changes` when the person wants to review them). Never convert the file to Markdown and write it back, and never write its whole text again with `write_file`: that "
+            "loses styles, lists, headers, footers, page fields, tables and pictures. Headers, footers, footnotes and text boxes cannot be reached with these tools: say so when a change "
+            "belongs there, and look for the same text elsewhere in the file before you report that it is all changed. Work on a copy unless the person asked to change the original, and "
+            "read the result back with `docx_read`.")
+    else:
+        parts.append("There are no tools to change Word files here.")
+    parts.append(
+        "There are no tools yet to change PDF, Excel or PowerPoint files in place. When asked to, say so plainly: do not rewrite the file from its text. Offer to change the source "
+        "file if the person has it (the Word file a PDF came from), or to make a new file.")
+    return "- Changing documents that already exist: " + " ".join(parts)
+
+
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False, voice: str = "") -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False, voice: str = "", editing: str = "") -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -61,6 +82,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
     if documents:
         lines.append("- Documents that read_file cannot read well (scanned PDFs, PDFs with tables, images of text, Word, Excel and PowerPoint files) are read with `read_document` "
                      "(OCR and structure as Markdown with page markers, by range of pages); use it whenever the person asks to read or OCR a document.")
+    if editing:
+        lines.append(editing)
     if knowledge:
         lines.append("- The person keeps knowledge archives (named collections of their documents, also called RAG): this project's are searched for every request, and any archive can be attached "
                      "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording. "

@@ -4,4 +4,4 @@ metadata:
   name: {{ include "tadamoo.harness" . }}
 data:
   tadamoo_config.json: |
-    {"server": {"allowed-hosts": {{ include "tadamoo.hosts" . }}}}
+    {"version": 2, "server": {"allowed-hosts": {{ include "tadamoo.hosts" . }}}, "models": []}

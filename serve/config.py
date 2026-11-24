@@ -196,8 +196,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> ConfigFile:
     for k, v in (("server", server), ("engine", shared)):
         if not isinstance(v, dict):
             raise ValueError(f'"{k}" must be an object')
-    if not isinstance(entries, list) or not entries or not all(isinstance(e, dict) for e in entries):
-        raise ValueError('"models" must be a list of at least one {"model": FILE, ...}')
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        raise ValueError('"models" must be a list of {"model": FILE, ...} (empty: no model yet, the Loader chooses one)')
     for section in (server, shared, *entries):
         for key in section:
             if re.sub(r"[^a-z]", "", str(key).lower()).startswith("apikey"):
@@ -243,6 +243,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> ConfigFile:
             else:
                 out.own_words += engine_words(key, value)
         models.append(out)
+    if not models:                                     # no model yet: the shared settings still apply
+        models.append(ModelEntry("", list(shared_argv), list(shared_words)))
     return ConfigFile(server_argv, models)
 
 
@@ -273,11 +275,24 @@ def model_settings(ap: argparse.ArgumentParser, cli: list[str], refused=None) ->
 
 
 def single_settings(ap: argparse.ArgumentParser, cli: list[str], refused=None):
-    """model_settings() for this server, which runs one model: the --config file's only entry, else the command line's."""
-    entries = model_settings(ap, cli, refused)
-    if len(entries) != 1:
-        raise ValueError(f'this server runs one model, and the config file lists {len(entries)} in "models"')
-    return entries[0]
+    """parse_settings() for this server, which runs one model: the --config file's only entry (or none: no model yet),
+    with the command line's settings, --model and --alias included, on top of it."""
+    a_cli = ap.parse_known_args(cli)[0]
+    if not a_cli.config:
+        return parse_settings(ap, cli)
+    cfg = load_config_file(a_cli.config, ap)
+    if len(cfg.models) != 1:
+        raise ValueError(f'this server runs one model, and the config file lists {len(cfg.models)} in "models"')
+    entry = cfg.models[0]
+    kept, skipped = [], []
+    for group in engine_groups(entry.shared_words):
+        if refused is not None and entry.path and refused(entry.path, group):
+            skipped.append(group[0])
+        else:
+            kept += group
+    settings = parse_settings(ap, cli, cfg.server_argv, entry.argv, kept + entry.own_words)
+    settings[0].skipped = skipped
+    return settings
 
 
 def parse_settings(ap: argparse.ArgumentParser, cli: list[str], server_argv=(), model_argv=(), words=()):
