@@ -3,7 +3,7 @@
   "project": "basalt",
   "title": "LoRA in Basalt-Plus",
   "intro": "Gli adapter LoRA nel motore sono fatti, esperti compresi. L'addestramento vero è in corso. In fondo ci sono anche gli altri task del progetto, fatti e da fare. Tocca una voce per le note.",
-  "stamp": "24/11/2026 sera",
+  "stamp": "24/11/2026 notte",
   "groups": [
     {
       "id": "engine",
@@ -1034,6 +1034,25 @@
       ],
       "risks": [
         "Un PDF non si modifica come un Word: il testo è posizionato, non scorre. Una sostituzione di testo può cambiare l'aspetto o lasciare il testo vecchio sotto una copertura; va dichiarato al modello e alla persona, e dove esiste il file di partenza (docx) si modifica quello."
+      ],
+      "branch": false
+    },
+    {
+      "id": "rm51",
+      "num": 51,
+      "group": "todo",
+      "title": "Prompt dell'harness più corto: strumenti rari a caricamento a freddo (da provare con A/B)",
+      "summary": "Il prompt dell'harness è di circa 58.000 caratteri, quasi tutti schemi di strumenti. Idea (24 novembre, tua): gli strumenti rari hanno nel prompt solo una riga e il modello chiede i dettagli prima di sceglierli. In prova, spenta di default, con un confronto A/B.",
+      "status": "wait",
+      "solved": [
+        "Misurato (24 novembre): schemi e descrizioni degli strumenti pesano circa 51.000 dei 58.000 caratteri; i più grossi sono i quattro gruppi di modifica dei documenti, il browser, il computer e le competenze."
+      ],
+      "decisions": [
+        "Progetto da verificare: la descrizione completa torna nel RISULTATO di una chiamata (`tool_help`), che è in coda ai messaggi e non cambia la cache del prefisso; l'elenco degli strumenti nel prompt non cambia durante la conversazione (cambiarlo invaliderebbe la cache). Lo strumento raro ha nel prompt una riga e uno schema largo (oggetto libero): la grammatica non obbliga più i parametri, li controlla il registro.",
+        "A/B da fare (serve la GPU, dopo la demo): A = prompt di oggi, B = strumenti rari a freddo; stessi compiti, k almeno 5, a livello di ragionamento fisso. Misure: caratteri e token del prefisso, riuso della cache, giri in più, chiamate sbagliate o rifiutate dal registro, compiti riusciti (insieme core delle prove e i quattro casi di modifica dei documenti). Regola di vittoria scritta prima: B vince se i compiti riusciti non calano oltre il rumore e i token del prefisso scendono almeno del 30%."
+      ],
+      "risks": [
+        "Plausibile, non provato: un modello piccolo può non chiedere i dettagli e usare male lo strumento, o spendere un giro in più che costa più della cache risparmiata; prova più economica: i quattro casi di modifica dei documenti con k = 5 nelle due versioni."
       ],
       "branch": false
     }

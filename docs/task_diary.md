@@ -38,6 +38,8 @@ Ultimo aggiornamento: 24 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni 
   Android: 388 test passano; i percorsi voce e avatar dell'app esistono tutti nel server; il tramite WebSocket (`test_voice_gateway_relay`) qui si salta perché manca la libreria `websockets` del servizio voce.
   Da sapere: il prompt dell'harness è salito a circa 58.000 caratteri (schemi degli strumenti, compresi i nuovi); la console web dell'originale non è adottata (decidi tu se portarla).
 
+**Decisioni del 24 novembre, notte.** Release: la 2.1 pubblicata non è uguale al codice locale (manca tutta l'importazione dell'originale), quindi si pubblica la 2.2 per tutti (Windows, solo-GUI, Android, Linux completo, Linux server); la costruzione di Windows parte dall'albero principale `E:\Projects\basalt` e vuole il servizio fermo (motore da ricompilare, app da sostituire): aspetta che tu dica quando. La console web dell'originale non ti interessa. Task 51, in prova con confronto A/B: prompt dell'harness più corto con caricamento a freddo (gli strumenti rari hanno una descrizione minima e il modello chiede i dettagli prima di sceglierli), da tenere spento di default finché l'A/B non dice che conviene.
+
 ## 23 novembre
 
 **Studio di DeerFlow (23 novembre sera, su tua richiesta).** Letto il codice di bytedance/deer-flow e confrontato con il nostro: `docs/study-deerflow.md`.
