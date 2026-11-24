@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from tadamoo import llm
 from tadamoo.client import TadamooError
 from tadamoo.llm.client import RoutedClient
+from tadamoo.llm.usage import UsageLog
 
 FUNCTION = "external"
 INTERNAL_HEADERS = ("X-Tadamoo-Function", "X-Tadamoo-Compress", "X-Tadamoo-Bili-Hop", "X-Tadamoo-Session", "X-Tadamoo-Control")
@@ -295,7 +296,7 @@ def forward(handler, path: str, raw: bytes) -> None:
     except ValueError as e:
         return fail(400, str(e), "invalid_request_error")
     model = req.get("model") if isinstance(req.get("model"), str) and req.get("model") else model_name(reg)
-    client = RoutedClient(FUNCTION, reg, None)
+    client = RoutedClient(FUNCTION, reg, None, usage=UsageLog())
     if not req.get("stream"):
         try:
             result = client.chat_completion(timeout=TIMEOUT, **args)

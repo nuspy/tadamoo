@@ -154,6 +154,15 @@ class OpenAIInterface(OtherPrograms):
         self.assertEqual(self.provider.seen, [])
 
 
+class Counted(OtherPrograms):
+    def test_the_tokens_of_a_program_outside_are_counted_under_its_function(self):
+        from tadamoo.llm.usage import UsageLog
+        self.choose()
+        self.req("POST", "/v1/chat/completions", self.chat)
+        rows = list(UsageLog().rows())
+        assert [(r["provider"], r["function"], r["prompt"], r["completion"]) for r in rows] == [(self.cloud["id"], "external", 3, 4)]
+
+
 class TaDaMoosOwnPieces(OtherPrograms):
     def test_the_chat_page_the_voice_service_and_its_own_clients_still_meet_the_loaded_model(self):
         self.choose()
