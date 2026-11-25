@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -74,9 +75,18 @@ def _read(strict: bool = False) -> dict:
 def _write(data: dict) -> None:
     target = _file()
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    userdata.replace_file(tmp, target)
+    # a name of its own: two writers (the server, a profile apply) must not open the same temporary file
+    fd, name = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(data, indent=2) + "\n")
+        userdata.replace_file(name, target)
+    except BaseException:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+        raise
 
 
 def default_models_dir() -> str:

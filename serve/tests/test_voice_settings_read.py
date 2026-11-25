@@ -64,6 +64,21 @@ class Refused(unittest.TestCase):
         self.path.unlink()
         self.assertEqual(voice_settings._read(strict=True), {})
 
+    def test_a_write_uses_a_temporary_file_of_its_own_and_leaves_none_behind(self):
+        stale = self.path.with_name(self.path.name + ".tmp")
+        stale.write_text("another writer's", encoding="utf-8")        # the name the writer used to share
+        voice_settings.set_enabled("stt", False)
+        self.assertEqual(stale.read_text(encoding="utf-8"), "another writer's")
+        self.assertEqual(sorted(p.name for p in self.path.parent.iterdir()), ["voice.json", "voice.json.tmp"])
+
+    def test_a_failed_replace_leaves_no_temporary_file_and_the_file_as_it_was(self):
+        before = self.path.read_bytes()
+        with mock.patch.object(voice_settings.userdata, "replace_file", side_effect=PermissionError(13, "denied")):
+            with self.assertRaises(PermissionError):
+                voice_settings.set_enabled("stt", False)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual([p.name for p in self.path.parent.iterdir()], ["voice.json"])
+
 
 if __name__ == "__main__":
     unittest.main()

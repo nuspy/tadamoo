@@ -7,7 +7,7 @@ _Aggiornato il 25/11/2026. Generato da `docs/roadmap.json`: non si modifica a ma
 | Stato | Nodi |
 |---|---|
 | fatto | 33 |
-| in corso | 7 |
+| in corso | 9 |
 | in attesa | 11 |
 | non iniziato | 1 |
 
@@ -868,6 +868,47 @@ Un passo azione può avere una o più skill (solo per quel passo) e il piano pu�
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Plausibile, non provato: una skill lunga data a ogni passo pesa sul contesto; per questo quelle di un solo passo vanno sul passo.
+
+### 53. Monitor > VRAM Explorer: pagina propria, grafico nel tempo (totale e per processo) ed elenco che scorre (in corso)
+
+Il motore di gputaskman (MIT, Scott Hanselman) è importato nel progetto. Nel Monitor c'è la sotto-scheda «VRAM Explorer», accanto a Server LLM, Hardware, LOGS e Security: un grafico dell'uso della VRAM nel tempo con un interruttore Totale / Per processo (aree impilate) e scale da 5 minuti a 24 ore, e l'elenco dei processi in un riquadro che scorre con l'intestazione ferma.
+
+**Fatto e problemi risolti**
+
+- Importati in serve/gputaskman/ i moduli senza interfaccia terminale (23 file, con la licenza MIT, anche in THIRD_PARTY_LICENSES); si importano con il nostro Python 3.10 (25 novembre).
+- Server: storico lungo della VRAM per scheda (un punto ogni 10 s con il picco, 24 ore) su GET /api/vram/history; campionatore per processo (lettura ogni 10 s, 24 ore, media per intervallo) su GET /api/vram/processes, che parte alla prima richiesta della pagina; lettore a richiesta su GET /api/vram/explorer.
+- Pagina: sotto-scheda del Monitor (non più un tab dentro Server LLM), interruttore Totale / Per processo, elenco con scorrimento proprio e intestazione fissa; nvidia-ml-py è nei requisiti.
+- Provata sulla pagina vera con un server di prova (motore finto) sulla RTX 5090 con il modello dell'utente già caricato (basalt.exe a 21,8 GiB): grafico per processo, passaggio del mouse, scorrimento con 60 processi finti, larghezza di 390 px senza scroll orizzontale. Test: serve/tests/test_vram_explorer.py (29).
+
+**Decisioni e punti aperti**
+
+- Il grafico è nel tempo e non solo gli ultimi 60 secondi, e nella pagina del VRAM Explorer, non nella colonna di Server LLM (tue indicazioni del 25 novembre).
+- Il grafico totale (NVML, picco) e quello per processo (contatori di Windows, media) leggono due fonti: i totali differiscono di qualche centinaio di MiB; la pagina lo dice.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Il grafico per processo parte vuoto a ogni riavvio del server e comincia al primo apri-pagina: lo storico non è su disco.
+- Non ancora nell'app in uso con il codice nuovo della pagina: serve unire in E: e riavviare il server.
+
+### 54. Cache degli esperti: usare tutta la VRAM dopo il caricamento (elastic VRAM) (in corso)
+
+Dopo il caricamento la cache degli esperti resta più piccola di quanto la VRAM permetterebbe (3,9–8,7 GiB liberi invece di ~1 GiB di riserva). Due strade, scelte con l'utente: aspettare che la lettura della memoria libera si stabilizzi prima di ridurre, e far crescere la cache negli spazi che si liberano, con i meccanismi dell'elastic VRAM.
+
+**Fatto e problemi risolti**
+
+- Misurato sul log del motore (6 caricamenti): in 5 su 6 il piano calcola ~9600 slot, la lettura dopo la scrittura è «0 MiB free» e il codice di Basalt 0.5.6 toglie 1 GiB, 1 GiB e un quarto della cache; finisce a ~6550 slot con 8747, 8767, 4126, 3987 MiB liberi (l'unico caricamento senza riduzioni: 1023 MiB). Il grafico dell'utente è questa sequenza.
+- Scritta e compilata (in D:, non nel motore in uso) la strada 1 in src/models/qwen4exp/load/cache_size.cpp: lettura ripetuta ogni secondo finché basta o si stabilizza (max 45 s), riduzione solo di quanto manca, fino a 24 volte. Non provata sulla GPU.
+- Verificato nel codice che l'elastic VRAM ha già shrink() e grow() sulla cache segmentata, la distinzione tra spazio riservato e mappato e cache_regrow (rimappa nella VRAM libera sopra la riserva e riempie gli slot dalla RAM).
+
+**Decisioni e punti aperti**
+
+- Strada 1 (tua): calcolare la memoria libera dopo il picco, tenendo conto di cosa viene rilasciato e quando.
+- Strada 2 (tua): controlli periodici della VRAM libera e spostamento di esperti da RAM a VRAM, con l'elastic VRAM.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Strada 2 non scritta: il controllo all'avvio chiude e riapre più piccola la cache (perde lo spazio riservato, quindi dopo non si può più crescere) e cache_regrow parte solo da eventi, non periodicamente. Cambiarlo tocca l'arbitro della VRAM e va provato sulla GPU.
+- Non provato che la causa dei «0 MiB free» sia sempre il caricamento in parallelo dei modelli vocali (4,4 GiB misurati insieme al caricamento di oggi): la lettura ripetuta lo dirà nel log.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 
