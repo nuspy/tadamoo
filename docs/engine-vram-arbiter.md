@@ -150,8 +150,8 @@ Only then is the cache short, and it gives back what is missing (never a fixed s
   frees`. Below 128 backed slots the cache is reopened smaller instead.
 - **One allocation** (no `--vram-elastic`) or two GPUs: the cache is reopened smaller, as before.
 - **Between requests**, while the cache is backed less than its arena and nothing is lent out (`lent_mib` 0), the engine
-  looks every 5 seconds at the free VRAM. When the room the arbiter counts (free above the reserve) is 64 MiB or more, it
-  runs `cache_regrow`: the segments are mapped again and each new slot is filled from the RAM copy. The log says `the
+  looks every 5 seconds at the free VRAM. When the room the arbiter counts (free above the reserve) is 64 MiB or more **and has
+  lasted 45 seconds** (a function that unloads and loads again within that time finds its VRAM free), it runs `cache_regrow`: the segments are mapped again and each new slot is filled from the RAM copy. The log says `the
   expert cache grew by N slots into the VRAM that freed`. A failure is logged once and ends the looking. While VRAM is
   lent (`VRAM <reserve>`, SLEEP) the loop does nothing: the lend's own return grows the cache, as above.
 

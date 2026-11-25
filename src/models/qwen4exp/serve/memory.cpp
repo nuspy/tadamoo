@@ -101,13 +101,22 @@ bool QfnRuntime::regrow_pending() {
 }
 
 // between requests: the VRAM another program gave up on its own (a model it unloaded) is mapped into the cache again,
-// into the room the arbiter counts (the free VRAM above the reserve), each new slot filled from the RAM copy
+// into the room the arbiter counts (the free VRAM above the reserve), each new slot filled from the RAM copy.  The room
+// must last kRegrowSettleSeconds first: a function that unloads and loads again within that time finds its VRAM free
+// and the cache does not have to give it back.
 void QfnRuntime::regrow_idle() {
+    constexpr auto kRegrowSettle = std::chrono::seconds(45);
     if (!regrow_pending()) return;
     size_t free_b = 0, total_b = 0;
     cudaMemGetInfo(&free_b, &total_b);
-    if (arbiter.room((int64_t) free_b, vram_usage()) < (64ll << 20)) return;
-    std::string e;
+    if (arbiter.room((int64_t) free_b, vram_usage()) < (64ll << 20)) {
+        regrow_room_since = {};
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (regrow_room_since == std::chrono::steady_clock::time_point{}) regrow_room_since = now;
+    if (now - regrow_room_since < kRegrowSettle) return;
+    regrow_room_since = {};    std::string e;
     apply_pending(true);                     // the adaptive tier's swaps in flight land first
     if (!xq_drain()) e = "an adaptive swap failed";
     const int64_t before = xcache.slots();

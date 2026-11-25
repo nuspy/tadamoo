@@ -377,6 +377,7 @@ private:
     std::vector<const float*> row_ptr{};
     std::vector<std::pair<int32_t, int32_t>> vram_evicted{};   // (residency index, slot) the shrinks took
     bool regrow_failed{};   // the idle regrow failed once: it does not try again
+    std::chrono::steady_clock::time_point regrow_room_since{};   // when the room above the reserve was first seen; unset while there is none
     VramArbiter arbiter{};   // the reserve in force and the targets of every shrink and grow of the cache
     int64_t chunk_full{};
     int64_t kKvGrowCells{};
