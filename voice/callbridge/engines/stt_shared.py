@@ -95,6 +95,12 @@ def _comando_helper() -> list[str]:
     return [sys.executable, "-u", "-m", "callbridge.engines.dictation_stt_helper"]
 
 
+def _errore_cuda(e: Exception) -> bool:
+    """Una risposta d'errore dell'helper che nomina un errore CUDA (per esempio «unspecified launch failure»)."""
+    testo = str(e).lower()
+    return "cuda error" in testo or "cudaerror" in testo
+
+
 class SharedSttEngine:
     """Client del processo STT unico (interfaccia di `WhisperSttEngine`)."""
 
@@ -365,10 +371,21 @@ class SharedSttEngine:
             # Morto (o mai partito, o configurazione cambiata nel frattempo): lo
             # si rialza al volo; la richiesta in corso paga il caricamento.
             self._allinea_locked()
+            richiesta = ({"cmd": cmd, "lang": lang or "", "n": int(pcm.size), **extra}, pcm.tobytes())
             try:
-                r = self._request_locked(
-                    {"cmd": cmd, "lang": lang or "", "n": int(pcm.size), **extra},
-                    pcm.tobytes())
+                try:
+                    r = self._request_locked(*richiesta)
+                except RuntimeError as e:
+                    if not _errore_cuda(e):
+                        raise
+                    # un errore CUDA di lancio resta nel contesto del processo: ogni richiesta dopo fallirebbe
+                    # (e il controllo periodico non lo vede: il processo e' vivo e il modello e' in VRAM).
+                    # Lo si rifa e si riprova una volta.
+                    log.warning("STT: errore CUDA (%s): rifaccio il processo e riprovo", e)
+                    self.state, self.error = "loading", None
+                    self._kill_locked()
+                    self._allinea_locked()
+                    r = self._request_locked(*richiesta)
             except Exception:
                 if self._proc is not None and self._proc.poll() is not None:
                     self.state, self.error = "error", "processo STT terminato"

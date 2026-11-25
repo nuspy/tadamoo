@@ -24,6 +24,7 @@ def precisione():
     return "float16" if cuda and "float32" not in c else "float32"
 
 
+ROTTO = False       # FAKE_STT_CUDA_UNA_VOLTA=<file>: il primo processo di tutti che trascrive resta con un errore CUDA per sempre
 while True:
     riga = IN.readline()
     if not riga:
@@ -45,6 +46,13 @@ while True:
                 sys.exit(0)
             got += len(b)
         time.sleep(float(os.environ.get("FAKE_STT_DELAY", "0")))
+        marcatore = os.environ.get("FAKE_STT_CUDA_UNA_VOLTA")
+        if marcatore and not os.path.exists(marcatore):
+            open(marcatore, "w").close()
+            ROTTO = True
+        if ROTTO:
+            reply({"ok": False, "error": "trascrizione fallita: CUDA error: unspecified launch failure"})
+            continue
         out = {"ok": True, "text": f" testo-{n}", "ms": 1}
         if cmd == "transcribe_detailed":
             if req.get("detect"):

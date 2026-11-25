@@ -206,6 +206,25 @@ def test_processo_morto_viene_rialzato_alla_richiesta_successiva(finto):
     assert e.pid and e.pid != pid0 and e.loaded
 
 
+def test_un_errore_cuda_rifa_il_processo_e_la_richiesta_riesce(finto, monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_STT_CUDA_UNA_VOLTA", str(tmp_path / "rotto"))
+    e = finto()
+    e.load()
+    pid0 = e.pid
+    assert e.transcribe(AUDIO, "it") == "testo-1600"          # la prima richiesta trova l'errore e riesce dopo il rifacimento
+    assert e.pid and e.pid != pid0 and e.loaded
+    assert e.transcribe(AUDIO, "it") == "testo-1600"          # e le successive vanno
+
+
+def test_un_errore_che_non_e_cuda_non_rifa_il_processo(finto, monkeypatch):
+    e = finto()
+    e.load()
+    pid0 = e.pid
+    with pytest.raises(RuntimeError):
+        e._invia("comando-che-non-esiste", AUDIO, "it")
+    assert e.pid == pid0
+
+
 # --- reset_engines: STT ricarica, TTS riscalda solo l'attivo -------------------------
 
 def test_reset_engines_stt_ricarica_senza_scaricare(finto, monkeypatch):
