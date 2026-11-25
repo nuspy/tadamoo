@@ -16,6 +16,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 - [Vision](#vision)
 - [Control vectors](#control-vectors)
 - [LoRA adapters](lora.md)
+- [Layer loop](layer-loop.md)
 - [Sampling and thinking](sampling.md)
 - [The adaptive tier](adaptive.md)
 - [Web search](web-search.md)

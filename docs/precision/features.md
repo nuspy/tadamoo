@@ -260,6 +260,15 @@ top-1 93.04% / 93.12%. The paired KLD difference is +0.0025 [-0.0005, +0.0055], 
 share between them is bounded by that. `basalt-probe` may print a different share
 as a suggestion ([probe](../probe.md)); it never changes it on its own.
 
+## Layer loop
+
+`--layer-loop A:B:K` ([configuration](../configuration/layer-loop.md)) repeats a window of layers, so with it on the model
+is not the trained one and every number moves; with it off nothing does (the write scale 1.0 multiplies exactly and the slot
+map is the identity). Each pass keeps its own state; the weights and experts are shared. `--layer-loop-alpha 1,0` and `0,1`
+reproduce the model without the loop, which is the identity check of the build. A pass written with a weight other than 1
+adds one rounding per write, in float, like every other write into the residual streams. Expert swaps and the prompt
+look-ahead are off with the loop, which changes speed, not numbers.
+
 ## LoRA adapters
 
 `--lora`/`--lora-scaled` fuses the adapter's delta into a dense tensor's own blocks at load (`lora_merge_q8_0`,
