@@ -27,16 +27,17 @@ MAX_INNER, INNER_NAME, INNER_RESULT = 30, 60, 2000
 GROUP_MAX = 80                                            # the short heading a question or a task is listed under
 
 # kind of field -> what a page draws for it
-FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "branches")
+FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "skills", "branches")
 ARCHIVE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-MAX_ARCHIVES, MAX_BRANCHES, LABEL_MAX = 50, 12, 40
+SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+MAX_ARCHIVES, MAX_SKILLS, MAX_BRANCHES, LABEL_MAX = 50, 20, 12, 40
 OPS = ("<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else")      # what the helper of a branch can build; `else` takes what no other branch took
 ON_NO_MATCH = ("stop", "ask")                                                    # no branch holds and there is no else: that path stops, or the decision goes to the person
 MODES = ("first", "all")                                                         # a decision: the first branch that holds wins, or every branch that holds fires
 
 NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person; it may name the inner steps it is made of, in order", "fields": [
-        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "steps", "kind": "names", "max": MAX_INNER},
+        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "skills", "kind": "skills", "max": MAX_SKILLS}, {"name": "steps", "kind": "names", "max": MAX_INNER},
         {"name": "group", "kind": "text", "max": GROUP_MAX}, {"name": "group_en", "kind": "text", "max": GROUP_MAX}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
     "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
@@ -188,6 +189,15 @@ def shown_choices(spec: Dict[str, Any]) -> List[Dict[str, str]]:
     return out
 
 
+def skill_names(value: Any, key: str = "skills") -> List[str]:
+    """A list of skill names, each once: what a step or a plan says about the skills it is given."""
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_SKILLS or any(not isinstance(v, str) or not SKILL_NAME.match(v) for v in value):
+        raise PlanError(f"'{key}' is a list of at most {MAX_SKILLS} skill names")
+    return list(dict.fromkeys(value))
+
+
 def _archives(spec: Dict[str, Any], key: str, required: bool = False) -> Optional[List[str]]:
     value = spec.get(key)
     if value is None or value == []:
@@ -327,6 +337,8 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     if kind == "action":
         if _archives(spec, "rag_archives"):
             out["rag_archives"] = _archives(spec, "rag_archives")
+        if skill_names(spec.get("skills")):
+            out["skills"] = skill_names(spec.get("skills"))
         for key in ("group", "group_en"):
             text = _text(spec, key, GROUP_MAX)
             if text:
@@ -480,6 +492,7 @@ PORTS_HELP = ("A decision has an ordered list of branches in spec.branches, each
               "and an input step's `answer` are data outputs: [source, target, port] gives the target that value as a named input, and the target does not run before it has it. "
               "A rag node ({archives: [knowledge archive ids]}) is an input to the actions and decisions it is connected to ([rag_node, action]): it neither waits nor is waited for. "
               "An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). Use the ids knowledge_list shows. "
+              "An action's own skills are spec.skills (names of installed skills): their instructions are given to that step when it starts. The whole plan's are profile.skills: given to every step, used or not. "
               "A plan begins at a start node ({number, launch: manual | event | interval | caller}; event needs `when`, an expression over the event's text, source and the plan's values; "
               "interval needs `words`, the time written as people say it, e.g. 'every first Monday at 9', which becomes a schedule by itself); a plan may have several, each with its own number, "
               "and a plan with none gets one already taken. A start_plan step starts another plan at the start node whose number it names (spec {plan, start}). "

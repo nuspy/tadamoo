@@ -717,8 +717,18 @@ class Session:
         if hooks is not None:                                    # a hook of the person's that tells the planner reaches it from here
             hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
         recall = self.built.project_recall
+
+        def skill_text(name: str) -> str:
+            """The instructions of an installed skill that a step is given; empty when it is not there or is turned off."""
+            for read, key in ((getattr(self.built.capabilities, "body", None), "skill:" + name), (getattr(self.built.skills, "body", None), name)):
+                if read is not None:
+                    try:
+                        return read(key)
+                    except (KeyError, ValueError, PermissionError):
+                        continue
+            return ""
         register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask, auto=lambda: self.built.permissions.level.value == "auto"),
-                               step_archives=recall.bring if recall is not None else None, started=self._started_plans)
+                               step_archives=recall.bring if recall is not None else None, started=self._started_plans, skill_text=skill_text)
         register_ask_tool(self.agent.tools, self.current, self._question)
         self.agent.system_prompt += "\n\n" + qs.PROMPT_RULES
         self.agent.messages[0] = self.agent._system_message()

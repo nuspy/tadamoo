@@ -56,7 +56,7 @@
       if (f.kind === "number" || f.kind === "integer") {
         v = TIME_FIELDS.has(f.name) && v && typeof v === "object" ? joinDuration(v.value, v.unit) : Number(v);
         if (!Number.isFinite(v)) { errors.push(f.name); continue; }
-      } else if (f.kind === "archives" || f.kind === "branches") {
+      } else if (f.kind === "archives" || f.kind === "skills" || f.kind === "branches") {
         v = Array.isArray(v) ? v : [];
         if (!v.length) { if (f.required) errors.push(f.name); continue; }
       } else if (f.kind === "names") {
@@ -330,6 +330,12 @@
         inputs[f.name] = { get: () => (pick ? pick.get() : []), els: [] };
         if (pick) label.htmlFor = pick.findId;
         return h("div", "pk-row", label, pick ? pick.el : h("p", "help", T("rp.offline")));
+      }
+      if (f.kind === "skills") {
+        const pick = root.skillPick && root.skillPick.create ? root.skillPick.create({ T, ids: Array.isArray(v) ? v : [], disabled, label: T("pl.spec." + f.name) }) : null;
+        inputs[f.name] = { get: () => (pick ? pick.get() : []), els: [] };
+        if (pick) label.htmlFor = pick.findId;
+        return h("div", "pk-row", label, pick ? pick.el : h("p", "help", T("sp.offline")));
       }
       if (f.kind === "branches") {
         const ed = branchEditor(v, id, T, disabled, ctx);

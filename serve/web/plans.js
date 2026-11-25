@@ -1407,6 +1407,8 @@
     }
     S.horizonPick = window.ragPick ? window.ragPick.create({ T, ids: p.rag_archives || [], label: T("pl.f.profile.rag") }) : null;
     if (S.horizonPick) rows.push(el("b", { class: "pl-hzrag", text: T("pl.f.profile.rag") }), el("p", { class: "help", text: T("pl.f.profile.rag.help") }), S.horizonPick.el);
+    S.horizonSkills = window.skillPick ? window.skillPick.create({ T, ids: p.skills || [], label: T("pl.f.profile.skills") }) : null;
+    if (S.horizonSkills) rows.push(el("b", { class: "pl-hzrag", text: T("pl.f.profile.skills") }), el("p", { class: "help", text: T("pl.f.profile.skills.help") }), S.horizonSkills.el);
     ui.horizon.replaceChildren(head(T("pl.hz.title")),
       el("form", { class: "pad pl-dform", onsubmit: saveHorizon }, el("p", { class: "help", text: T(constant ? "pl.hz.help.long" : "pl.hz.help.short") }), ...rows,
         el("button", { class: "btn primary pl-btn", text: T("pl.save") })));
@@ -1429,6 +1431,7 @@
       profile = { ...S.snap.profile, starts_on: val("pl-h-start"), ends_on: val("pl-h-end"), cost: amount("pl-h-cost", "pl-h-costcur") };
     }
     if (S.horizonPick) profile.rag_archives = S.horizonPick.get();
+    if (S.horizonSkills) profile.skills = S.horizonSkills.get();
     ui.horizon.dataset.key = "";
     await event({ type: "plan:update_meta", changes: { profile } }, T("pl.hz.saved"));
     await refresh();

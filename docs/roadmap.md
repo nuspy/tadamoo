@@ -7,7 +7,7 @@ _Aggiornato il 25/11/2026. Generato da `docs/roadmap.json`: non si modifica a ma
 | Stato | Nodi |
 |---|---|
 | fatto | 33 |
-| in corso | 6 |
+| in corso | 7 |
 | in attesa | 11 |
 | non iniziato | 1 |
 
@@ -851,6 +851,23 @@ Il prompt dell'harness è di circa 58.000 caratteri, quasi tutti schemi di strum
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Plausibile, non provato: un modello piccolo può non chiedere i dettagli e usare male lo strumento, o spendere un giro in più che costa più della cache risparmiata; prova più economica: i quattro casi di modifica dei documenti con k = 5 nelle due versioni.
+
+### 52. Skill nei piani: per passo o per tutto il piano (in corso)
+
+Un passo azione può avere una o più skill (solo per quel passo) e il piano può averne di sue (date a ogni passo, usate o no). Le istruzioni arrivano nel risultato di plan_step_start, come gli archivi RAG.
+
+**Fatto e problemi risolti**
+
+- Costruito (25 novembre): campo skills sul passo azione e sul profilo del piano, risoluzione in tadamoo/planner/skills.py, consegna in plan_step_start (quelle del piano una sola volta per conversazione), selettore nella pagina Piani, test in tests/test_planner_skills.py. Non provato ancora su un piano vero con il modello e sulla pagina nel browser.
+
+**Decisioni e punti aperti**
+
+- Oggi i passi per l'agente di un piano girano in una conversazione normale condivisa (la sessione tecnica legge solo le attese): le skill di un passo restano nella cronologia dopo il passo, e lo limita solo il testo («solo per questo passo»). Se un passo avrà una conversazione sua, riceverà le stesse liste all'avvio.
+- Le skill del piano si danno una volta per conversazione: dopo una compattazione del contesto possono sparire (da decidere se ridarle).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Plausibile, non provato: una skill lunga data a ogni passo pesa sul contesto; per questo quelle di un solo passo vanno sul passo.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 

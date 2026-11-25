@@ -29,6 +29,7 @@ from tadamoo.integrations._http import ServiceError
 from tadamoo.integrations.planner_client import PlannerClient
 from tadamoo.planner import nodes as nodes_mod
 from tadamoo.planner.archives import of_step as step_archive_ids
+from tadamoo.planner.skills import of_step as skills_of_step
 from tadamoo.planner.bridge import classify_diff
 from tadamoo.planner.dag import PlanError, clean_outputs, edge_parts
 from tadamoo.planner.involvement import split_diff, step_facts
@@ -299,9 +300,33 @@ def plans_summary(client: PlannerClient) -> str:
 
 
 def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confirmer: Confirmer, step_archives: Optional[Callable[[List[str]], str]] = None,
-                           started: Optional[Set[str]] = None) -> None:
+                           started: Optional[Set[str]] = None, skill_text: Optional[Callable[[str], str]] = None) -> None:
     seen: Dict[str, int] = {}                       # the revision of each plan as the model last read it
     started = started if started is not None else set()       # the plans this conversation created or started: the only ones the planner writes to it about
+
+    given: Set[str] = set()                         # the skills of whole plans already handed to this conversation: it still has them, they are not repeated
+
+    def skills_note(plan: Dict[str, Any], node_id: str, profile: Optional[Dict[str, Any]]) -> str:
+        """The instructions of the skills the step is given: the plan's (once for this conversation) and the step's own, which apply to this step only."""
+        whole, own = skills_of_step(plan, node_id, profile)
+        if skill_text is None or not (whole or own):
+            return ""
+        parts: List[str] = []
+        for names, heading, keep in ((whole, "Skills of the whole plan (apply them to every step of it)", True), (own, "Skills of this step (they apply to this step only)", False)):
+            blocks = []
+            for name in names:
+                if keep and (plan.get("plan_id"), name) in given:
+                    continue
+                try:
+                    text = skill_text(name)
+                except Exception:
+                    text = ""
+                blocks.append(f"### {name}\n{text}" if text else f"### {name}\nThis skill is not available here (not installed, or turned off): tell the person.")
+                if keep and text:
+                    given.add((plan.get("plan_id"), name))
+            if blocks:
+                parts.append(heading + ":\n" + "\n\n".join(blocks))
+        return "\n\n".join(parts)
 
     def bring(ids: List[str]) -> str:
         """Gives the step the knowledge archives it declares (none: lets go of the last step's); the words that tell the model which, by name."""
@@ -622,6 +647,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         found = bring(step_archive_ids(snap["plan"], node_id, snap.get("profile")))
         if found:
             lines.append(found)
+        note = skills_note(snap["plan"], node_id, snap.get("profile"))
+        if note:
+            lines.append(note)
         steps = nodes_mod.inner_text(node.get("spec") or {}, node.get("state_variables") or {})
         if steps:
             lines.append(steps)
@@ -920,7 +948,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                            "quote": quote_param,
                            "profile": {"type": "object", "description": "what the plan says about time and money. A short plan: starts_on and ends_on (2026-11-24), "
                                                                        "cost {amount, currency}. A long-term plan: goals [text], review_every_days (1-30), budget {amount, currency, "
-                                                                       "period month|total}, commitments [{text, from, to}]. Both: rag_archives [knowledge archive ids every step may use]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
+                                                                       "period month|total}, commitments [{text, from, to}]. Both: rag_archives [knowledge archive ids every step may use], skills [names of skills given to every step]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
     registry.register("plan_set_card", "Writes into a plan's card what the user said about it: dates, place, who takes part, what limits each person. "
                                        "Incoming events are judged against the card. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "date": {"type": "string", "description": "for example Friday 24 to Sunday 26 October"},

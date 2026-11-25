@@ -85,5 +85,19 @@ landed, for a plain step, a branch, a RAG node and a value.
 An action step may also carry `effort` (`none`, `low`, `medium`, `high`; empty follows the plan): how long the model thinks while it does that step. The plan's own
 inference settings and the list that sets one level on all steps are in [inference-settings.md](inference-settings.md). Test: `tests/test_inference_scope.py`.
 
+## Skills of a step and of a plan
+
+An action step may carry `skills` (`spec.skills`: names of installed skills) and a plan may carry `profile.skills` (set with `plan_set_profile` or in the plan's profile tab).
+`tadamoo/planner/skills.py` `of_step` gives, for a step, the plan's skills and its own (a skill in both is the plan's). When the agent runs `plan_step_start` the result
+carries their instructions: the plan's under "Skills of the whole plan", the step's own under "Skills of this step (they apply to this step only)"; a skill that is not installed
+or is turned off is named with a line saying so. The plan's skills are given to every step, used or not, but once for each conversation (the conversation still has them);
+a step's own skills are given when that step starts. The text is read through the capability index (`skill:<name>`) and the skill catalogue (`tadamoo/session.py`, `skill_text`).
+
+- **Where a step runs.** Today the steps for the agent of a plan are done by one conversation of the agent, shared by all of them (one routine for each plan, see
+  [plan-runs.md](plan-runs.md)); the technical session only reads the waits. The instructions of a step's own skill therefore stay in that conversation's history after the
+  step, and what the text says ("this step only") is all that limits them. A step that gets a conversation of its own would take the same lists at its start.
+- **The picker** is `serve/web/skillpick.js` (the installed skills; a name no longer installed is shown as such).
+- Test: `tests/test_planner_skills.py`.
+
 Tests: `tests/test_planner_ports.py`, `tests/test_planner_operands.py`, `tests/test_planner_decisions.py`, `tests/test_planner_rag.py`, `serve/tests/test_plans_page.py`,
 `serve/tests/plankinds_check.js`, `serve/tests/plankinds_dom_check.js`.
