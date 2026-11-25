@@ -23,6 +23,16 @@ def test_a_named_service_is_restarted_through_its_manager_not_relaunched():
     assert calls["spawn"] == [] and calls["exit"] == 0              # the service manager restarts it: no relaunch helper, no self-exit either
 
 
+def test_under_a_supervisor_a_restart_only_exits_with_an_error_code_and_spawns_nothing():
+    calls = {"spawn": [], "exit": []}
+    out = restart.restart(env={"TADAMOO_SUPERVISED": "1"}, run=lambda cmd: calls.__setitem__("ran", cmd), spawn=lambda cmd: calls["spawn"].append(cmd),
+                          exit_soon=lambda code=0: calls["exit"].append(code))
+    assert out == {"way": "supervisor", "exit": restart.RESTART_EXIT} and calls["spawn"] == [] and calls["exit"] == [75] and "ran" not in calls
+    assert restart.supervised({"TADAMOO_SUPERVISED": "1"}) and not restart.supervised({"TADAMOO_SUPERVISED": "0"}) and not restart.supervised({})
+    named = restart.restart(env={"TADAMOO_SUPERVISED": "1", "TADAMOO_SERVICE_NAME": "svc"}, run=lambda cmd: None, spawn=lambda cmd: None, exit_soon=lambda code=0: None, platform="win32")
+    assert named["way"] == "service"              # a service named to the manager is still restarted through it
+
+
 def test_a_plain_process_spawns_a_detached_helper_then_schedules_its_own_exit():
     calls = {"run": [], "spawn": [], "exit": 0}
     out = restart.restart(pid=4242, env={}, run=lambda cmd: calls["run"].append(cmd), spawn=lambda cmd: calls["spawn"].append(cmd),

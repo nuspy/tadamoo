@@ -3,7 +3,11 @@
 A service that wraps this process (NSSM on Windows, systemd on Linux) is named in `TADAMOO_SERVICE_NAME` at install time: with it set, a restart asks
 the service manager itself (`sc.exe`/`systemctl`) to stop and start that service, the same way an administrator would from the command line. Without
 it, this is a plain process (a script, a foreground window): a detached helper waits for this process to end, then starts the exact command that
-started it again; this process then exits."""
+started it again; this process then exits.
+
+A supervisor that starts the server again by itself when it exits with an error, and leaves it stopped after a clean exit (NSSM with `AppExit 0 Exit`), says so
+with `TADAMOO_SUPERVISED=1` in the server's environment: a restart then only exits with `RESTART_EXIT`, which the supervisor takes as a reason to start it again,
+while a clean exit (0, the server's own shutdown) stays stopped."""
 from __future__ import annotations
 
 import os
@@ -16,9 +20,12 @@ Run = Callable[[Sequence[str]], Any]
 Spawn = Callable[[Sequence[str]], Any]
 
 
-def _exit_soon(seconds: float = 1.0) -> None:
+RESTART_EXIT = 75         # the exit code of a restart asked under a supervisor: not a clean exit, so the supervisor starts the server again
+
+
+def _exit_soon(code: int = 0, seconds: float = 1.0) -> None:
     """This process's own answer to the client has to leave first: the exit happens a moment later, not inside the call that is still forming the reply."""
-    threading.Timer(seconds, lambda: os._exit(0)).start()
+    threading.Timer(seconds, lambda: os._exit(code)).start()
 
 
 def _run(argv: Sequence[str]) -> subprocess.CompletedProcess:
@@ -39,6 +46,11 @@ def service_name(env: Optional[Dict[str, str]] = None) -> str:
     return ((env if env is not None else os.environ).get("TADAMOO_SERVICE_NAME") or "").strip()
 
 
+def supervised(env: Optional[Dict[str, str]] = None) -> bool:
+    """True when a supervisor starts this server again after an error exit (`TADAMOO_SUPERVISED=1`)."""
+    return ((env if env is not None else os.environ).get("TADAMOO_SUPERVISED") or "").strip() == "1"
+
+
 def service_restart_command(name: str, platform: str = sys.platform) -> List[str]:
     """The one command that stops and starts a named service: `sc.exe` on Windows (one call does both with `/y`... no, sc has no combined verb, so two
     calls joined with `&&` under cmd), `systemctl restart` on Linux."""
@@ -55,7 +67,7 @@ def relaunch_command(argv: Optional[Sequence[str]] = None, executable: str = sys
 
 def restart(pid: int = 0, env: Optional[Dict[str, str]] = None, run: Run = _run, spawn: Spawn = _spawn_detached,
             argv: Optional[Sequence[str]] = None, executable: str = sys.executable, platform: str = sys.platform,
-            exit_soon: Callable[[], None] = _exit_soon) -> Dict[str, Any]:
+            exit_soon: Callable[..., None] = _exit_soon) -> Dict[str, Any]:
     """Restarts the server. Returns `{"way": "service", "name": ...}` or `{"way": "relaunch", "command": [...]}`. The service way asks the service
     manager, which does its own stopping of this process, and returns at once. The relaunch way starts a detached helper that waits for `pid` (this
     process, by default) to end before starting the command again, so the old and the new process are never both bound to the same port, then
@@ -65,6 +77,9 @@ def restart(pid: int = 0, env: Optional[Dict[str, str]] = None, run: Run = _run,
         cmd = service_restart_command(name, platform)
         run(cmd)
         return {"way": "service", "name": name, "command": cmd}
+    if supervised(env):
+        exit_soon(RESTART_EXIT)
+        return {"way": "supervisor", "exit": RESTART_EXIT}
     me = pid or os.getpid()
     command = relaunch_command(argv, executable)
     if platform == "win32":
