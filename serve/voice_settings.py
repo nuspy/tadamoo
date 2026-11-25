@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 
 from serve import models, userdata, voice_catalog
@@ -51,12 +52,23 @@ def _file() -> Path:
     return userdata.path(FILE)
 
 
-def _read() -> dict:
-    try:
-        data = json.loads(_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+def _read(strict: bool = False) -> dict:
+    """The file as a dict, {} when there is none. A read refused for a moment (Windows, while another process has the file) is tried again;
+    when it keeps failing a reader gets {} and a writer (`strict`) gets the error, since it would write {} back over the whole file."""
+    for attempt in range(userdata.REPLACE_ATTEMPTS):
+        try:
+            data = json.loads(_file().read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            return {}
+        except OSError:
+            if attempt == userdata.REPLACE_ATTEMPTS - 1:
+                if strict:
+                    raise
+                return {}
+            time.sleep(userdata.REPLACE_PAUSE_S)
+            continue
+        return data if isinstance(data, dict) else {}
+    return {}
 
 
 def _write(data: dict) -> None:
@@ -74,7 +86,7 @@ def default_models_dir() -> str:
 
 def ensure_models_dir() -> str:
     """Writes the default models folder into voice.json once a Basalt models folder exists, so the voice service, which reads the file, finds the same folder as the server."""
-    data = _read()
+    data = _read(strict=True)
     chosen = data.get("models_dir")
     if isinstance(chosen, str) and os.path.isabs(chosen):
         return chosen
@@ -119,7 +131,7 @@ def check_models_dir(raw) -> str:
 def set_models_dir(raw) -> str:
     path = check_models_dir(raw)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         data["models_dir"] = path
         _write(data)
     return path
@@ -181,7 +193,7 @@ def set_load_mode(service, mode) -> str:
     if mode not in LOAD_MODES:
         raise VoiceSettingsError("load", "load is at_load or on_request.", "load è at_load o on_request.")
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         data.setdefault("services", {}).setdefault(service, {})["load"] = mode
         _write(data)
     return mode
@@ -199,7 +211,7 @@ def set_enabled(service, on) -> bool:
     if not isinstance(on, bool):
         raise VoiceSettingsError("enabled", "enabled is true or false.", "enabled è true o false.")
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         data.setdefault("services", {}).setdefault(service, {})["enabled"] = on
         _write(data)
     return on
@@ -211,7 +223,7 @@ def select(service, model) -> str:
     if entry is None or entry["service"] != service:
         raise VoiceSettingsError("model", "This model is not in the catalog of that service.", "Questo modello non è nel catalogo di quel servizio.")
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         data.setdefault("services", {}).setdefault(service, {})["selected"] = model
         _write(data)
     return model
@@ -230,7 +242,7 @@ def set_placement(service, device, memory) -> dict:
     _check_service(service)
     check_placement(device, memory)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         data.setdefault("services", {}).setdefault(service, {}).update({"device": device, "memory": memory})
         _write(data)
     return {"device": device, "memory": memory}
@@ -305,7 +317,7 @@ def check_brain(req) -> dict:
 def set_brain(req) -> dict:
     changes = check_brain(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("brain") if isinstance(data.get("brain"), dict) else {}
         stored.update(changes)
         data["brain"] = stored
@@ -316,7 +328,7 @@ def set_brain(req) -> dict:
 def take_permission():
     """A permission level found in `brain`, removed from the file; None when there is none. The level itself is the server's."""
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("brain")
         if not isinstance(stored, dict) or "permission" not in stored:
             return None
@@ -329,7 +341,7 @@ def write_server_address(port: int) -> None:
     """Where this server listens, for the voice service: written at every start, and only when it changed."""
     url = f"http://127.0.0.1:{int(port)}"
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("brain") if isinstance(data.get("brain"), dict) else {}
         if stored.get("base_url") == url:
             return
@@ -444,7 +456,7 @@ def check_telephony(req) -> dict:
 def set_telephony(req) -> dict:
     changes = check_telephony(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("telephony") if isinstance(data.get("telephony"), dict) else {}
         before = telephony()
         stored.update(changes)
@@ -632,7 +644,7 @@ def select_avatar_engine(req) -> dict:
     if req.get("resolution") is not None:
         change["resolution"] = {target: req["resolution"]}
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}
         merged = merge_avatar_selection(stored, change)
         stored.update(merged)
@@ -722,7 +734,7 @@ def check_meetings(req) -> dict:
 def set_meetings(req) -> dict:
     changes = check_meetings(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         before = meetings()
         stored = data.get("meetings") if isinstance(data.get("meetings"), dict) else {}
         stored.update(changes)
@@ -788,7 +800,7 @@ def check_interruptions(req) -> dict:
 def set_interruptions(req) -> dict:
     changes = check_interruptions(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("interruptions") if isinstance(data.get("interruptions"), dict) else {}
         stored.update(changes)
         data["interruptions"] = stored
@@ -890,7 +902,7 @@ def check_language(req) -> dict:
 def set_language(req) -> dict:
     changes = check_language(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("language") if isinstance(data.get("language"), dict) else {}
         stored.update(changes)
         data["language"] = stored
@@ -959,7 +971,7 @@ def check_dictation(req) -> dict:
 def set_dictation(req) -> dict:
     changes = check_dictation(req)
     with _lock:
-        data = _read()
+        data = _read(strict=True)
         stored = data.get("dictation") if isinstance(data.get("dictation"), dict) else {}
         stored.update(changes)
         data["dictation"] = stored
