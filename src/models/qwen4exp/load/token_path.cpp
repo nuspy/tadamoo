@@ -264,9 +264,9 @@ int token_path(Context& context) {
     basalt::core::TokenHits thits;
     const bool graph_hits = hit_fn != nullptr && !profile.empty() && !o.no_pool;
     if (graph_hits && !o.no_capture) {
-        host_res.assign((size_t) (g.n_layers * g.n_expert), basalt::core::kNotResident);
+        host_res.assign((size_t) (g.file_layers() * g.n_expert), basalt::core::kNotResident);
         int64_t resident = 0;
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             for (int64_t e = 0; e < g.n_expert; ++e) {
                 const int st = multi_gpu ? stage_of(l) : 0;
                 const int32_t slot = st > 0 ? stages[(size_t) st - 1]->cache.slot_of(l, e) : xcache.slot_of(l, e);

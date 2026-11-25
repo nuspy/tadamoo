@@ -39,6 +39,7 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
     const int n = T;
     stamp(l, 0);
     const LayerView v(wt, l);
+    const int64_t lf = source_layer(g, l);   // the pack layer: the experts' tables are per pack layer
     const char* pfx[2] = {"hc_attn_", "hc_ffn_"};
     const WeightRef *wn[2], *wd[2], *wu[2], *wi[2];
     for (int h = 0; h < 2; ++h) {
@@ -232,7 +233,7 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
     // the read writes the q8_1 rows, post's gate/up launch plans CUDA0's share
     glue_on = false;
     if (pk_ring && v_.dm_->ptab0 != nullptr && dec_hc && router_multi && hc_fused_q8_rows_ok()) {
-        const auto& f = basalt::kernels::cpu::expert_layout().fmt[(size_t) l];
+        const auto& f = basalt::kernels::cpu::expert_layout().fmt[(size_t) lf];
         glue_on = v_.dm_->vram < 0 && dec_moe_glue_ok(native_expert_layout(f.gu_type, f.d_type, f.n_embd, f.n_ff, 0.0f, f.up_type));
         if (!glue_on) note_fallback("glue off for the layer's experts", f.gu_type, f.d_type);
     }
@@ -291,9 +292,9 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
     }
     if (dm && (v_.route_prior_ > 0.0f || v_.route_tail_skip_ > 0) && n * (int) K <= kDmCap) {   // opt-in routing changes
         ResidentTabs held;
-        held.add(v_.dm_->res0 + l * g.n_expert);
-        if (v_.dm_->pdev >= 0) held.add(v_.dm_->res1 + l * g.n_expert);
-        for (const DecMoe::XPeer& x : v_.dm_->xp) held.add(x.res + l * g.n_expert);
+        held.add(v_.dm_->res0 + lf * g.n_expert);
+        if (v_.dm_->pdev >= 0) held.add(v_.dm_->res1 + lf * g.n_expert);
+        for (const DecMoe::XPeer& x : v_.dm_->xp) held.add(x.res + lf * g.n_expert);
         PdlScope pt(false);
         try {
             if (v_.route_prior_ > 0.0f && NE == 512 && K == 10)   // the selection again, biased toward the held experts
@@ -307,8 +308,8 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
         DmRouteArgs ra;
         ra.ids = v_.ids_; ra.x = xm; ra.n_tok = n; ra.k = (int) K; ra.n_embd = (int) N;
         ra.n_expert = (int) g.n_expert; ra.layer = (int) l;
-        ra.res0 = v_.dm_->res0 + l * g.n_expert;
-        ra.res1 = v_.dm_->pdev >= 0 ? v_.dm_->res1 + l * g.n_expert : nullptr;
+        ra.res0 = v_.dm_->res0 + lf * g.n_expert;
+        ra.res1 = v_.dm_->pdev >= 0 ? v_.dm_->res1 + lf * g.n_expert : nullptr;
         ra.cache_base = v_.hits_.cache_base; ra.slot_off = v_.dm_->slot_off; ra.blob = (long long) v_.hits_.blob;
         ra.plan = v_.dm_->plan; ra.xq = v_.nat_xq_;
         const int64_t r = l - v_.lb_;
@@ -318,7 +319,7 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
         ra.n_x = (int) v_.dm_->xp.size();
         for (int q = 0; q < ra.n_x; ++q) {
             const DecMoe::XPeer& x = v_.dm_->xp[(size_t) q];
-            ra.xres[q] = x.res + l * g.n_expert;
+            ra.xres[q] = x.res + lf * g.n_expert;
             ra.xring_m[q] = x.m_ring + r;
             ra.xseq_m[q] = x.m_w;
         }
@@ -327,7 +328,7 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
         ra.peer_cap = 0;
         ra.rows = v_.dm_->rq != nullptr || v_.dm_->warm != nullptr;
         if (v_.dm_->stage_src != nullptr && v_.batch_rec_) {   // batch windows: many rows, many misses
-            ra.stage_src = v_.dm_->stage_src + l * g.n_expert;
+            ra.stage_src = v_.dm_->stage_src + lf * g.n_expert;
             ra.stage_k = v_.dm_->stage_k;
         }
         PdlScope pr(false);   // after the router's kernel: a plain launch
@@ -354,21 +355,21 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
             cudaStreamWaitEvent(v_.dm_->st_s, v_.dm_->st_fork, 0);
             PdlScope pst(false);
             dec_moe_stage(ra, v_.staging_, v_.dm_->stage_stride,
-                          (int64_t) basalt::kernels::cpu::expert_layout().blob_bytes(l), v_.dm_->stage_blocks, v_.dm_->st_s);
+                          (int64_t) basalt::kernels::cpu::expert_layout().blob_bytes(lf), v_.dm_->stage_blocks, v_.dm_->st_s);
             cudaEventRecord(v_.dm_->st_join, v_.dm_->st_s);
         }
     } else if (v_.ar_on()) {
-        resident_plan(v_.ids_, n * (int) K, (int) K, v_.hits_.d_res + l * g.n_expert, (int) g.n_expert,
+        resident_plan(v_.ids_, n * (int) K, (int) K, v_.hits_.d_res + lf * g.n_expert, (int) g.n_expert,
                       v_.hits_.cache_base, v_.slot_off_d_, (long long) v_.hits_.blob,
                       v_.plan_, (long long) v_.max_t_ * K, nullptr, 0, cs,
                       v_.m_plan_err_);
     } else {
         if (v_.device_plan_)   // every routed expert resident: this group's plan without the host
-            resident_plan(v_.ids_, n * (int) K, (int) K, v_.hits_.d_res + l * g.n_expert, (int) g.n_expert,
+            resident_plan(v_.ids_, n * (int) K, (int) K, v_.hits_.d_res + lf * g.n_expert, (int) g.n_expert,
                           v_.hits_.cache_base, v_.slot_off_d_, (long long) v_.hits_.blob,
                           v_.plan_, (long long) v_.max_t_ * K, v_.skip_,
                           (uint32_t) (l - v_.lb_ + 1), cs);
-        const int32_t* layer_res = v_.hits_.d_res != nullptr ? (v_.hits_.d_res + l * g.n_expert) : nullptr;
+        const int32_t* layer_res = v_.hits_.d_res != nullptr ? (v_.hits_.d_res + lf * g.n_expert) : nullptr;
         doorbell_publish_res(xm, v_.ids_, layer_res, (int) g.n_expert, (int64_t) n * N, (int64_t) n * K,
                              v_.m_x_, v_.m_ids_, v_.m_seq_, cs);
     }

@@ -85,7 +85,7 @@ int dispatch(Context& context) {
         const bool ram_ok = srcp == &src && src.complement_ready();
         // the arena holds every expert in RAM (opening it fails when it cannot), so nothing it serves is file-backed
         const bool arena_ok = srcp == &arena_src && arena_src.mapped();
-        for (int64_t l = 0; l < g.n_layers; ++l) {
+        for (int64_t l = 0; l < g.file_layers(); ++l) {
             const uint64_t blob = basalt::kernels::cpu::expert_layout().blob_bytes(l);
             for (int64_t e = 0; e < g.n_expert; ++e) {
                 const size_t i = (size_t) (l * g.n_expert + e);
@@ -103,10 +103,10 @@ int dispatch(Context& context) {
                 }
             }
         }
-        tier_spill = {n_file, g.n_layers * g.n_expert, b_file};
+        tier_spill = {n_file, g.file_layers() * g.n_expert, b_file};
         const double total = (double) (b_vram + b_peer + b_ram + b_top + b_file);
         if (total <= 0.0) return;
-        basalt::core::draft_cum_cpu_mb() = (float) ((double) (b_ram + b_top) / (double) (g.n_layers * g.n_expert) / 1e6);
+        basalt::core::draft_cum_cpu_mb() = (float) ((double) (b_ram + b_top) / (double) (g.file_layers() * g.n_expert) / 1e6);
         constexpr double kGiB = 1073741824.0;
         auto pct = [&](uint64_t b) { return 100.0 * (double) b / total; };
         // RAM is the loaded copy (the bytes the loader reports); the top-up added after the load is shown beside it

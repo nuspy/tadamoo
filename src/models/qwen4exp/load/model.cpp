@@ -100,7 +100,7 @@ int model(Context& context) {
             uint64_t bytes = 0;
             std::string perr;
             if (basalt::platform::file_size(o.expert_profile_save, bytes) && bytes > 0) {
-                if (basalt::core::read_expert_profile(basalt::core::FileRange(o.expert_profile_save), g.n_layers,
+                if (basalt::core::read_expert_profile(basalt::core::FileRange(o.expert_profile_save), g.file_layers(),
                                                       g.n_expert, profile, pslots, perr)) {
                     learned = true;
                     o.expert_profile = o.expert_profile_save;
@@ -111,7 +111,7 @@ int model(Context& context) {
                 }
             }
         }
-        if (!learned && !basalt::core::read_expert_profile(basalt::core::FileRange(o.expert_profile), g.n_layers,
+        if (!learned && !basalt::core::read_expert_profile(basalt::core::FileRange(o.expert_profile), g.file_layers(),
                                                            g.n_expert, profile, pslots, err)) {
             return fatal_start_error(err);
         }

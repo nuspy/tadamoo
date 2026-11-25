@@ -119,8 +119,8 @@ bool Prefill::Run::Chunk::Experts::Group::walk() {
     } else {
         // the streamed walk: this layer's entries [k, kend) in id order; an entry the routing did not
         // pick only gives its slot back
-        size_t k = seq_start[(size_t) l];
-        const size_t kend = seq_start[(size_t) l + 1];
+        size_t k = seq_start[(size_t) slot];
+        const size_t kend = seq_start[(size_t) slot + 1];
         auto release_to = [&](int32_t e_stop) {
             while (k < kend && seq[k].e < e_stop) {
                 if (gg_nslots > 0) flush();   // the open group's slots get their event first

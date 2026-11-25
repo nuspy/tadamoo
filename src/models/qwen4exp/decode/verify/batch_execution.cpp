@@ -119,7 +119,7 @@ bool Verifier::dm_stage_places(std::string& err) {
     const uint64_t gen = warm_src_->places_generation();
     if (gen == d->stage_gen) return true;
     const ModelGeometry& g = *g_;
-    const int64_t LE = g.n_layers * g.n_expert;
+    const int64_t LE = g.file_layers() * g.n_expert;
     bool changed = false;
     for (int64_t i = 0; i < LE; ++i) {
         const unsigned long long p = (unsigned long long) warm_src_->device_alias(i / g.n_expert, i % g.n_expert);

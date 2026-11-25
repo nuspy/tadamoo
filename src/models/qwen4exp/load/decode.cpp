@@ -92,7 +92,7 @@ int decode(Context& context) {
         // CS-T: the file tier since the decode began (the prompt path's copies are before this)
         const int64_t files0 = src.file_reads(), ram0 = src.ram_reads();
         const uint64_t fall0 = src.file_read_bytes();
-        if (o.adapt_every > 0 && o.adapt_swaps > 0) drive.d.usage.assign((size_t) (g.n_layers * g.n_expert), 0.0f);
+        if (o.adapt_every > 0 && o.adapt_swaps > 0) drive.d.usage.assign((size_t) (g.file_layers() * g.n_expert), 0.0f);
         int64_t swaps_total = 0;
         double ms_adapt = 0;
         cudaStream_t adapt_stream = nullptr;
@@ -132,7 +132,7 @@ int decode(Context& context) {
             struct Swap { float gain; int32_t layer, in, out; };
             std::vector<Swap> swaps;
             std::vector<std::pair<float, int32_t>> cand, vict;
-            for (int64_t l = 0; l < g.n_layers; ++l) {
+            for (int64_t l = 0; l < g.file_layers(); ++l) {
                 cand.clear();
                 vict.clear();
                 const float* u = drive.d.usage.data() + l * g.n_expert;

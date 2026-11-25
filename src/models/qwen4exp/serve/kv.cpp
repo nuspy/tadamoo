@@ -90,7 +90,7 @@ bool QfnRuntime::move_routed_below(int64_t first, const char* why, std::string& 
     }
     std::vector<uint8_t> in_ram((size_t) g.n_expert);
     std::vector<serve_loans::RoutedTrade> trades;
-    for (int64_t l = 0; l < g.n_layers; ++l) {
+    for (int64_t l = 0; l < g.file_layers(); ++l) {
         const float* u = drive.d.usage.data() + (size_t) (l * g.n_expert);
         int32_t* r = host_res.data() + (size_t) (l * g.n_expert);
         for (int64_t ex = 0; ex < g.n_expert; ++ex) in_ram[(size_t) ex] = src.has_resident(l, ex) ? 1 : 0;
@@ -207,7 +207,7 @@ bool QfnRuntime::peer_take(const std::vector<int32_t>& off, std::string& e) {
     peer.apply_pending(true);
     const std::vector<int32_t>& pres = peer.residency();
     // one pool when every layer's blobs are one size (a slot takes any layer's expert), else one per layer
-    const int64_t pools = xq_across ? 1 : g.n_layers;
+    const int64_t pools = xq_across ? 1 : g.file_layers();
     auto pool_of = [&](size_t i) { return xq_across ? (size_t) 0 : i / (size_t) g.n_expert; };
     std::vector<std::vector<int32_t>> in((size_t) pools), on((size_t) pools);
     for (const int32_t i : off)

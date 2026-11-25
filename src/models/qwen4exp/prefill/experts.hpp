@@ -22,7 +22,7 @@ using namespace detail;
 
 struct Prefill::Run::Chunk::Experts {
     struct Group;
-    Experts(Chunk& chunk, int64_t l) : chunk(chunk), l(l) {}
+    Experts(Chunk& chunk, int64_t l, int64_t slot) : chunk(chunk), l(l), slot(slot) {}
     bool execute();
     bool fused();
     bool finish();
@@ -83,7 +83,8 @@ struct Prefill::Run::Chunk::Experts {
     decltype(Chunk::ahead_n)& ahead_n = chunk.ahead_n;
     decltype(Chunk::guess_for)& guess_for = chunk.guess_for;
     decltype(Chunk::normed)& normed = chunk.normed;
-    int64_t l;
+    int64_t l;      // the pack layer: every expert table, the source and the cache are indexed by it
+    int64_t slot;   // the slot of the run: the streamed order and the progress text
     // The Q2_0 pack's experts on the fused int8 kernels (moe_fused.hpp),
     // grouped on the GPU: no host sync.  Only where every expert's place is known before the routing -
     // the streamed walk, in which every non-resident expert of the layer comes through the ring in id
@@ -187,6 +188,7 @@ struct Prefill::Run::Chunk::Experts::Group {
     decltype(Experts::normed)& normed = experts.normed;
     decltype(Experts::chunk)& chunk = experts.chunk;
     decltype(Experts::l)& l = experts.l;
+    decltype(Experts::slot)& slot = experts.slot;
     decltype(Experts::lay)& lay = experts.lay;
     decltype(Experts::use_mmq)& use_mmq = experts.use_mmq;
     decltype(Experts::mmq_gt)& mmq_gt = experts.mmq_gt;

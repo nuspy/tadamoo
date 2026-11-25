@@ -49,7 +49,7 @@ struct Hc8Tensor { std::string name; int rows, cols; };
 std::vector<Hc8Tensor> hc8_tensors(const ModelGeometry& g) {
     const int LR = (int) g.hc_lr, D = (int) (g.hc * g.n_embd), HCn = (int) g.hc;
     std::vector<Hc8Tensor> v;
-    for (int64_t l = 0; l < g.n_layers; ++l) {
+    for (int64_t l = 0; l < g.file_layers(); ++l) {
         const std::string blk = "blk." + std::to_string(l) + ".";
         for (const char* p : {"hc_attn_", "hc_ffn_"}) {
             const std::string s(p);

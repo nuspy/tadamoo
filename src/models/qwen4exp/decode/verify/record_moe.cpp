@@ -27,6 +27,7 @@ bool Verifier::WindowRecorder::post(int64_t l) {
     using namespace basalt::kernels;
     const int n = T;
     const uint32_t ring = (uint32_t) (l - v_.lb_ + 1);
+    const int64_t lf = source_layer(g, l);   // the pack layer: the experts' tables are per pack layer
     const int64_t cap = (int64_t) n * K, capx = (int64_t) v_.max_t_ * K;
     int32_t* pl = v_.plan_;
     const int32_t* p_counts = pl;
@@ -44,14 +45,14 @@ bool Verifier::WindowRecorder::post(int64_t l) {
     // `gy`: the native launch's groups side by side (0: cap, one block row per possible group).
     auto grouped = [&](const unsigned long long* gp, const int32_t* gs, const int32_t* gn, int64_t gy, float* dst_buf) {
         // the layer's GGUF formats (i-quant gate/up, Q2_0 / IQ4_NL down)
-        const auto& f = lay.fmt[(size_t) l];
+        const auto& f = lay.fmt[(size_t) lf];
         const NativeExpertLayout L = native_expert_layout(f.gu_type, f.d_type, f.n_embd, f.n_ff, 0.0f, f.up_type);
         native_expert_grouped(L, gp, gs, gn, p_dst, p_tok, cap, cap,
                               v_.nat_xq_, v_.hit_scratch_, dst_buf, cs, gy);
     };
     if (dm) {   // CUDA0's entries straight into their parts rows; the other tiers are read by the combine
         stamp(l, 19);
-        const auto& f = lay.fmt[(size_t) l];
+        const auto& f = lay.fmt[(size_t) lf];
         const NativeExpertLayout L = native_expert_layout(f.gu_type, f.d_type, f.n_embd, f.n_ff, 0.0f, f.up_type);
         DmPlan* P = v_.dm_->plan;
         // the next GDN layer's commit (and later ones while this layer waits for the CPU), and the next layer's
@@ -91,7 +92,7 @@ bool Verifier::WindowRecorder::post(int64_t l) {
                     const WeightRef* w = nv.get(nm);
                     if (w != nullptr) add(w->data, w->bytes);
                 }
-                pf.ids = v_.ids_; pf.n_ids = n * (int) K; pf.n_expert = (int) g.n_expert; pf.ptab = v_.dm_->ptab0 + l * g.n_expert;
+                pf.ids = v_.ids_; pf.n_ids = n * (int) K; pf.n_expert = (int) g.n_expert; pf.ptab = v_.dm_->ptab0 + lf * g.n_expert;
             }
             cudaEventRecord(v_.lz_fork_, cs);
             cudaStreamWaitEvent(v_.lz_s_, v_.lz_fork_, 0);
@@ -103,7 +104,7 @@ bool Verifier::WindowRecorder::post(int64_t l) {
         }
         if (glue_on) {
             DmGlueArgs ga;
-            ga.ids = v_.ids_; ga.ptab = v_.dm_->ptab0 + l * g.n_expert;
+            ga.ids = v_.ids_; ga.ptab = v_.dm_->ptab0 + lf * g.n_expert;
             ga.n_tok = n; ga.k = (int) K; ga.n_expert = (int) g.n_expert;
             ga.plan = P; ga.xq = v_.nat_xq_;
             { ga.ring_on = true; ga.ring = glue_ring; }
@@ -151,8 +152,8 @@ bool Verifier::WindowRecorder::post(int64_t l) {
         {   // stage them with a copy kernel, then point at staging
             const int64_t per = kStagingBlobs;
             uint8_t* stage = v_.staging_;
-            fetch_blobs(p_ptr2, p_counts + 2, stage, (int64_t) lay.blob_bytes(l), (int) per, cs);
-            rebase_ptrs((unsigned long long*) p_ptr2, p_counts + 2, stage, (int64_t) lay.blob_bytes(l), cs);
+            fetch_blobs(p_ptr2, p_counts + 2, stage, (int64_t) lay.blob_bytes(lf), (int) per, cs);
+            rebase_ptrs((unsigned long long*) p_ptr2, p_counts + 2, stage, (int64_t) lay.blob_bytes(lf), cs);
         }
         stamp(l, 21);
         // the PCIe share is pcie_frac of the misses: a few groups when the cache is cold, usually none (none when the

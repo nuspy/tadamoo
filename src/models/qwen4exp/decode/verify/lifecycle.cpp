@@ -349,7 +349,7 @@ bool Verifier::init(const WeightTable& wt, const ModelGeometry& g, SessionState&
     if (hits.h_res != nullptr && hits.d_res != nullptr && hits.cache_base != nullptr) {
         {
             bool all_ok = true;
-            for (int64_t l = lb_; l < le_ && all_ok; ++l) {
+            for (int64_t l = lb_; l < (le_ >= g.n_layers ? g.file_layers() : le_) && all_ok; ++l) {
                 for (int64_t e = 0; e < g.n_expert; ++e) {
                     if (hits.h_res[l * g.n_expert + e] < 0) {
                         all_ok = false;

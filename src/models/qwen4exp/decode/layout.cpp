@@ -227,8 +227,10 @@ struct LoopMap {
 
 void set_layer_loop_map(const ModelGeometry& g) { g_loop_map = {g.loop_a, g.loop_b, g.loop_k}; }
 
+int64_t mapped_source(int64_t slot) { return layer_source(g_loop_map.a, g_loop_map.b, g_loop_map.k, slot); }
+
 std::string LayerView::name(const char* suffix) const {
-    return "blk." + std::to_string(layer_source(g_loop_map.a, g_loop_map.b, g_loop_map.k, layer_)) + "." + suffix;
+    return "blk." + std::to_string(mapped_source(layer_)) + "." + suffix;
 }
 
 bool check_layer(const WeightTable& table, const ModelGeometry& g, int64_t layer, std::string& err) {

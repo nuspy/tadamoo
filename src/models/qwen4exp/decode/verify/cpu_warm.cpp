@@ -120,7 +120,7 @@ void warm_job(void* ctx, int w, int W, const std::atomic<bool>& stop) {
 // prediction only.  False when a layer's router is not such a table.
 bool router_codes(const WeightTable& wt, const ModelGeometry& g, std::vector<int8_t>* q8, std::vector<float>* s8,
                   std::vector<uint8_t>* q4, std::vector<float>* s4) {
-    const int64_t N = g.n_embd, NE = g.n_expert, L = g.n_layers, NB = N / 32;
+    const int64_t N = g.n_embd, NE = g.n_expert, L = g.file_layers(), NB = N / 32;
     if (NE > basalt::kernels::kDmPredExperts || N % 32 != 0) return false;
     std::vector<uint16_t> src((size_t) (NE * N));
     if (q8 != nullptr) {
@@ -132,7 +132,7 @@ bool router_codes(const WeightTable& wt, const ModelGeometry& g, std::vector<int
         s4->assign((size_t) (L * NE * NB), 0.0f);
     }
     for (int64_t l = 0; l < L; ++l) {
-        const WeightRef* w = LayerView(wt, l).get("ffn_gate_inp.weight");
+        const WeightRef* w = wt.find("blk." + std::to_string(l) + ".ffn_gate_inp.weight");   // by pack layer: a loop over file layers never goes through LayerView
         if (w == nullptr || w->bytes != (uint64_t) (NE * N * 2)) return false;
         if (cudaMemcpy(src.data(), w->data, (size_t) w->bytes, cudaMemcpyDefault) != cudaSuccess) {
             cudaGetLastError();

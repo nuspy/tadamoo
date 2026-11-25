@@ -19,7 +19,7 @@ void Prefill::route_hist_reset() {
     {
         const core::OnDevice od(m.device);
         if (m.hist == nullptr) {
-            m.hist_n = m.g->n_layers * m.g->n_expert;
+            m.hist_n = m.g->file_layers() * m.g->n_expert;
             if (cudaMalloc((void**) &m.hist, (size_t) m.hist_n * 4) != cudaSuccess) { m.hist = nullptr; m.hist_on = false; }
             else m.owned.push_back(m.hist);
         }

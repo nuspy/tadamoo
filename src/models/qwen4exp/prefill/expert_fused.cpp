@@ -23,8 +23,8 @@ bool Prefill::Run::Chunk::Experts::fused() {
     // third of the ring streamed: the next batch's blobs arrive while one computes.  An expert
     // the routing did not pick has no tiles; its ring slot is given back with its batch.
     const size_t per = (size_t) std::max(1, m.ring / 3);
-    size_t k = seq_start[(size_t) l];
-    const size_t kend = seq_start[(size_t) l + 1];
+    size_t k = seq_start[(size_t) slot];
+    const size_t kend = seq_start[(size_t) slot + 1];
     for (int32_t e = 0; e < m.g->n_expert;) {
         fused::Batch b;
         b.e0 = e;

@@ -70,10 +70,10 @@ int split_plan(Context& context) {
     if (o.serve && !pstages.empty()) {
         std::vector<uint64_t> pool_l, nat_l;
         uint64_t pool_sh = 0, nat_sh = 0;
-        bool ok = basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.n_layers, pool_l, pool_sh, err, &skip_base) &&
-                  basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.n_layers, nat_l, nat_sh, err);
+        bool ok = basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.file_layers(), pool_l, pool_sh, err, &skip_base) &&
+                  basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.file_layers(), nat_l, nat_sh, err);
         uint64_t widest = pool_sh + nat_sh;
-        for (int64_t l = 2; ok && l < g.n_layers; ++l) widest += pool_l[(size_t) l] + nat_l[(size_t) l];
+        for (int64_t l = 2; ok && l < g.file_layers(); ++l) widest += pool_l[(size_t) l] + nat_l[(size_t) l];
         const int64_t rows = o.prefill_auto_fit ? std::min<int64_t>(o.prefill_chunk, kMaxAutoChunk) : o.prefill_chunk;
         for (size_t j = 0; ok && j < pstages.size(); ++j) {
             ok = basalt::core::host_plan((size_t) widest) && basalt::core::host_plan(256u << 20);
@@ -141,9 +141,9 @@ int prompt_split(Context& context) {
         basalt::program::PsCard c;
         c.mem_gbps = chosen_cards.empty() ? 0 : chosen_cards[0].mem_gbps;
         c.link_gbps = main_link_gbps;
-        c.stream_bytes.assign((size_t) g.n_layers, 0.0);
+        c.stream_bytes.assign((size_t) g.file_layers(), 0.0);
         const int64_t first = xcache.slots() - serve_loans::cache_slots_for(xcache, basalt::prefill::Prefill::bytes_needed(g, ss, chunk));
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             for (int64_t e = 0; e < g.n_expert; ++e) {
                 const int32_t r = host_res.empty() ? -1 : host_res[(size_t) (l * g.n_expert + e)];
                 if (r < 0 || r >= first) c.stream_bytes[(size_t) l] += (double) basalt::kernels::cpu::expert_layout().blob_bytes(l);
@@ -155,11 +155,11 @@ int prompt_split(Context& context) {
         basalt::program::PsCard c;
         c.mem_gbps = st.mem_gbps;
         c.link_gbps = st.link_gbps;
-        c.stream_bytes.assign((size_t) g.n_layers, 0.0);
+        c.stream_bytes.assign((size_t) g.file_layers(), 0.0);
         const basalt::core::ExpertCache& pc = st.tier->cache();
         const int64_t first = pc.slots() - serve_loans::cache_slots_for(pc, region);
         const std::vector<int32_t>& r = st.tier->residency();
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             for (int64_t e = 0; e < g.n_expert; ++e) {
                 const int32_t sl = r[(size_t) (l * g.n_expert + e)];
                 if (sl < 0 || sl >= first) c.stream_bytes[(size_t) l] += (double) basalt::kernels::cpu::expert_layout().blob_bytes(l);
@@ -234,14 +234,14 @@ int prompt_split(Context& context) {
             peers.push_back(std::move(c));
         }
         sp0.price = basalt::program::price_prompt_split(split_main_side(chunk), split_main_side(schunk), peers, part,
-                                                        max_stages, (int) g.n_layers);
+                                                        max_stages, (int) g.file_layers());
         return sp0;
     };
     // a split's stages for the log: "layers 36-47 on CUDA1", "layers 12-23 on CUDA3, 24-35 on CUDA2, 36-47 on CUDA1"
     auto split_layers_text = [&](int stages, const std::vector<int>& cuts) {
         std::string t = "layers ";
         for (int k = 1; k < stages && (size_t) k <= cuts.size(); ++k) {
-            const int l1 = k + 1 < stages ? cuts[(size_t) k] : (int) g.n_layers;
+            const int l1 = k + 1 < stages ? cuts[(size_t) k] : (int) g.file_layers();
             t += (k > 1 ? ", " : "") + std::to_string(cuts[(size_t) k - 1]) + "-" + std::to_string(l1 - 1) + " on CUDA" +
                  std::to_string(pstages[(size_t) (stages - 1 - k)]->dev);
         }
@@ -264,19 +264,19 @@ int prompt_split(Context& context) {
     if (split_want && peer.valid() && !pstages.empty()) {
         std::vector<uint64_t> pool_l, nat_l;
         uint64_t pool_sh = 0, nat_sh = 0;
-        bool ok = basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.n_layers, pool_l, pool_sh, err, &skip_base) &&
-                  basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.n_layers, nat_l, nat_sh, err);
+        bool ok = basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.file_layers(), pool_l, pool_sh, err, &skip_base) &&
+                  basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.file_layers(), nat_l, nat_sh, err);
         auto image_from = [&](int64_t lb) {
             uint64_t b = pool_sh + nat_sh;
-            for (int64_t l = lb; l < g.n_layers; ++l) b += pool_l[(size_t) l] + nat_l[(size_t) l];
+            for (int64_t l = lb; l < g.file_layers(); ++l) b += pool_l[(size_t) l] + nat_l[(size_t) l];
             return b;
         };
         const int64_t longest = std::min<int64_t>(o.max_context, kSplitRefCells) - 1;
         const int all = (int) pstages.size() + 1;
         for (auto& st : pstages) {   // priced with any cut, each card's weights the later half's
             st->lo = 2;
-            st->hi = g.n_layers;
-            st->image_bytes = ok ? image_from(g.n_layers / 2) : 0;
+            st->hi = g.file_layers();
+            st->image_bytes = ok ? image_from(g.file_layers() / 2) : 0;
         }
         const engine_local::SplitPricing ref_all = ok ? split_price(0, longest, longest, all) : engine_local::SplitPricing{};
         const engine_local::SplitPricing ref = ok && split_cap >= 2 && split_cap < all ? split_price(0, longest, longest, split_cap) : ref_all;
@@ -302,7 +302,7 @@ int prompt_split(Context& context) {
         } else {
             // each card's window, and the stages that have one (a prefix of the join order)
             const std::vector<std::pair<int, int>> win =
-                basalt::program::prompt_split_windows(ref.price, pstages.size(), 3, (int) g.n_layers);
+                basalt::program::prompt_split_windows(ref.price, pstages.size(), 3, (int) g.file_layers());
             size_t used = 0;
             while (used < pstages.size() && win[used].second > win[used].first) ++used;
             pstages.resize(used);

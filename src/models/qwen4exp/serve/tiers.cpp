@@ -174,7 +174,7 @@ void QfnRuntime::rank_swaps(std::vector<Swap>& swaps, bool across) {
         // takes its peer slot.
         struct Ent { float u; int32_t rank, layer, e; };
         std::vector<Ent> cand, vict;
-        for (int64_t l = 0; l < g.n_layers; ++l) {
+        for (int64_t l = 0; l < g.file_layers(); ++l) {
             const float* u = drive.d.usage.data() + l * g.n_expert;
             const int32_t* r = host_res.data() + l * g.n_expert;
             for (int32_t e = 0; e < (int32_t) g.n_expert; ++e) {
@@ -201,7 +201,7 @@ void QfnRuntime::rank_swaps(std::vector<Swap>& swaps, bool across) {
         return;
     }
     std::vector<std::pair<float, int32_t>> cand, vict;
-    for (int64_t l = 0; l < g.n_layers; ++l) {
+    for (int64_t l = 0; l < g.file_layers(); ++l) {
         cand.clear();
         vict.clear();
         const float* u = drive.d.usage.data() + l * g.n_expert;
@@ -243,7 +243,7 @@ void QfnRuntime::rank_once(std::vector<Swap>& swaps, size_t room) {
     std::vector<Ent> cand, vict;
     std::vector<uint8_t> taken(host_res.size(), 0);
     for (const Swap& s : swaps) taken[(size_t) s.lout * g.n_expert + s.out] = 1;
-    for (int64_t l = 0; l < g.n_layers; ++l) {
+    for (int64_t l = 0; l < g.file_layers(); ++l) {
         const float* u = drive.d.usage.data() + l * g.n_expert;
         const int32_t* r = host_res.data() + l * g.n_expert;
         for (int32_t e = 0; e < (int32_t) g.n_expert; ++e) {
@@ -574,7 +574,7 @@ int QfnRuntime::init_tiers() {
     all_experts_resident = !host_res.empty() &&
         std::all_of(host_res.begin(), host_res.end(), [](int32_t r) { return r >= 0; });
     if (o.adapt_every > 0 && o.adapt_swaps > 0 && !all_experts_resident)
-        drive.d.usage.assign((size_t) (g.n_layers * g.n_expert), 0.0f);
+        drive.d.usage.assign((size_t) (g.file_layers() * g.n_expert), 0.0f);
 
     if (!o.expert_profile_save.empty() && !all_experts_resident) {
         if (drive.d.usage.empty() || host_res.empty())
@@ -599,10 +599,10 @@ int QfnRuntime::init_tiers() {
 
     // the profile's rank of each pair: of equally routed experts the better-ranked one comes in and the worse-ranked
     // one leaves first
-    prof_rank = std::vector<int32_t>((size_t) (g.n_layers * g.n_expert), (int32_t) profile.size());
+    prof_rank = std::vector<int32_t>((size_t) (g.file_layers() * g.n_expert), (int32_t) profile.size());
     for (size_t i = 0; i < profile.size(); ++i) {
         const int64_t pl = profile[i].first, pe = profile[i].second;
-        if (pl >= 0 && pl < g.n_layers && pe >= 0 && pe < g.n_expert && prof_rank[(size_t) (pl * g.n_expert + pe)] == (int32_t) profile.size())
+        if (pl >= 0 && pl < g.file_layers() && pe >= 0 && pe < g.n_expert && prof_rank[(size_t) (pl * g.n_expert + pe)] == (int32_t) profile.size())
             prof_rank[(size_t) (pl * g.n_expert + pe)] = (int32_t) i;
     }
     // a start that left the cache's tail unmapped (the VRAM was short then): those slots are what `cache_regrow` fills
@@ -627,7 +627,7 @@ int QfnRuntime::init_tiers() {
     // the rounds rank over all layers when at most one peer tier holds experts (not exclusively) and every layer's
     // blobs are one size (a slot then takes any layer's expert)
     xq_across = xpeers.empty() && !peer_excl;
-    for (int64_t l = 1; xq_across && l < g.n_layers; ++l)
+    for (int64_t l = 1; xq_across && l < g.file_layers(); ++l)
         xq_across = basalt::kernels::cpu::expert_layout().blob_bytes(l) == basalt::kernels::cpu::expert_layout().blob_bytes(0);
 
     xq_stage = 0;   // 0 idle, 1 evictions copying to RAM, 2 incoming experts copying to their slots

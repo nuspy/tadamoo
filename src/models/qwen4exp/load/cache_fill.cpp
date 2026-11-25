@@ -193,7 +193,7 @@ int cache_fill(Context& context) {
             sized.push_back((int64_t) lay.blob_bytes(pr.first));
         }
         if (sized.empty() ||
-            !st.cache.open_sized(sized, g.n_layers, g.n_expert, err)) {
+            !st.cache.open_sized(sized, g.file_layers(), g.n_expert, err)) {
             basalt::log::error("basalt generate", "layer split, CUDA%d expert cache: %s", st.dev,
                          sized.empty() ? "no room" : err.c_str());
             return 1;

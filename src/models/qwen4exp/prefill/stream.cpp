@@ -22,28 +22,29 @@ bool Prefill::Run::Chunk::start_stream() {
         std::vector<Stager::Job> js;
         for (int64_t l = LB; l < LE; ++l) {
             seq_start[(size_t) l] = seq.size();
+            const int64_t lf = source_layer(g, l);   // the pack layer of the slot
             for (int32_t e = 0; e < m.g->n_expert; ++e) {
-                if (m.host_res && m.cache && m.host_res[(size_t) l * m.g->n_expert + e] >= 0) continue;
-                if (ppc && ppc->peer && ppc->peer->has(l, e)) continue;   // multi-GPU: computed on (or read from) the peer
+                if (m.host_res && m.cache && m.host_res[(size_t) lf * m.g->n_expert + e] >= 0) continue;
+                if (ppc && ppc->peer && ppc->peer->has(lf, e)) continue;   // multi-GPU: computed on (or read from) the peer
                 int job = -1;
                 const uint8_t* b = nullptr;
-                if (m.ring_peer && m.ring_peer->exclusive() && m.ring_peer->has(l, e)) {   // no host copy: from the peer
-                    seq.push_back({(int32_t) l, e, nullptr, -1, m.ring_peer->slot_ptr(l, e)});
+                if (m.ring_peer && m.ring_peer->exclusive() && m.ring_peer->has(lf, e)) {   // no host copy: from the peer
+                    seq.push_back({(int32_t) lf, e, nullptr, -1, m.ring_peer->slot_ptr(lf, e)});
                     continue;
                 }
-                if (const uint8_t* rp = remote_blob(l, e)) {   // no pinned host copy: from the other card's cache
-                    seq.push_back({(int32_t) l, e, nullptr, -1, rp});
+                if (const uint8_t* rp = remote_blob(lf, e)) {   // no pinned host copy: from the other card's cache
+                    seq.push_back({(int32_t) lf, e, nullptr, -1, rp});
                     continue;
                 }
                 {
-                    b = m.src->blob(l, e);
+                    b = m.src->blob(lf, e);
                     if (!b) { err = "prefill: expert source has no blob"; return false; }
-                    if (!m.src->pinned(l, e)) {
+                    if (!m.src->pinned(lf, e)) {
                         job = (int) js.size();
-                        js.push_back(make_job(*m.src, l, e, b, (size_t) lay0.blob_bytes(l)));
+                        js.push_back(make_job(*m.src, lf, e, b, (size_t) lay0.blob_bytes(lf)));
                     }
                 }
-                seq.push_back({(int32_t) l, e, b, job, nullptr});
+                seq.push_back({(int32_t) lf, e, b, job, nullptr});
             }
         }
         for (int64_t l = LE; l <= g.n_layers; ++l) {

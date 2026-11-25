@@ -25,7 +25,7 @@ bool Prefill::Run::Chunk::moe(int64_t l, const core::LayerView& v) {
     if (!wr || !wgi || !wsg || !wsu || !wsd) return false;
     if (!bf16_proj(m.gemm, wr, m.mixed_bf, m.logits, T, v.name("ffn_gate_inp.weight"), err)) return false;
     route(m.logits, m.ids, m.w, T, m.g->n_expert, m.cs);
-    if (m.hist_on) route_count(m.ids, T * K, m.hist + l * m.g->n_expert, (int) m.g->n_expert, m.cs);
+    if (m.hist_on) route_count(m.ids, T * K, m.hist + source_layer(*m.g, l) * m.g->n_expert, (int) m.g->n_expert, m.cs);
     if (ahead_n > 0 && l + 1 < LE) {   // the next layer's routing guessed (the logits are free again)
         const core::LayerView vn(*m.wt, l + 1);
         const core::WeightRef* wrn = vn.get("ffn_gate_inp.weight");
@@ -37,7 +37,7 @@ bool Prefill::Run::Chunk::moe(int64_t l, const core::LayerView& v) {
         }
     }
     if (!shared_expert(v, wgi, wsg, wsu, wsd)) return false;
-    Experts experts(*this, l);
+    Experts experts(*this, source_layer(*m.g, l), l);
     return experts.execute();
 }
 
@@ -53,9 +53,9 @@ bool Prefill::Run::Chunk::Experts::Group::group() {
     // a stall here is the GPU (this layer's attention and router, or the previous layer's
     // work), not the host: the watchdog's report says so (only its text changes)
     core::progress_at("reading the prompt (batched): waiting for the GPU (attention, router) at layer",
-                      l, p0);
+                      slot, p0);
     cudaStreamSynchronize(m.cs);
-    core::progress_at("reading the prompt (batched): layer", l, p0);
+    core::progress_at("reading the prompt (batched): layer", slot, p0);
     if (guess_for == l + 1) {   // the guessed rows per expert of the next layer
         m.guess_rows.assign((size_t) m.g->n_expert, 0);
         for (int64_t i = 0; i < T * K; ++i) {

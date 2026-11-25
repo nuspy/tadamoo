@@ -153,7 +153,7 @@ struct Prefill::Run::Chunk {
     } issuer_join{&a_stop, &issuer};
     const bool threaded_issue = stream_all;
     bool peer_async = false;
-    const int ahead_n = !stream_all && m.host_res != nullptr && m.cache != nullptr && m.src != nullptr &&
+    const int ahead_n = !stream_all && m.g->loop_k <= 1 && m.host_res != nullptr && m.cache != nullptr && m.src != nullptr &&
                                 m.guess_cap >= T * K
                             ? (m.ring - STAGE) / 2 : 0;
     int64_t guess_for = -1;   // the layer whose routing this layer's half guessed

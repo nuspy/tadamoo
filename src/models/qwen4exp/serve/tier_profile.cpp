@@ -14,9 +14,9 @@ void QfnRuntime::save_profile(const char* why) {
     for (size_t i = 0; i < host_res.size(); ++i) resident[i] = host_res[i] >= 0;
     for (const auto& p : pending) resident[(size_t) p.first] = 1;
     std::string e;
-    const auto ranked = basalt::core::rank_learned_profile(g.n_layers, g.n_expert, resident, heat,
+    const auto ranked = basalt::core::rank_learned_profile(g.file_layers(), g.n_expert, resident, heat,
                                                            profile_loaded);
-    if (basalt::core::write_expert_profile(o.expert_profile_save, g.n_layers, g.n_expert, ranked, e))
+    if (basalt::core::write_expert_profile(o.expert_profile_save, g.file_layers(), g.n_expert, ranked, e))
         basalt::log::info("basalt serve", "expert profile saved to %s (%s)", o.expert_profile_save.c_str(),
                      why);
     else
@@ -70,12 +70,12 @@ bool QfnRuntime::probe_adapt(const std::string& cmd, std::string& e) {
             if (peer_at_start[i] >= 0) want_peer.emplace_back(peer_at_start[i], (int32_t) i);
     } else {
         const auto& lay = basalt::kernels::cpu::expert_layout();
-        for (int64_t l = 1; l < g.n_layers; ++l)
+        for (int64_t l = 1; l < g.file_layers(); ++l)
             if (lay.blob_bytes(l) != lay.blob_bytes(0)) { e = "PROBE adapt: profile= needs one blob size"; return false; }
         if (xcache.per_layer_admission()) { e = "PROBE adapt: profile= needs a cache shared by all layers"; return false; }
         std::vector<std::pair<int32_t, int32_t>> q;
         int64_t qslots = 0;
-        if (!basalt::core::read_expert_profile(basalt::core::FileRange(pfile), g.n_layers, g.n_expert, q, qslots, e)) {
+        if (!basalt::core::read_expert_profile(basalt::core::FileRange(pfile), g.file_layers(), g.n_expert, q, qslots, e)) {
             e = "PROBE adapt: " + e;
             return false;
         }

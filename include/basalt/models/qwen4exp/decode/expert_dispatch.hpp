@@ -4,6 +4,7 @@
 #include "basalt/core/expert_map.hpp"
 #include "basalt/core/expert_source.hpp"
 #include "basalt/kernels/cpu/pool.hpp"
+#include "basalt/models/qwen4exp/decode/layout.hpp"
 #include "basalt/models/qwen4exp/geometry.hpp"
 
 namespace basalt::core {
@@ -16,8 +17,12 @@ struct ExpertDispatch {
     ExpertSource* src = nullptr;
     int64_t n_expert = basalt::kernels::cpu::NE;
 
-    /// Counters, for the driver to report rather than for control flow.
+    /// The slot being executed (a counter for the single-token path, set per call for a window).  The experts' tables,
+    /// the source and the cache are indexed by the pack layer of that slot: `layer_file()`.
     int64_t layers = 0;
+    int64_t layer_file() const { return mapped_source(layers); }
+
+    /// Counters, for the driver to report rather than for control flow.
     int64_t experts = 0;
     int64_t missing = 0;
 

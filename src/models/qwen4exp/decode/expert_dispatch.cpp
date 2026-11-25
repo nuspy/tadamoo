@@ -44,13 +44,13 @@ static void advise_routed(ExpertDispatch& d, const int32_t* ids, int64_t n) {
     for (int64_t i = 0; i < n && m < 128; ++i) {
         const int32_t e = ids[i];
         if (e < 0 || e >= d.n_expert) continue;
-        if (d.host_res != nullptr && d.host_res[(size_t) d.layers * (size_t) d.n_expert + (size_t) e] >= 0) continue;
-        if (d.peer != nullptr && d.peer->has(d.layers, e)) continue;
+        if (d.host_res != nullptr && d.host_res[(size_t) d.layer_file() * (size_t) d.n_expert + (size_t) e] >= 0) continue;
+        if (d.peer != nullptr && d.peer->has(d.layer_file(), e)) continue;
         bool seen = false;
         for (int64_t j = 0; j < m && !seen; ++j) seen = want[j] == e;
         if (!seen) want[m++] = e;
     }
-    if (m > 0) d.src->advise_cpu(d.layers, want, m);
+    if (m > 0) d.src->advise_cpu(d.layer_file(), want, m);
 }
 
 void expert_pool_dispatch(void* user, const float*, const int32_t*, const float*, int64_t n_embd, int64_t, float*) {
@@ -106,7 +106,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
     const auto c0 = std::chrono::steady_clock::now();
     if (!d.usage.empty())
         for (int64_t i = 0; i < n_tok * k; ++i)
-            if (ids[i] >= 0 && ids[i] < d.n_expert) d.usage[(size_t) d.layers * (size_t) d.n_expert + (size_t) ids[i]] += 1.0f;
+            if (ids[i] >= 0 && ids[i] < d.n_expert) d.usage[(size_t) d.layer_file() * (size_t) d.n_expert + (size_t) ids[i]] += 1.0f;
     // ---- the GPU's share, decided and published FIRST so the GPU starts while the CPU works.  Distinct experts in
     // routing order; resident ones and the last pcie_num/256 of the missed ones go to the GPU.
     const int64_t n = n_tok * k;
@@ -126,11 +126,11 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
             if (first_of[i] == i) {
                 distinct[nd++] = i;
                 const int32_t e = ids[i];
-                if (e >= 0 && e < d.n_expert && d.host_res[(size_t) d.layers * (size_t) d.n_expert + (size_t) e] < 0 &&
-                    !(d.peer != nullptr && d.peer->has(d.layers, e))) ++nmiss;
+                if (e >= 0 && e < d.n_expert && d.host_res[(size_t) d.layer_file() * (size_t) d.n_expert + (size_t) e] < 0 &&
+                    !(d.peer != nullptr && d.peer->has(d.layer_file(), e))) ++nmiss;
             }
         }
-        const bool pcie_ok = d.pcie_num > 0 && d.src->pcie_layer(d.layers);
+        const bool pcie_ok = d.pcie_num > 0 && d.src->pcie_layer(d.layer_file());
         const int m = pcie_ok ? (nmiss * d.pcie_num) >> 8 : 0;
         int miss_rank = 0, groups = 0, entries = 0, fetches = 0;
         GpuPlanSink& P = *d.plan;
@@ -141,16 +141,16 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
             int kd = -1;
             unsigned long long ptr = 0;
             if (e >= 0 && e < d.n_expert) {
-                const int32_t slot = d.host_res[(size_t) d.layers * (size_t) d.n_expert + (size_t) e];
+                const int32_t slot = d.host_res[(size_t) d.layer_file() * (size_t) d.n_expert + (size_t) e];
                 if (slot >= 0) {
                     kd = 0;
                     ptr = (unsigned long long) (d.cache_base + (d.cache_slot_off ? (size_t) d.cache_slot_off[slot]
                                                                                  : (size_t) slot * (size_t) d.cache_blob));
-                } else if (d.peer != nullptr && d.peer->has(d.layers, e)) {
+                } else if (d.peer != nullptr && d.peer->has(d.layer_file(), e)) {
                     kd = 2;                        // multi-GPU: the second GPU computes it
                 } else {
                     if (miss_rank >= nmiss - m && fetches < P.staging_cap && fetches < 64) {
-                        const uint8_t* src = d.src->pinned(d.layers, e) ? d.src->blob(d.layers, e) : nullptr;
+                        const uint8_t* src = d.src->pinned(d.layer_file(), e) ? d.src->blob(d.layer_file(), e) : nullptr;
                         if (src != nullptr) {
                             kd = 1;
                             pcie_i0[fetches] = i0;
@@ -176,7 +176,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
         P.start[groups] = entries;
         for (int q = 0; q < fetches; ++q) {       // the PCIe groups: the arena alias, entries after the VRAM ones
             const int64_t i0 = pcie_i0[q];
-            P.ptr2[q] = (unsigned long long) d.src->device_alias(d.layers, ids[i0]);
+            P.ptr2[q] = (unsigned long long) d.src->device_alias(d.layer_file(), ids[i0]);
             P.start2[q] = entries;
             for (int64_t i = i0; i < n; ++i)
                 if (first_of[i] == i0) {
@@ -197,13 +197,13 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
         for (int64_t i = 0; i < n; ++i) {
             const int32_t e = ids[i];
             kind[i] = (e >= 0 && e < d.n_expert && d.host_res != nullptr &&
-                       d.host_res[(size_t) d.layers * (size_t) d.n_expert + (size_t) e] >= 0) ? 0
-                    : (e >= 0 && e < d.n_expert && d.peer != nullptr && d.peer->has(d.layers, e)) ? 2 : -1;
+                       d.host_res[(size_t) d.layer_file() * (size_t) d.n_expert + (size_t) e] >= 0) ? 0
+                    : (e >= 0 && e < d.n_expert && d.peer != nullptr && d.peer->has(d.layer_file(), e)) ? 2 : -1;
         }
     }
     if (d.peer != nullptr && !ext) {         // multi-GPU: start the second GPU's share before the CPU's own work
         std::string perr;
-        if (!d.peer->launch(d.layers, x_f, ids, n_tok, k, kind, perr, out)) {
+        if (!d.peer->launch(d.layer_file(), x_f, ids, n_tok, k, kind, perr, out)) {
             basalt::log::error("basalt", "%s (layer %lld)", perr.c_str(), (long long) d.layers);
             d.failed = true;
             d.fail = "the peer GPU's experts could not be launched";
@@ -223,10 +223,10 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
             bool cpu = false;   // an id of -1 (dropped by the route tail skip) needs no activation
             for (int64_t j = t * k; j < (t + 1) * k; ++j) cpu |= kind[j] < 0 && ids[j] >= 0;
             if (!cpu) continue;
-            if (native && basalt::kernels::cpu::q2_native_kernels(lay.fmt[(size_t) d.layers].gu_type))   // a native Q2_0 pack: the Q2_0 kernels' activations
+            if (native && basalt::kernels::cpu::q2_native_kernels(lay.fmt[(size_t) d.layer_file()].gu_type))   // a native Q2_0 pack: the Q2_0 kernels' activations
                 act_quant_any(x_f + (size_t) t * H, H, d.act_multi[(size_t) t]);
             else if (native)
-                native_quant_act(lay.fmt[(size_t) d.layers], x_f + (size_t) t * H, d.nact_multi.data() + (size_t) t * kNativeActBytes);
+                native_quant_act(lay.fmt[(size_t) d.layer_file()], x_f + (size_t) t * H, d.nact_multi.data() + (size_t) t * kNativeActBytes);
             else
                 act_quant_q8_1(x_f + (size_t) t * H, H, d.act_multi[(size_t) t]);
         }
@@ -249,7 +249,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
                 d.fail_expert = e;
                 return;
             }
-            d.map.note((int) d.layers, (int) e);
+            d.map.note((int) d.layer_file(), (int) e);
             if (kind[i] >= 0) {             // CUDA0, PCIe, or a peer result staged into this row below
                 if (kind[i] == 0) ++d.cache_hits;
                 else ++d.offload_entries;   // PCIe or another GPU
@@ -265,7 +265,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
             ++d.cache_refused;
             int16_t& jo = d.job_of[(size_t) e];
             if (jo < 0) {
-                const uint8_t* b = d.src->blob(d.layers, e);
+                const uint8_t* b = d.src->blob(d.layer_file(), e);
                 if (b == nullptr) {
                     d.failed = true;
                     d.fail = "the expert source could not produce a blob";
@@ -288,7 +288,7 @@ void expert_pool_dispatch_multi(ExpertDispatch& d, const float* x_f, const int32
         }
     const auto c3 = std::chrono::steady_clock::now();
     if (njobs > 0) {
-        d.pool->run_split_multi_native(lay.fmt[(size_t) d.layers], d.jobs_multi.data(), njobs);
+        d.pool->run_split_multi_native(lay.fmt[(size_t) d.layer_file()], d.jobs_multi.data(), njobs);
     }
     if (d.peer != nullptr && !ext) {         // multi-GPU: the second GPU's rows, into the same mapped rows
         std::string perr;
@@ -336,18 +336,18 @@ void expert_hit_run(void* user, void* stream, HitPhase phase, const int32_t* ids
             const int64_t e = ids[i];
             d.is_hit[(size_t) i] = 0;
             if (e < 0 || e >= d.n_expert) continue;   // out of range: the pool refuses it, with a message
-            int32_t slot = d.cache->slot_of(d.layers, e);
+            int32_t slot = d.cache->slot_of(d.layer_file(), e);
             if (slot == kNotResident) {
-                const int32_t cand = d.cache->admit(d.layers, e);
+                const int32_t cand = d.cache->admit(d.layer_file(), e);
                 if (cand == kNotResident) {
                     ++d.cache_refused;
                     continue;
                 }
                 // `blob` is asked ONLY for an expert about to be filled, so the source's read counter stays a
                 // count of distinct experts moved rather than of looks.
-                const uint8_t* b = d.src->blob(d.layers, e);
+                const uint8_t* b = d.src->blob(d.layer_file(), e);
                 std::string ferr;
-                if (b == nullptr || !d.cache->fill_slot(cand, b, cs, ferr, (int64_t) basalt::kernels::cpu::expert_layout().blob_bytes(d.layers))) {
+                if (b == nullptr || !d.cache->fill_slot(cand, b, cs, ferr, (int64_t) basalt::kernels::cpu::expert_layout().blob_bytes(d.layer_file()))) {
                     d.failed = true;
                     d.fail = "the expert cache could not fill a slot";
                     d.fail_layer = d.layers;

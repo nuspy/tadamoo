@@ -52,7 +52,7 @@ int resident_plan(Context& context) {
         if (srcp == nullptr || o.prefill_chunk <= 0) return;
         uint64_t pinned = 0, total = 0;
         const auto& lay = basalt::kernels::cpu::expert_layout();
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             for (int64_t e = 0; e < g.n_expert; ++e) {
                 const uint64_t b = lay.blob_bytes(l);
                 total += b;
@@ -83,7 +83,7 @@ int resident_plan(Context& context) {
         const int peer_reserve =
             o.peer_reserve_mib + (int) ((peer_split_bytes(d0) + peer_prompt_bytes() + pin_map + (1 << 20) - 1) >> 20);
         if (o.peer_devices.size() <= 1) {
-            if (!peer.open(o.peer_device, profile, xcache, *srcp, g.n_layers, g.n_expert, g.n_embd, g.n_ff, peer_reserve, o.peer_slots,
+            if (!peer.open(o.peer_device, profile, xcache, *srcp, g.file_layers(), g.n_expert, g.n_embd, g.n_ff, peer_reserve, o.peer_slots,
                            *context.reads, err)) {
                 basalt::log::error("basalt generate", "%s", err.c_str());
                 return false;
@@ -92,7 +92,7 @@ int resident_plan(Context& context) {
             basalt::log::info("basalt generate", "peer GPU %d: %lld experts, %.2f GiB (read in the start's pass); with the "
                                  "primary's %lld that is %lld of %lld on the GPUs", o.peer_device, (long long) peer.resident(), peer.gib(),
                          (long long) xcache.slots(),
-                         (long long) (peer.resident() + xcache.slots()), (long long) (g.n_layers * g.n_expert));
+                         (long long) (peer.resident() + xcache.slots()), (long long) (g.file_layers() * g.n_expert));
             return true;
         }
         // several tiers: every card's buffers first, then the pairs the primary does not hold dealt out by room and
@@ -102,7 +102,7 @@ int resident_plan(Context& context) {
         for (size_t i = 1; i < np; ++i) xpeers.push_back(std::make_unique<basalt::core::PeerExperts>());
         auto tier = [&](size_t i) -> basalt::core::PeerExperts& { return i == 0 ? peer : *xpeers[i - 1]; };
         for (size_t i = 0; i < np; ++i)
-            if (!tier(i).prepare(o.peer_devices[i], *srcp, g.n_layers, g.n_expert, g.n_embd, g.n_ff, err)) {
+            if (!tier(i).prepare(o.peer_devices[i], *srcp, g.file_layers(), g.n_expert, g.n_embd, g.n_ff, err)) {
                 basalt::log::error("basalt generate", "%s", err.c_str());
                 return false;
             }
@@ -143,13 +143,13 @@ int resident_plan(Context& context) {
                               (long long) tier(i).resident(), tier(i).gib(), i + 1, np);
         }
         basalt::log::info("basalt generate", "%zu peer tiers, read in the start's pass; with the primary's %lld that is %lld "
-                             "of %lld on the GPUs", np, (long long) xcache.slots(), (long long) held, (long long) (g.n_layers * g.n_expert));
+                             "of %lld on the GPUs", np, (long long) xcache.slots(), (long long) held, (long long) (g.file_layers() * g.n_expert));
         return true;
     };
     // what experts left in the file read through the OS file cache: every expert of the largest layer, and one prompt
     // chunk's reads for the lent slots the copy leaves out (sized below, with the lent slots)
     basalt::core::FileCache file_cache;
-    for (int64_t l = 0; l < g.n_layers; ++l)
+    for (int64_t l = 0; l < g.file_layers(); ++l)
         file_cache.layer_bytes = std::max<uint64_t>(file_cache.layer_bytes,
                                                     (uint64_t) g.n_expert * basalt::kernels::cpu::expert_layout().blob_bytes(l));
     // --serve: free places in the RAM copy take the evicted experts (no exchange buffers)
@@ -300,7 +300,7 @@ int resident_plan(Context& context) {
     uint64_t peer_only_bytes = 0;
     if (o.resident_cpu_experts && o.peer_exclusive && o.peer_device >= 1) {
         if (!open_peer()) return 1;
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             for (int64_t e = 0; e < g.n_expert; ++e)
                 if (peer.has(l, e)) {
                     peer_only.emplace_back((int32_t) l, (int32_t) e);

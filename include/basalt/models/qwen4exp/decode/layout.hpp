@@ -88,6 +88,8 @@ inline int64_t loop_pass(const ModelGeometry& g, int64_t slot) {
 
 /// Sets the slot-to-pack-layer map `LayerView::name` resolves through (once, before the weights are looked up).
 void set_layer_loop_map(const ModelGeometry& g);
+/// The pack layer of `slot` through the map `set_layer_loop_map` set, for code that holds no geometry.
+int64_t mapped_source(int64_t slot);
 
 /// The geometry of a family's default model.  qwen35moe has a plain residual and no indexer, so `hc` and `idx_q_heads`
 /// are 0 there.

@@ -80,16 +80,16 @@ int layer_plan(Context& context) {
         }
         // What a stage's card holds before its experts, by block: its layers' dense weights (the arena, the native
         // projections, the 8-bit hyper-connection copies) and what every stage holds whatever its layers.
-        std::vector<uint64_t> pool_l, nat_l, hc8_l((size_t) g.n_layers, 0);
+        std::vector<uint64_t> pool_l, nat_l, hc8_l((size_t) g.file_layers(), 0);
         uint64_t pool_sh = 0, nat_sh = 0, hc8_sh = 0;
-        if (!basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.n_layers, pool_l, pool_sh, err, &skip) ||
-            !basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.n_layers, nat_l, nat_sh, err)) {
+        if (!basalt::core::WeightTable::pool_bytes_by_layer(pack_files, g.file_layers(), pool_l, pool_sh, err, &skip) ||
+            !basalt::core::NativeDense::plan_bytes_by_layer(o.native_shards, true, g.file_layers(), nat_l, nat_sh, err)) {
             return fatal_start_error(err);
         }
         auto block_of = [](const std::string& n) -> long {
             return n.rfind("blk.", 0) == 0 ? std::strtol(n.c_str() + 4, nullptr, 10) : -1;
         };
-        for (int64_t l = 0; l < g.n_layers; ++l)
+        for (int64_t l = 0; l < g.file_layers(); ++l)
             hc8_l[(size_t) l] = basalt::core::Verifier::hc8_plan_bytes([&](const std::string& n) { return block_of(n) == l; }, g);
         hc8_sh = basalt::core::Verifier::hc8_plan_bytes([&](const std::string& n) { return block_of(n) < 0; }, g);
         auto dense_bytes = [&](int i, int64_t lb, int64_t le) -> int64_t {
@@ -112,7 +112,7 @@ int layer_plan(Context& context) {
             std::vector<int64_t> capr((size_t) ns);
             for (int i = 0; i < ns; ++i) {
                 const int64_t lb = i == 0 ? 0 : at[(size_t) i - 1];
-                const int64_t le = i + 1 < ns ? at[(size_t) i] : g.n_layers;
+                const int64_t le = i + 1 < ns ? at[(size_t) i] : g.file_layers();
                 capr[(size_t) i] = cap[(size_t) i] - dense_bytes(i, lb, le) -
                                    (int64_t) basalt::core::session_bytes(g, o.max_context, K, lb, le);
             }
@@ -133,7 +133,7 @@ int layer_plan(Context& context) {
             held_mass /= std::max(total_mass, 1e-9);
             double ms = miss_ms * (1.0 - held_mass);
             for (int i = 0; i < ns; ++i) {
-                const int64_t lb = i == 0 ? 0 : at[(size_t) i - 1], le = i + 1 < ns ? at[(size_t) i] : g.n_layers;
+                const int64_t lb = i == 0 ? 0 : at[(size_t) i - 1], le = i + 1 < ns ? at[(size_t) i] : g.file_layers();
                 ms += (double) (le - lb) * layer_ms[(size_t) i];
             }
             return ms;
@@ -147,7 +147,7 @@ int layer_plan(Context& context) {
             const double ms = predict(at, hm, held);
             if (ms < best_ms) { best = at; best_ms = ms; best_mass = hm; best_held = held; }
         };
-        const int64_t L = g.n_layers;
+        const int64_t L = g.file_layers();
         if (ns == 2) {
             for (int64_t k = 2; k < L; ++k) { at[0] = k; consider(); }
         } else if (ns == 3) {

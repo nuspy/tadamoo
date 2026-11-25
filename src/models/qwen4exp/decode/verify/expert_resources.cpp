@@ -37,7 +37,7 @@ bool Verifier::dm_init(std::string& err) {
     else if (all_resident_) why = "every expert is resident";
     else if (hits_.h_res == nullptr) why = "no host residency table";
     else if ((int64_t) max_t_ * ss_->k > kDmCap) why = "the window is too large";
-    for (int64_t l = 0; why == nullptr && l < g.n_layers; ++l) {
+    for (int64_t l = 0; why == nullptr && l < g.file_layers(); ++l) {
         const auto& f = lay.fmt[(size_t) l];
         if (!dec_moe_formats_ok(f.gu_type, f.d_type, f.n_embd, f.n_ff, f.up_type)) why = "an expert format the kernels do not cover";
     }
@@ -51,7 +51,7 @@ bool Verifier::dm_init(std::string& err) {
     }
     DecMoe* d = new DecMoe;
     dm_ = d;
-    const int64_t LE = g.n_layers * g.n_expert, N = g.n_embd, T = max_t_, K = ss_->k;
+    const int64_t LE = g.file_layers() * g.n_expert, N = g.n_embd, T = max_t_, K = ss_->k;
     d->rings = le_ - lb_;
     d->x_stride = (size_t) (T * N);
     d->xq_stride = (size_t) (T * (N / 32) * 36);
@@ -117,8 +117,8 @@ bool Verifier::dm_init(std::string& err) {
     if (peer_ != nullptr && peer_->valid()) {
         const OnDevice on(peer_->device());
         d->pdev = peer_->device();
-        std::vector<NativeExpertLayout> ls((size_t) g.n_layers);
-        for (int64_t l = 0; l < g.n_layers; ++l) {
+        std::vector<NativeExpertLayout> ls((size_t) g.file_layers());
+        for (int64_t l = 0; l < g.file_layers(); ++l) {
             const auto& f = lay.fmt[(size_t) l];
             ls[(size_t) l] = native_expert_layout(f.gu_type, f.d_type, f.n_embd, f.n_ff, 0.0f, f.up_type);
             d->pq2 |= f.gu_type == 42;
@@ -202,7 +202,7 @@ bool Verifier::dm_init(std::string& err) {
     // memory at once.
     bool stage = d->pdev < 0 && d->xp.empty() && lb_ == 0 && le_ == g.n_layers && hand_in_ == nullptr &&
                  warm_src_ != nullptr && staging_ != nullptr && warm_src_->pcie_layer(0) && lay.fmt[0].bytes % 16 == 0;
-    for (int64_t l = 1; stage && l < g.n_layers; ++l) stage = lay.fmt[(size_t) l].bytes == lay.fmt[0].bytes;
+    for (int64_t l = 1; stage && l < g.file_layers(); ++l) stage = lay.fmt[(size_t) l].bytes == lay.fmt[0].bytes;
     const int64_t blob = (int64_t) lay.fmt[0].bytes, stride = dec_moe_stage_stride(blob);
     const int stage_slots =
         (int) std::min<int64_t>(kDmStageMax, (int64_t) (kStagingBlobs * (int64_t) lay.max_blob) / stride);

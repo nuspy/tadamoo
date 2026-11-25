@@ -54,13 +54,13 @@ int sources(Context& context) {
     if (o.mmap_experts) {
         // The low-RAM mode: the experts come from the model file through the OS cache instead of a pinned copy in
         // RAM, for a machine whose GPU holds most of them but whose RAM cannot hold them all.
-        if (!src.open(expert_files.experts, g.n_layers, g.n_expert, err)) {
+        if (!src.open(expert_files.experts, g.file_layers(), g.n_expert, err)) {
             return fatal_start_error(err);
         }
         basalt::log::info("basalt generate", "experts via mmap (--mmap-experts)");
         srcp = &src;
     } else {
-        if (!arena_src.open(expert_files, g.n_layers, g.n_expert, /*threads=*/6, err, o.shared_expert_arena)) {
+        if (!arena_src.open(expert_files, g.file_layers(), g.n_expert, /*threads=*/6, err, o.shared_expert_arena)) {
             return fatal_start_error(err);
         }
         if (!arena_src.ram_warning().empty())   // said before the load's numbers, which it explains

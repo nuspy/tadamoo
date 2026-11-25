@@ -20,7 +20,7 @@ void drive_pool(void* user, const float* x_f, const int32_t* ids, const float* w
     // the routing trace, one record per layer: int32 layer, int32 k, k int32 ids, k float weights
     if (t->routing != nullptr) {
         // the dispatch advanced `d.layers` past this layer, so this layer is one below it
-        const int32_t layer_idx = (int32_t) (t->d.layers - 1);
+        const int32_t layer_idx = (int32_t) basalt::core::mapped_source(t->d.layers - 1);
         if (layer_idx < 0 || layer_idx >= 48) {
             basalt::log::warn("basalt generate", "the routing trace saw layer %d, outside 0..47", layer_idx);
             return;
@@ -45,9 +45,9 @@ void drive_pool_multi(void* user, const float* x_f, const int32_t* ids, int64_t 
     // one record per token.  The multi dispatch fuses the router weights into the kernel and does not surface
     // them, so records carry unit weights: the profile ranks pairs by routed frequency, which is the
     // signal that matters; a one-shot --dump-routing run records true weights if a weighted ranking is wanted.
-    if (t->routing != nullptr && layer >= 0 && layer < 48) {
+    if (t->routing != nullptr && layer >= 0 && basalt::core::mapped_source(layer) < 48) {
         for (int64_t tok = 0; tok < n_tok; ++tok) {
-            const int32_t rec[2] = {(int32_t) layer, (int32_t) k};
+            const int32_t rec[2] = {(int32_t) basalt::core::mapped_source(layer), (int32_t) k};
             std::fwrite(rec, sizeof rec, 1, t->routing);
             std::fwrite(ids + tok * k, sizeof(int32_t), (size_t) k, t->routing);
             static const float one[64] = {};   // k <= 64 in a verify window; zeros read as unit weights

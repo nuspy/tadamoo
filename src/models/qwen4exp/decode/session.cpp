@@ -970,7 +970,7 @@ bool session_capture_token(const WeightTable& tables, const ModelGeometry& g, Se
         if (!ok) { err = "session_capture_token: pre layer " + std::to_string(l) + ": " + err; break; }
         if (hits != nullptr) {
             // After the ring (and the shared expert): the GPU's experts run while the CPU computes the misses.
-            basalt::kernels::moe_hit_select(s.moe.ids, hits->d_res + l * hits->n_expert, (int) s.k,
+            basalt::kernels::moe_hit_select(s.moe.ids, hits->d_res + source_layer(g, l) * hits->n_expert, (int) s.k,
                                             (int) hits->n_expert, hits->d_slot, hits->d_dst, hits->d_count, (void*) cs);
             basalt::kernels::quantize_q8_0_scaled(s.block.mixed, hits->x_q8, hits->x_scale, g.n_embd, (void*) cs);
             basalt::kernels::moe_hit_grouped_s2_dev(hits->cache_base, hits->d_slot, hits->d_dst, hits->d_count, s.k,

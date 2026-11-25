@@ -545,7 +545,7 @@ int QfnRuntime::init_prompt() {
         ok = ok && cudaStreamCreateWithFlags(&st.stream, cudaStreamNonBlocking) == cudaSuccess &&
              st.state_in.init(0, st.dev, 8u << 20, err) && st.state_back.init(st.dev, 0, 8u << 20, err);
         if (ok) {
-            st.res.assign((size_t) (g.n_layers * g.n_expert), basalt::core::kNotResident);
+            st.res.assign((size_t) (g.file_layers() * g.n_expert), basalt::core::kNotResident);
             st.sp.set_stage(st.lo, -1, nullptr);
             ok = st.sp.init(st.wt, g, st.ss, srcp, &st.tier->cache(), st.res.data(), split_chunk_max,
                             (void*) st.stream, err, b_at, (uint64_t) (s_at - b_at));

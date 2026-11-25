@@ -55,7 +55,7 @@ basalt::program::serve::LookupCounts QfnRuntime::lookup_counts() {
 // a sampled expert's home as the start's tier report (report_expert_tiers) counts it: a card's cache, the peer tier, RAM, the file
 bool QfnRuntime::expert_map(int64_t& total, std::vector<uint8_t>& homes, std::vector<uint32_t>& routed) {
     basalt::core::ExpertMapTally& m = drive.d.map;
-    if (!m.is_open()) m.open((int) g.n_layers, (int) g.n_expert);
+    if (!m.is_open()) m.open((int) g.file_layers(), (int) g.n_expert);
     total = m.total();
     const bool ram_ok = srcp == &src && src.complement_ready(), arena = srcp != &src;
     homes.clear();
@@ -103,7 +103,7 @@ if (line.rfind("PROBE set ", 0) == 0) {   // PROBE set workers=K share=F: live v
         if (const basalt::kernels::cpu::ExpertLayout& lay = basalt::kernels::cpu::expert_layout(); lay.native) penv.fmt = lay.fmt;
         penv.peer_device = peer.valid() ? peer.device() : -1;
         penv.peer_path = basalt::models::qwen4exp::make_probe_peer_path();
-        penv.n_layers = g.n_layers;
+        penv.n_layers = g.file_layers();
         penv.n_expert = g.n_expert;
         basalt::program::probe_rates(penv, stdout, perr);
     }

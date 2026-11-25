@@ -290,12 +290,13 @@ int Verifier::serve_poll(PoolMultiFn pool, void* user, std::string& err) {
         *flag = want;
         if (dm_ != nullptr && dm_->warm != nullptr && l + 1 < le_) {   // the next layer's warm-up
             CpuWarm& w = *dm_->warm;
+            const int64_t lf1 = source_layer(g, l + 1);   // the next slot's pack layer
             warm_pool_->idle_stop();
-            w.layer = (int) (l + 1);
+            w.layer = (int) lf1;
             w.n_tok = std::min(n, (int) kVerifyMaxT);
             w.xq = dm_->h_xq + (size_t) k * dm_->xq_stride;
-            w.res0 = dm_->shadow0.data() + (size_t) (l + 1) * g.n_expert;
-            w.res1 = dm_->pdev >= 0 ? dm_->shadow1.data() + (size_t) (l + 1) * g.n_expert : nullptr;
+            w.res0 = dm_->shadow0.data() + (size_t) lf1 * g.n_expert;
+            w.res1 = dm_->pdev >= 0 ? dm_->shadow1.data() + (size_t) lf1 * g.n_expert : nullptr;
             w.arrive.store(0, std::memory_order_relaxed);
             w.ready.store(0, std::memory_order_relaxed);
             w.blob = nullptr;

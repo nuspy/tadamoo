@@ -331,8 +331,8 @@ int cache_size(Context& context) {
             bool ok = opened;
             if (!opened) {
                 ok = sized_slots.empty()
-                    ? xcache.open(o.expert_cache, g.n_layers, g.n_expert, (int64_t) basalt::kernels::cpu::expert_layout().max_blob, err)
-                    : xcache.open_sized(sized_slots, g.n_layers, g.n_expert, err);
+                    ? xcache.open(o.expert_cache, g.file_layers(), g.n_expert, (int64_t) basalt::kernels::cpu::expert_layout().max_blob, err)
+                    : xcache.open_sized(sized_slots, g.file_layers(), g.n_expert, err);
                 opened = ok;
             }
             if (!ok) {

@@ -15,7 +15,7 @@ void Verifier::refresh_ar() {
     if (!all_resident_ || ar_forced_ || hits_.h_res == nullptr || g_ == nullptr) return;
     const int64_t ne = g_->n_expert;
     const int32_t* r = hits_.h_res + lb_ * ne;
-    const int64_t n = (le_ < 0 ? g_->n_layers : le_) * ne - lb_ * ne;
+    const int64_t n = (le_ < 0 || le_ >= g_->n_layers ? g_->file_layers() : le_) * ne - lb_ * ne;
     int32_t lo = 0;
     for (int64_t i = 0; i < n; ++i) lo = std::min(lo, r[i]);
     const bool off = lo < 0;
