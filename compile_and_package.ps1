@@ -334,6 +334,7 @@ try {
         New-Item -ItemType Directory -Force $termDir | Out-Null
         foreach ($n in 'PSLLMKit.psd1', 'PSLLMKit.psm1', 'Private', 'Public') { Copy-Item -LiteralPath (Join-Path $termSrc $n) -Destination $termDir -Recurse -Force }
         Set-Content -Encoding ASCII (Join-Path $termDir 'SOURCE.txt') "The PowerShell module of nuspy/API-CLI, $(if ($TerminalModulePath) { 'taken from a local folder' } else { $TerminalModuleRef })."
+        Copy-Item -LiteralPath (Join-Path $Root 'tools\windows\terminal\tadamoo-cli.ico') -Destination (Join-Path $Stage 'tools\terminal') -Force      # the icon of the Windows Terminal profiles
         & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -Command "Import-Module '$termDir\PSLLMKit.psd1' -ErrorAction Stop; if (-not (Get-Command Enable-TaDaMooPrefix)) { exit 1 }"
         if ($LASTEXITCODE -ne 0) { throw 'the command line module does not load in Windows PowerShell' }
         Info "PSLLMKit loads in Windows PowerShell"

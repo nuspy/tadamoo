@@ -32,3 +32,4 @@ docs/REBASE-PLAN.md
 third_party/*/target/
 third_party/agent-browser/packages/
 tools/vendored/
+/tools/terminal/

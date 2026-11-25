@@ -15,5 +15,7 @@ Settings > General > Command line holds the prefix, the colour, the server, its 
 A message that comes from the terminal carries a `terminal` field (shell, version, system, working folder, virtual environment); the conversation process (`tadamoo/terminal.py`)
 tells the agent once, and again when it changes, and offers `terminal_run` from then on. The command arrives as a `terminal_command` event of the conversation.
 
-The setup also writes two profiles, "PowerShell 7 + TaDaMoo" and "Windows PowerShell + TaDaMoo", as a Windows Terminal fragment (`%ProgramData%\Microsoft\Windows Terminal\Fragments\TaDaMoo	adamoo.json`), so they
-appear in the terminal's menu and in the right click on its icon without changing `settings.json`; they start the shell with the module loaded.
+The setup also writes two profiles, "TaDaMoo CLI (PowerShell 7)" and "TaDaMoo CLI (Windows PowerShell)", as a Windows Terminal fragment (`%ProgramData%\Microsoft\Windows Terminal\Fragments\TaDaMoo	adamoo.json`; a
+copy of the module in a folder of the person's own goes in `%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\TaDaMoo`), so they appear in the terminal's menu and in the right click on its icon; they start the shell with
+the module loaded and carry the icon `tools/terminal/tadamoo-cli.ico` (made from `icon.gif` of API-CLI; the sources are in `tools/windows/terminal`). The Windows PowerShell profile also becomes the **default profile** of
+Windows Terminal, so its icon opens the TaDaMoo command line: the setup changes only the value of `defaultProfile` in `settings.json` (store, preview and unpackaged installs) and keeps the file as `settings.json.before-tadamoo.bak`.

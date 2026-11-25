@@ -45,8 +45,8 @@ static class Program
                 }
             }
             if (o.Cli == null && Directory.Exists(Path.Combine(o.Root, "tools", "terminal", "PSLLMKit")))
-                o.Cli = MessageBox.Show(Tr.T("Vuoi la riga di comando di TaDaMoo in PowerShell? Una riga che comincia con § va all'harness, e il comando tadamoo avvia un agente nella cartella corrente. Il setup aggiunge poche righe ai tuoi profili di PowerShell (WindowsPowerShell e PowerShell 7); si tolgono cancellando il blocco « TaDaMoo command line ».",
-                                             "Do you want the TaDaMoo command line in PowerShell? A line that starts with § goes to the harness, and the tadamoo command starts an agent in the current folder. The setup adds a few lines to your PowerShell profiles (WindowsPowerShell and PowerShell 7); remove the block « TaDaMoo command line » to take them away."),
+                o.Cli = MessageBox.Show(Tr.T("Vuoi la riga di comando di TaDaMoo in PowerShell? Una riga che comincia con § va all'harness, e il comando tadamoo avvia un agente nella cartella corrente. Il setup aggiunge poche righe ai tuoi profili di PowerShell (WindowsPowerShell e PowerShell 7); si tolgono cancellando il blocco « TaDaMoo command line ». Aggiunge anche due profili con l'icona di TaDaMoo al menu di Windows Terminal e rende predefinito quello di Windows PowerShell (una copia di settings.json resta accanto, con ending .before-tadamoo.bak).",
+                                             "Do you want the TaDaMoo command line in PowerShell? A line that starts with § goes to the harness, and the tadamoo command starts an agent in the current folder. The setup adds a few lines to your PowerShell profiles (WindowsPowerShell and PowerShell 7); remove the block « TaDaMoo command line » to take them away. It also adds two profiles with the TaDaMoo icon to the Windows Terminal menu and makes the Windows PowerShell one the default (a copy of settings.json is kept next to it, ending .before-tadamoo.bak)."),
                                        "TaDaMoo Win+GUI", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes ? "yes" : "no";
             using var form = new ProgressForm();
             int code = 1;
@@ -533,23 +533,57 @@ sealed class Installer
 
     void WindowsTerminalProfiles(string module)
     {
-        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file, so the person's settings.json is not touched.
+        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file. The one for Windows PowerShell also becomes the
+        // default profile (the icon of Windows Terminal opens it): the only line of the person's settings.json that is changed, after a copy of the file.
         string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows Terminal", "Fragments", "TaDaMoo");
         string file = Path.Combine(dir, "tadamoo.json");
         if (o.DryRun) { log.Line("would write the Windows Terminal profiles in " + file); return; }
         try
         {
             string run = "Import-Module '" + module.Replace("'", "''") + "'; Enable-TaDaMooPrefix";
+            string icon = Path.Combine(o.Root, "tools", "terminal", "tadamoo-cli.ico");
+            if (!File.Exists(icon)) icon = null;
             var profiles = new object[]
             {
-                new { name = "PowerShell 7 + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d03}", commandline = "pwsh.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{574e775e-4f2a-5b96-ac1e-a2962a402336}.png", hidden = false },
-                new { name = "Windows PowerShell + TaDaMoo", guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d04}", commandline = "powershell.exe -NoExit -Command \"" + run + "\"", icon = "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png", hidden = false },
+                new { name = "TaDaMoo CLI (PowerShell 7)", guid = Pwsh7Guid, commandline = "pwsh.exe -NoExit -Command \"" + run + "\"", icon = icon ?? "ms-appx:///ProfileIcons/{574e775e-4f2a-5b96-ac1e-a2962a402336}.png", hidden = false },
+                new { name = "TaDaMoo CLI (Windows PowerShell)", guid = WinPsGuid, commandline = "powershell.exe -NoExit -Command \"" + run + "\"", icon = icon ?? "ms-appx:///ProfileIcons/{61c54bbd-c2c6-5271-96e7-009a87ff44bf}.png", hidden = false },
             };
             Directory.CreateDirectory(dir);
             File.WriteAllText(file, JsonSerializer.Serialize(new { profiles }, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
             log.Line(Tr.T("Profili di Windows Terminal scritti in ", "Windows Terminal profiles written in ") + file);
         }
-        catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere i profili di Windows Terminal: ", "Warning: cannot write the Windows Terminal profiles: ") + e.Message); }
+        catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere i profili di Windows Terminal: ", "Warning: cannot write the Windows Terminal profiles: ") + e.Message); return; }
+        DefaultTerminalProfile(WinPsGuid);
+    }
+
+    const string Pwsh7Guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d03}", WinPsGuid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d04}";
+
+    void DefaultTerminalProfile(string guid)
+    {
+        // The settings.json of Windows Terminal (store, preview and unpackaged installs), which may carry comments: only the value of "defaultProfile" is replaced (or the key added), after a copy.
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        foreach (var file in new[]
+        {
+            Path.Combine(local, "Packages", "Microsoft.WindowsTerminal_8wekyb3d8bbwe", "LocalState", "settings.json"),
+            Path.Combine(local, "Packages", "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe", "LocalState", "settings.json"),
+            Path.Combine(local, "Microsoft", "Windows Terminal", "settings.json"),
+        })
+        {
+            if (!File.Exists(file)) continue;
+            if (o.DryRun) { log.Line("would make the TaDaMoo profile the default in " + file); continue; }
+            try
+            {
+                string text = File.ReadAllText(file), back = file + ".before-tadamoo.bak";
+                var key = new System.Text.RegularExpressions.Regex("(\"defaultProfile\"\\s*:\\s*\")[^\"]*(\")");
+                string now = key.IsMatch(text) ? key.Replace(text, m => m.Groups[1].Value + guid + m.Groups[2].Value, 1)
+                                               : System.Text.RegularExpressions.Regex.Replace(text, "^\\s*\\{", m => m.Value + "\n    \"defaultProfile\": \"" + guid + "\",", System.Text.RegularExpressions.RegexOptions.None);
+                if (now == text) continue;
+                if (!File.Exists(back)) File.Copy(file, back);
+                File.WriteAllText(file, now, new UTF8Encoding(false));
+                log.Line(Tr.T("Profilo predefinito di Windows Terminal: TaDaMoo CLI (copia in ", "Windows Terminal default profile: TaDaMoo CLI (copy in ") + back + ")");
+            }
+            catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a cambiare il profilo predefinito in ", "Warning: cannot change the default profile in ") + file + ": " + e.Message); }
+        }
     }
 
     void Compile()
