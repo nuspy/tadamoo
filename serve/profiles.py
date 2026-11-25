@@ -71,6 +71,8 @@ def _read() -> dict:
     for p in data["load"].values():
         if isinstance(p, dict) and isinstance(p.get("values"), dict) and not p.get("engine"):
             p["values"] = {k: v for k, v in p["values"].items() if k not in settings.REMOVED_KEYS}
+            if isinstance(p["values"].get("server.answer-room"), bool):      # a profile saved when the setting was a switch: on is auto, off is none
+                p["values"]["server.answer-room"] = "auto" if p["values"]["server.answer-room"] else 0
     return data
 
 

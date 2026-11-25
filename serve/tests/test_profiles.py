@@ -62,6 +62,14 @@ class Store(unittest.TestCase):
         self.assertEqual(profiles.get_load("Importato"), FAST)
         self.assertEqual(profiles.check_load(old), FAST)
 
+    def test_a_profile_saved_with_answer_room_as_a_switch_is_read_with_the_number_it_means(self):
+        path = profiles.path()
+        path.write_text(json.dumps({"load": {"Spento": {"values": {**FAST, "server.answer-room": False}}, "Acceso": {"values": {**FAST, "server.answer-room": True}},
+                                              "Numero": {"values": {**FAST, "server.answer-room": 512}}}}), encoding="utf-8")
+        self.assertEqual(profiles.get_load("Spento")["server.answer-room"], 0)
+        self.assertEqual(profiles.get_load("Acceso")["server.answer-room"], "auto")
+        self.assertEqual(profiles.get_load("Numero")["server.answer-room"], 512)
+
     def test_a_profile_keeps_the_voice_functions_and_using_it_writes_them_back(self):
         from serve import voice_settings
         voice_settings.select("tts", "kokoro")
