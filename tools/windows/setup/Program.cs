@@ -45,8 +45,8 @@ static class Program
                 }
             }
             if (o.Cli == null && Directory.Exists(Path.Combine(o.Root, "tools", "terminal", "PSLLMKit")))
-                o.Cli = MessageBox.Show(Tr.T("Vuoi la riga di comando di TaDaMoo in PowerShell? Una riga che comincia con § va all'harness, e il comando tadamoo avvia un agente nella cartella corrente. Il setup aggiunge poche righe ai tuoi profili di PowerShell (WindowsPowerShell e PowerShell 7); si tolgono cancellando il blocco « TaDaMoo command line ». Aggiunge anche due profili con l'icona di TaDaMoo al menu di Windows Terminal e rende predefinito quello di Windows PowerShell (una copia di settings.json resta accanto, con ending .before-tadamoo.bak).",
-                                             "Do you want the TaDaMoo command line in PowerShell? A line that starts with § goes to the harness, and the tadamoo command starts an agent in the current folder. The setup adds a few lines to your PowerShell profiles (WindowsPowerShell and PowerShell 7); remove the block « TaDaMoo command line » to take them away. It also adds two profiles with the TaDaMoo icon to the Windows Terminal menu and makes the Windows PowerShell one the default (a copy of settings.json is kept next to it, ending .before-tadamoo.bak)."),
+                o.Cli = MessageBox.Show(Tr.T("Vuoi la riga di comando di TaDaMoo in PowerShell? Una riga che comincia con § va all'harness, e il comando tadamoo avvia un agente nella cartella corrente. Il setup aggiunge poche righe ai tuoi profili di PowerShell (WindowsPowerShell e PowerShell 7); si tolgono cancellando il blocco « TaDaMoo command line ». Aggiunge anche due profili con l'icona di TaDaMoo al menu di Windows Terminal e rende predefinito quello di PowerShell 7 (se non c'è, quello di Windows PowerShell; una copia di settings.json resta accanto, con ending .before-tadamoo.bak).",
+                                             "Do you want the TaDaMoo command line in PowerShell? A line that starts with § goes to the harness, and the tadamoo command starts an agent in the current folder. The setup adds a few lines to your PowerShell profiles (WindowsPowerShell and PowerShell 7); remove the block « TaDaMoo command line » to take them away. It also adds two profiles with the TaDaMoo icon to the Windows Terminal menu and makes the PowerShell 7 one the default (the Windows PowerShell one when 7 is not installed; a copy of settings.json is kept next to it, ending .before-tadamoo.bak)."),
                                        "TaDaMoo Win+GUI", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes ? "yes" : "no";
             using var form = new ProgressForm();
             int code = 1;
@@ -533,7 +533,7 @@ sealed class Installer
 
     void WindowsTerminalProfiles(string module)
     {
-        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file. The one for Windows PowerShell also becomes the
+        // Two profiles in the menu of Windows Terminal (the dropdown and the right click on its icon), written as a fragment: its own file. The one for PowerShell 7 (Windows PowerShell when 7 is not installed) also becomes the
         // default profile (the icon of Windows Terminal opens it): the only line of the person's settings.json that is changed, after a copy of the file.
         string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows Terminal", "Fragments", "TaDaMoo");
         string file = Path.Combine(dir, "tadamoo.json");
@@ -553,7 +553,17 @@ sealed class Installer
             log.Line(Tr.T("Profili di Windows Terminal scritti in ", "Windows Terminal profiles written in ") + file);
         }
         catch (Exception e) { log.Line(Tr.T("Avviso: non riesco a scrivere i profili di Windows Terminal: ", "Warning: cannot write the Windows Terminal profiles: ") + e.Message); return; }
-        DefaultTerminalProfile(WinPsGuid);
+        DefaultTerminalProfile(Pwsh7Installed() ? Pwsh7Guid : WinPsGuid);
+    }
+
+    static bool Pwsh7Installed()
+    {
+        // pwsh.exe on the PATH (the store version is an alias in WindowsApps), or in Program Files\PowerShell\7
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try { if (File.Exists(Path.Combine(dir.Trim('"'), "pwsh.exe"))) return true; } catch { }
+        }
+        return File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe"));
     }
 
     const string Pwsh7Guid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d03}", WinPsGuid = "{3b0f7f5e-6d52-4f2c-9a4d-7c1e5a2b8d04}";
