@@ -148,13 +148,15 @@ The server also speaks both APIs outward, so editors and tools you already use c
 
 ## Install
 
+**Current release: 2.2, *victory-lap*.**
+
 | What | Where | For |
 |---|---|---|
-| **Windows**, complete | [windows-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.1) | the app, the engine, the server and Python on one PC |
-| **Windows**, GUI only | [windows-gui-only-v2.1](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.1) | a window on a server that runs elsewhere |
-| **Linux**, complete | [linux-complete-v2.1](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.1) | the harness, the installer and the Basalt-Plus engine |
-| **Linux**, server | [server-linux-v2.1](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.1) | the harness and the installer |
-| **Android** | [android-v2.1](https://github.com/nuspy/tadamoo/releases/tag/android-v2.1) | the phone app |
+| **Windows**, complete | [windows-v2.2](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.2) | the app, the engine, the server and Python on one PC |
+| **Windows**, GUI only | [windows-gui-only-v2.2](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.2) | a window on a server that runs elsewhere |
+| **Linux**, complete | [linux-complete-v2.2](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.2) | the harness, the installer and the Basalt-Plus engine |
+| **Linux**, server | [server-linux-v2.2](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.2) | the harness and the installer |
+| **Android** | [android-v2.2](https://github.com/nuspy/tadamoo/releases/tag/android-v2.2) | the phone app |
 | **Mac** | compile from this repository | the window on a server (prepared in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_party/` and ship inside the Windows and Linux packages.
@@ -162,7 +164,7 @@ agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_
 On Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v2.1.tar.gz && cd tadamoo-2.1
+tar xzf TaDaMoo-linux-complete-v2.2.tar.gz && cd tadamoo-2.2
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
@@ -181,6 +183,8 @@ Basalt-Plus needs an NVIDIA Blackwell GPU (RTX 50 series, compute capability 12.
 - [Reference](docs/reference/differences-from-basalt.md): what this fork changes in Basalt, the settings one by one, the Windows scripts and the original Basalt README
 
 ## Status
+
+**The first version is almost finished.** Two things are still missing, and they do not work yet: telephony (calls through a real phone) and the USB device with its model. Everything else is built and in use.
 
 TaDaMoo is under active development. Some parts were built and tested with stand-ins and are not yet proven on every real device: parts of the voice stack, the phone avatars, the remote-server setup and computer control, whose test on a real screen is still to be run. Each documentation page says what was run and what was not.
 

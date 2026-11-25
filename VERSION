@@ -1,12 +1,13 @@
 {
   "version": 2,
   "subversion": 1,
-  "name": "statutory-gravity",
+  "name": "victory-lap",
   "names_used": [
     "bizarre-smarttv",
-    "statutory-gravity"
+    "statutory-gravity",
+    "victory-lap"
   ],
-  "release": "statutory-gravity_(v_2_1)",
+  "release": "victory-lap_(v_2_1)",
   "built": "2026-11-24T01:19:20",
   "commit": "03944fc3"
 }
