@@ -98,7 +98,7 @@ class EvalRunner:
         council: bool = False,
         timings: Optional[ServerTimings] = None,
         instruction_blocks: bool = False,
-        cold_tools: bool = False,
+        cold_tools: bool = True,
         journal: Optional[Journal] = None,
     ) -> None:
         self.client = client
@@ -111,7 +111,7 @@ class EvalRunner:
         self.council = council
         self.timings = timings                      # reads the server's own figures for each trial's requests
         self.instruction_blocks = instruction_blocks    # the working rules of tadamoo/prompt_blocks.py in the system prompt
-        self.cold_tools = cold_tools                    # the rare tools listed with one line each (tadamoo/cold_tools.py): the B arm of its A/B
+        self.cold_tools = cold_tools                    # the rare tools listed with one line each (tadamoo/cold_tools.py)
         self.journal = journal                          # finished trials are written to it, and valid ones it holds are reused (tadamoo/eval/resume.py)
 
     def load_task_set(self, path: str | Path) -> List[Task]:

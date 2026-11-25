@@ -196,6 +196,18 @@
       return T("sk.from." + (s.type === "github" || s.type === "web" ? s.type : "folder"), s.ref || "");
     }
 
+    function loadRow(r) {
+      const none = !(r.cold_tools || []).length, row = h("div", "sk-load", h("span", "sk-load-l", T("sk.load"))), group = h("div", "sk-seg");
+      group.setAttribute("role", "group"); group.setAttribute("aria-label", T("sk.load"));
+      for (const mode of ["hot", "cold"]) {
+        const b = btn(T("sk.load." + mode), r.load === mode ? "primary" : "", () => act("api/skills/load", { name: r.name, load: mode }, () => T("sk.load.done", pick(r.title) || r.name, T("sk.load." + mode))));
+        b.setAttribute("aria-pressed", String(r.load === mode)); b.disabled = none;
+        group.append(b);
+      }
+      row.append(group, h("p", "setnote sk-meta", T(none ? "sk.load.none" : "sk.load.help")));
+      return row;
+    }
+
     function card(r) {
       const li = h("li", "sk-item"), installed = r.state !== "not_installed", locked = running();
       li.dataset.name = r.name; li.dataset.state = r.state;
@@ -212,6 +224,7 @@
         meta.push(sourceLine(r), T("sk.when", when(r.installed_at)));
       }
       meta.forEach(m => li.append(h("p", "setnote sk-meta", m)));
+      if (installed) li.append(loadRow(r));
       const acts = h("div", "sk-acts");
       if (!installed) {
         if (r.present === false) acts.append(h("span", "setnote warnnote", T("sk.missing")));

@@ -162,6 +162,8 @@ class SkillManager:
         else:
             desc = (imported or {}).get("description", "")
             row.update(title={"en": name, "it": name}, summary={"en": desc, "it": desc})
+        row["load"] = (choice or {}).get("load") or (cat or {}).get("load") or "hot"
+        row["cold_tools"] = list((cat or {}).get("cold_tools") or [])
         has = self._has_components(name)
         row["has_models"] = has
         if installed:
@@ -407,6 +409,16 @@ class SkillManager:
                 set_off(self.imp.spaces.cap_dir, [p for p in entry.get("parts", []) if p.startswith("mcp:")], True)
             self.choices.put(name, enabled=enabled)
         self._changed()
+        return self.get(name)
+
+    def set_load(self, name: str, load: str) -> Dict[str, Any]:
+        """How the tools of an installed skill are listed in the prompt: `hot` in full, `cold` with one line each (tadamoo/cold_tools.py). A conversation reads it when it starts."""
+        if load not in ("hot", "cold"):
+            raise Problem("bad_request", "`load` is hot or cold.")
+        with Lock():
+            self.sync()
+            self._entry(name)
+            self.choices.put(name, load=load)
         return self.get(name)
 
     def remove(self, name: str) -> Dict[str, Any]:

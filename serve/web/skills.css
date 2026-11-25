@@ -41,3 +41,8 @@
   .sk-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { .sk-root *, .sk-chat * { transition: none !important; animation: none !important; } }
+
+.sk-load { display: grid; gap: 6px; margin-top: 8px; }
+.sk-load-l { font-weight: 600; }
+.sk-seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.sk-seg .btn { min-height: 48px; min-width: 112px; }

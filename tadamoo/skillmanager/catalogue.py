@@ -1,7 +1,8 @@
 """The skills that ship with the program: the catalogue in `skills/builtin.json`. It is data only; what is installed is the person's choice (state.py).
 
 An entry: `name` (the folder under skills/, a plugin's under skills/plugins/), `kind`, `group`, `default` (whether the setup starts with it ticked), `requires`
-(built-in skills it cannot work without, installed with it), `download_gb` (about what its models weigh on a PC that has none of them; absent when not known),
+(built-in skills it cannot work without, installed with it), `load` (`hot` or `cold`: how the tools of the skill are listed in a conversation's prompt
+until the person chooses, see tadamoo/cold_tools.py), `cold_tools` (the tools that are listed with one line when the skill is `cold`; none when it has no tools of its own), `download_gb` (about what its models weigh on a PC that has none of them; absent when not known),
 a `title` and a `summary` in English and Italian."""
 from __future__ import annotations
 

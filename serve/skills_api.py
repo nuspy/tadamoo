@@ -113,6 +113,8 @@ class SkillsApi:
             return m.update_plan(self._text(req, "name"), self._strings(req, "instructions"), self._language(req))
         if parts == ["update", "apply"]:
             return m.update_apply(self._text(req, "token"), req.get("choice") if isinstance(req.get("choice"), str) else "merge", req.get("resolutions"))
+        if parts == ["load"]:
+            return m.set_load(self._text(req, "name"), self._text(req, "load"))
         if parts in (["remove"], ["enable"], ["disable"], ["update"]):
             name = self._text(req, "name")
             if parts[0] == "remove":

@@ -196,3 +196,21 @@ def test_only_the_pc_the_server_runs_on_may_manage_skills(world, monkeypatch):
     code, err = api("GET", "/api/skills")
     assert code == 403 and err["error"]["type"] == "forbidden"
     assert api("POST", "/api/skills/install", {"names": ["news-research"]})[0] == 403 and asked == [] and not (tmp / "data" / "capabilities" / "imported").exists()
+
+
+def test_each_skill_has_a_load_switch_that_starts_where_the_program_is_and_the_agents_read_it(world):
+    from tadamoo import cold_tools
+    api, tmp, asked, gate, mgr = world
+    rows = {r["name"]: r for r in api("GET", "/api/skills")[1]["skills"]}
+    assert rows["document-editing"]["load"] == "cold" and "docx_edit" in rows["document-editing"]["cold_tools"]
+    assert rows["image-generation"]["load"] == "hot" and rows["video-generation"]["load"] == "hot" and rows["talking-head"]["cold_tools"] == []
+    assert api("POST", "/api/skills/load", {"name": "document-editing", "load": "hot"})[0] == 404          # not installed: nothing to switch
+    api("POST", "/api/skills/install", {"names": ["document-editing"]})
+    wait_job(api)
+    choices = tmp / "data" / "skills" / "choices.json"
+    code, row = api("POST", "/api/skills/load", {"name": "document-editing", "load": "hot"})
+    assert code == 200 and row["load"] == "hot" and "docx_edit" not in cold_tools.cold_names(choices)
+    code, row = api("POST", "/api/skills/load", {"name": "document-editing", "load": "cold"})
+    assert code == 200 and row["load"] == "cold" and "docx_edit" in cold_tools.cold_names(choices)
+    assert api("POST", "/api/skills/load", {"name": "document-editing", "load": "warm"})[0] == 400
+    assert {r["name"]: r for r in api("GET", "/api/skills")[1]["skills"]}["document-editing"]["load"] == "cold"

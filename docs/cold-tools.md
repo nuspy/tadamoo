@@ -1,11 +1,16 @@
 # Cold tools (a shorter prompt)
 
-The definitions of the tools are most of the prompt's fixed part. With `--cold-tools` (an option of the agent, of `python -m tadamoo.eval` and,
-later, of the conversation's settings) the rare tools are listed with their first sentence and the skeleton of their schema (names and types of the parameters, no descriptions), and the model asks `tool_help`
-for the rest before it uses one. Off by default; it is kept only if the A/B below says so.
+The definitions of the tools are most of the prompt's fixed part. With the option on (the default) the rare tools are listed with their first sentence and the skeleton of their schema (names and types of the parameters, no descriptions), and the model asks `tool_help`
+for the rest before it uses one. The first A/B below says it loses nothing; it is on by default.
 
-- **Cold:** the Word, Excel, PowerPoint and PDF writers, `repo_diagram` and the task tools (`tadamoo/cold_tools.py`, `COLD`). A bare agent lists
-  51,362 characters of tools; with the switch 34,292 (33% less).
+- **The switch:** Settings > General > Inference settings, "Load rare tools on demand (ColdLoad)" (the setting `cold_tools`, kept by the inference presets); `--no-cold-tools` on
+  the agent and on `python -m tadamoo.eval`. A conversation keeps the value it started with.
+- **Which tools:** `tadamoo/cold_tools.py`. `BASE` (`repo_diagram` and the task writers, owned by no skill) is cold whenever the option is on; the rest is each skill's own
+  **HotLoad / ColdLoad** switch (Settings > Skills, on every installed skill; `POST /api/skills/load`), kept as `load` in `skills/choices.json`. The catalogue
+  (`skills/builtin.json`) says, per skill, its `load` before the person chooses and its `cold_tools`: today `document-editing` is ColdLoad (the Word, Excel,
+  PowerPoint and PDF writers) and the media skills are HotLoad. A tool that two skills list (`generate_image`) is cold only when both are; a skill without tools of its own
+  (`speech-synthesis`, `talking-head`, `video-editing`) has a switch that changes nothing, and the page says so.
+- A bare agent lists 51,362 characters of tools; with the option 34,292 (33% less).
 - **The list never changes during a conversation** (a changed list is read again). The whole definition comes back as the result of a
   `tool_help` call, at the end, where it costs the cache nothing.
 - **Why a skeleton and not a free object:** the grammar of a tool call writes only the parameters its schema names. Measured on the real model:
@@ -15,11 +20,11 @@ for the rest before it uses one. Off by default; it is kept only if the A/B belo
 
 ## The A/B
 
-The same tasks twice, `--cold-tools` the only difference, `--k 5` or more, one reasoning level, one model, the power limit written down:
+The same tasks twice, `--no-cold-tools` the only difference, `--k 5` or more, one reasoning level, one model, the power limit written down:
 
 ```
-python -m tadamoo.eval --set documents --k 5 --endpoint http://127.0.0.1:7232 --out a.md --json a.json
-python -m tadamoo.eval --set documents --k 5 --endpoint http://127.0.0.1:7232 --cold-tools --out b.md --json b.json
+python -m tadamoo.eval --set documents --k 5 --endpoint http://127.0.0.1:7232 --no-cold-tools --out a.md --json a.json
+python -m tadamoo.eval --set documents --k 5 --endpoint http://127.0.0.1:7232 --out b.md --json b.json
 ```
 
 Also `--set core` (the cold arm must not hurt ordinary tasks). Rule written before the run: B wins if the tasks passed do not drop beyond the
@@ -40,5 +45,5 @@ per trial, a bare agent (no browser, computer or outside tools in the list).
 - Read it with its limits: one model, 14 tasks, five repetitions, and A already passes everything, so this can show that B does not lose, not that
   it gains in quality. Where the cold tools are used the saving is small (-11%) because each trial pays one more turn for `tool_help` and the PDF
   and PowerPoint tasks took 45 s instead of 31-39 s; where they are not used (`core`) the prompt is 29% shorter at the same time.
-- By the rule written before the run (prompt tokens down at least 30%) B misses by a point on `core`. It is kept as an option, off by default.
-  A prompt with the browser, the computer and outside servers listed is longer and has more to make cold: that is the next measure.
+- By the rule written before the run (prompt tokens down at least 30%) B misses by a point on `core`; the maintainer judged the result enough and turned it on by default
+  (25 November 2026). A prompt with the browser, the computer and outside servers listed is longer and has more to make cold: that is the next measure.

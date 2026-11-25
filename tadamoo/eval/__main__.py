@@ -38,7 +38,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--temperature", type=_temperature, default=0.6,
                    help="above 0 so that repetitions differ, each with its own seed; 'model' sends none, so the model file's own sampling applies")
     p.add_argument("--instruction-blocks", action="store_true", help="add the working rules of tadamoo/prompt_blocks.py to the system prompt (compare a run with and without)")
-    p.add_argument("--cold-tools", action="store_true", help="list the rare tools with one line each and let the model ask tool_help for the rest (run a set with and without it to compare)")
+    p.add_argument("--cold-tools", action=argparse.BooleanOptionalAction, default=True, help="list the rare tools with one line each and let the model ask tool_help for the rest (run a set with --no-cold-tools to compare)")
     p.add_argument("--max-total-tokens", type=int, default=60000, help="the most tokens one trial may use over all its model calls, prompts included (0: no limit); a task with big tools needs more")
     p.add_argument("--only", action="append", default=[], metavar="TASK_ID")
     p.add_argument("--strategies", default="none,rag,cag", help="for tasks that use reference documents: which ways to offer them")

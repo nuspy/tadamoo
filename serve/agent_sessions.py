@@ -1152,6 +1152,8 @@ class SessionManager:
             cmd += ["--allow", rule]
         if rec.get("effort"):
             cmd += ["--effort", rec["effort"]]
+        if (rec.get("inference") or {}).get("cold_tools") is False:
+            cmd.append("--no-cold-tools")
         for flag in ("images", "charts"):
             if rec.get(flag):
                 cmd += [f"--{flag}", rec[flag]]

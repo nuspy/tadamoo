@@ -90,7 +90,7 @@ def test_the_evaluation_carries_the_switch_and_a_resumed_run_cannot_mix_the_two_
     from tadamoo.eval.runner import EvalRunner
     from tadamoo.eval.tasks import load_task_set
     tasks = load_task_set("documents")[1]
-    a, b = EvalRunner(client=object()), EvalRunner(client=object(), cold_tools=True)
+    a, b = EvalRunner(client=object(), cold_tools=False), EvalRunner(client=object())
     assert a.fingerprint(tasks, 5) != b.fingerprint(tasks, 5)
 
 
@@ -103,3 +103,27 @@ def test_the_skeleton_keeps_names_types_enums_and_required_and_drops_the_rest():
         "d": {"type": "integer", "minimum": 1}}}
     assert skeleton(full) == {"type": "object", "required": ["a"], "properties": {
         "a": {"type": "string", "enum": ["x", "y"]}, "b": {"type": "array", "items": {"type": "object"}}, "c": {"type": "array", "items": {"type": "string"}}, "d": {"type": "integer"}}}
+
+
+def test_the_rare_tools_are_cold_by_default_and_every_switch_to_turn_it_off_reaches_the_agent(tmp_path):
+    from tadamoo.stack import AgentConfig
+    from tadamoo.session import parse_args
+    assert AgentConfig(workspace=str(tmp_path)).cold_tools is True
+    assert parse_args([]).cold_tools is True and parse_args(["--no-cold-tools"]).cold_tools is False and parse_args(["--cold-tools"]).cold_tools is True
+
+
+def test_the_cold_tools_are_the_ones_of_the_skills_set_to_coldload_and_the_base(tmp_path):
+    base = set(cold_tools.BASE)
+    shipped = set(cold_tools.cold_names())
+    assert base < shipped and {"docx_edit", "xlsx_edit", "pptx_edit", "pdf_edit"} <= shipped and "generate_image" not in shipped and "generate_video" not in shipped
+    choices = tmp_path / "choices.json"
+    choices.write_text(json.dumps({"skills": {"document-editing": {"load": "hot"}, "video-generation": {"load": "cold"}}}), encoding="utf-8")
+    mine = set(cold_tools.cold_names(choices))
+    assert "docx_edit" not in mine and {"generate_video", "enhance_video"} <= mine and base <= mine
+    both = tmp_path / "both.json"          # a tool that two skills list is cold only when both are
+    both.write_text(json.dumps({"skills": {"image-generation": {"load": "cold"}}}), encoding="utf-8")
+    assert "generate_image" not in cold_tools.cold_names(both)
+    both.write_text(json.dumps({"skills": {"image-generation": {"load": "cold"}, "image-editing": {"load": "cold"}}}), encoding="utf-8")
+    assert "generate_image" in cold_tools.cold_names(both)
+    both.write_text("not json", encoding="utf-8")
+    assert set(cold_tools.cold_names(both)) == shipped and set(cold_tools.cold_names(tmp_path / "missing.json")) == shipped

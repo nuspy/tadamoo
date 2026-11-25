@@ -2,7 +2,7 @@
 
 Gli adapter LoRA nel motore sono fatti, esperti compresi. L'addestramento vero è in corso. In fondo ci sono anche gli altri task del progetto, fatti e da fare. Tocca una voce per le note.
 
-_Aggiornato il 24/11/2026 notte. Generato da `docs/roadmap.json`: non si modifica a mano._
+_Aggiornato il 25/11/2026. Generato da `docs/roadmap.json`: non si modifica a mano._
 
 | Stato | Nodi |
 |---|---|
@@ -838,13 +838,15 @@ Il prompt dell'harness è di circa 58.000 caratteri, quasi tutti schemi di strum
 - Misurato (24 novembre): schemi e descrizioni degli strumenti pesano circa 51.000 dei 58.000 caratteri; i più grossi sono i quattro gruppi di modifica dei documenti, il browser, il computer e le competenze.
 - Costruito il 24 novembre notte (e95ac81b5): interruttore --cold-tools (spento di default), strumento tool_help, 11 strumenti freddi (i quattro gruppi di scrittura dei documenti, repo_diagram, task_*): l'elenco degli strumenti passa da 51.362 a 31.837 caratteri (-38%) in un agente nudo; le chiamate sbagliate sono rifiutate dallo schema vero con il rimando a tool_help; l'eval porta l'interruttore e ha l'insieme «documents» con quattro compiti (Word, Excel, PowerPoint, PDF su copia) controllati da uno script. Documentazione: docs/cold-tools.md.
 - A/B sul modello vero (24 novembre notte, 600 W, k = 5): documenti 20 su 20 in entrambe le versioni, core 50 su 50 in entrambe; token del prompt letti per prova -11% sui documenti e -29% su core (la soglia scritta era -30%); un giro in più sui documenti per tool_help (tempo +20% circa); nessuna chiamata rifiutata. Un primo tentativo con lo schema «largo» era fallito (il modello scriveva {} undici volte): corretto con lo schema a scheletro. Resta un'opzione, spenta di default. Dettagli in docs/cold-tools.md.
+- Cold tools di default + interruttore in GUI + HotLoad/ColdLoad per skill (25 novembre): provato sul browser vero su un server di prova (porta 7333, dati temporanei); le conversazioni leggono la scelta quando partono.
 
 **Decisioni e punti aperti**
 
 - Progetto da verificare: la descrizione completa torna nel RISULTATO di una chiamata (`tool_help`), che è in coda ai messaggi e non cambia la cache del prefisso; l'elenco degli strumenti nel prompt non cambia durante la conversazione (cambiarlo invaliderebbe la cache). Lo strumento raro ha nel prompt una riga e uno schema largo (oggetto libero): la grammatica non obbliga più i parametri, li controlla il registro.
 - A/B da fare (serve la GPU, dopo la demo): A = prompt di oggi, B = strumenti rari a freddo; stessi compiti, k almeno 5, a livello di ragionamento fisso. Misure: caratteri e token del prefisso, riuso della cache, giri in più, chiamate sbagliate o rifiutate dal registro, compiti riusciti (insieme core delle prove e i quattro casi di modifica dei documenti). Regola di vittoria scritta prima: B vince se i compiti riusciti non calano oltre il rumore e i token del prefisso scendono almeno del 30%.
 - Da fare: l'A/B vero (serve un modello: la GPU dopo la demo, oppure il tuo account per il modellino della curiosità, qwen3.6-flash, che non usa la GPU); comandi in docs/cold-tools.md.
-- Prossimo: rifare la misura con l'elenco vero (browser, computer, server esterni) e valutare altri strumenti da rendere freddi; poi decidere se accenderlo di default.
+- 25 novembre: il risultato dell'A/B basta, strumenti freddi ACCESI di default (decisione dell'utente). Interruttore nelle impostazioni di inferenza («Carica gli strumenti rari su richiesta»); ogni skill installata ha l'interruttore HotLoad/ColdLoad in Impostazioni > Skills (oggi: Modifica di documenti = ColdLoad, tutte le altre HotLoad; le skill senza strumenti propri hanno l'interruttore che non cambia nulla, e la pagina lo dice).
+- Prossimo: rifare la misura con l'elenco vero (browser, computer, server esterni) e valutare altri strumenti da rendere freddi.
 
 **Problemi futuri previsti e come pensiamo di risolverli**
 

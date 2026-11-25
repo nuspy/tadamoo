@@ -81,7 +81,7 @@ const chatSettings = (() => {
   const radio = name => ({ read: () => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || "", write: () => {} });      // the level the agent works at without asking: the live one, written only by `apply`
   const dw = key => ({ read: () => (window.dwSet ? window.dwSet.read()[key] : undefined), write: () => {} });      // the dark web option (darkwebset.js): read from the page, written to the server only when a preset is loaded by hand
   const EXTRAS = { darkweb: dw("darkweb"), darkweb_search: dw("darkweb_search"), darkweb_read: dw("darkweb_read"), darkweb_navigation: dw("darkweb_navigation"), darkweb_watches: dw("darkweb_watches"), darkweb_leaks: dw("darkweb_leaks"), autonomy: radio("cs-perm"), abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
-    billion_on: box("cs-bc-on"), billion_compress: box("cs-bc-compress"), billion_port: field("cs-bc-port"),
+    cold_tools: box("cs-cold-tools"), billion_on: box("cs-bc-on"), billion_compress: box("cs-bc-compress"), billion_port: field("cs-bc-port"),
     images: level("cs-img-on", "cs-img-level"), charts: level("cs-chart-on", "cs-chart-level") };
   const extrasRead = () => Object.fromEntries(Object.entries(EXTRAS).map(([k, f]) => [k, f.read()]));
   /* written: the three of the old answers take effect by themselves (chat.js keeps them when one changes); pictures and charts reach the open conversation, Billion Context its process and the autonomy level the Chat, only when a preset is loaded by hand (`apply`), never when the panel is bound to another conversation */

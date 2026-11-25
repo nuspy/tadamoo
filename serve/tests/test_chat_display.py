@@ -89,9 +89,9 @@ class Settings(unittest.TestCase):
         self.assertEqual(sorted(keys - set(profiles.INFERENCE_KEYS)), [])
 
     def test_the_old_answers_billion_context_and_the_pictures_are_kept_and_checked(self):
-        good = {"abstract_on": False, "abstract_keep": "8", "code_keep": 4, "billion_on": True, "billion_compress": False, "billion_port": "7300", "images": "high", "charts": "", "autonomy": "plan"}
+        good = {"abstract_on": False, "abstract_keep": "8", "code_keep": 4, "cold_tools": False, "billion_on": True, "billion_compress": False, "billion_port": "7300", "images": "high", "charts": "", "autonomy": "plan"}
         self.assertEqual(profiles.check_inference(good), good)
-        for bad in ({"abstract_on": "yes"}, {"billion_on": 1}, {"abstract_keep": 0}, {"abstract_keep": 21}, {"code_keep": 6}, {"billion_port": 80}, {"billion_port": "x"}, {"images": "huge"}, {"charts": 3}, {"autonomy": "root"}, {"autonomy": 2}):
+        for bad in ({"abstract_on": "yes"}, {"cold_tools": "no"}, {"billion_on": 1}, {"abstract_keep": 0}, {"abstract_keep": 21}, {"code_keep": 6}, {"billion_port": 80}, {"billion_port": "x"}, {"images": "huge"}, {"charts": 3}, {"autonomy": "root"}, {"autonomy": 2}):
             with self.assertRaises(ValueError, msg=str(bad)):
                 profiles.check_inference(bad)
 

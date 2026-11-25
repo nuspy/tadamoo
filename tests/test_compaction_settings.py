@@ -169,3 +169,11 @@ def test_with_the_real_registry_the_compaction_function_stays_on_this_pc_until_i
     reg.set_consent("compaction", True)
     reg.assign_checked("compaction", cloud)
     assert RoutedClient("compaction", reg, Asked(), ledger).stays_local() is False
+
+
+def test_the_cold_tools_option_of_a_conversation_reaches_its_process_and_is_on_when_nothing_says(tmp_path):
+    manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", command=None)
+    rec = {"mode": "default", "workspace": str(tmp_path)}
+    assert "--no-cold-tools" not in manager._command("s1", rec, tmp_path / "h")
+    assert "--no-cold-tools" not in manager._command("s2", {**rec, "inference": {"cold_tools": True}}, tmp_path / "h")
+    assert "--no-cold-tools" in manager._command("s3", {**rec, "inference": {"cold_tools": False}}, tmp_path / "h")
