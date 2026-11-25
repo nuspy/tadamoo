@@ -959,6 +959,7 @@ Idea dell'utente (25 novembre, dalla risposta di Gemini): ripetere un blocco di 
 **Fatto e problemi risolti**
 
 - Valutata la risposta di Gemini: le idee di base (ripetere un blocco, smorzare il residuo, uno stato per iterazione) sono sensate in principio; i guadagni dei loop transformers in letteratura vengono da modelli addestrati con ricorrenza (non verificato qui); ortogonalizzazione e scalatura SVD per «indurre un loop» sono speculative per questo modello.
+- Strategia di tappa 0 ricevuta da basalt-69 (25 novembre, solo lettura del codice di master, niente compilato): modello «srotolato» a slot con mappa slot→layer sorgente, stato per iterazione, smorzamento scalando block_out, due prove d'identità gratuite, esperimento a eliminazione. Dettaglio nel diario.
 
 **Decisioni e punti aperti**
 
@@ -968,3 +969,4 @@ Idea dell'utente (25 novembre, dalla risposta di Gemini): ripetere un blocco di 
 
 - Flash-Next ha 36 layer GDN con stato ricorrente (aggiornato una volta per token) e 12 di attenzione: un layer GDN ripetuto aggiorna lo stato due volte per lo stesso token, serve uno stato per (layer, iterazione). Il costo cresce con la frazione ripetuta, esperti compresi (un terzo della profondità ripetuto due volte: circa +33%).
 - Proposta a tappe: (0) opzione del motore che ripete una finestra di layer k volte con smorzamento, misurata con PPL/KLD e le 70 prove (serve la GPU e il tuo via); (1) allungare l'output con un orientamento in inferenza; (2) la LoRA solo se la tappa 0 promette, dopo la ripresa dell'addestramento LoRA su GPU (settimana del 30 novembre).
+- Prima del codice, da decidere: (1) il file di riferimento del banco di qualità non esiste (base .kld di llama.cpp, o una base scritta dal nostro motore a loop spento); (2) cosa significa «k = 5» nelle 70 prove (5 corse per prova, secondo le misure del 24 novembre) e quanto dura un giro; (3) la configurazione usa una sola scheda (dal log del motore: una RTX 5090).
