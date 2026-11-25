@@ -56,11 +56,11 @@ async function get(path) {
 }
 
 /* ---- views: Chat, Monitor (stats), Plans, Hardware, Loader, Settings, Logs ---- */
-const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs", "security", "canary", "rag", "voice", "contacts", "tasks", "actions", "connectors"];
+const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs", "security", "canary", "rag", "voice", "contacts", "tasks", "actions", "connectors", "vram"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 // pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
-const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "settings" };
+const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", vram: "stats", wallet: "settings" };
 // the Agentic coding tab shows the conversation page, working in a folder
 const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
@@ -266,17 +266,14 @@ function drawHardware(eng, st, hw, gpus, names, sh) {
   text("#h-build", eng.version || "-");
 }
 
-const PANE = { req: "0", log: "0 lines", vram: "" };
+const PANE = { req: "0", log: "0 lines" };
 let paneOn = "req";
 // tabbed (several slots): one panel shows; split (one slot): both show, stacked
 function pane(p = paneOn) {
   paneOn = p;
   const split = $(".col-r").classList.contains("single");
-  $$("#reqs .tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === p || (split && p === "log" && t.dataset.pane === "req"))));
-  $("#tab-req").textContent = split ? "Requests and logs" : "Requests";
-  // the VRAM Explorer takes the whole panel; in split mode Requests and Logs show together
-  $("#pane-req").hidden = p === "vram" || (!split && p !== "req"); $("#pane-log").hidden = p === "vram" || (!split && p !== "log");
-  $("#pane-vram").hidden = p !== "vram";
+  $$("#reqs .tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === p)));
+  $("#pane-req").hidden = !split && p !== "req"; $("#pane-log").hidden = !split && p !== "log";
   text("#pane-count", PANE[p]);
   scrollLog();
 }

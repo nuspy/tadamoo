@@ -179,6 +179,89 @@ class Reader(unittest.TestCase):
         self.assertIn("no GPU 5", out["error"])
 
 
+def reading(used, held, total=1000, attributed=None):
+    """A reading as gputaskman's report gives it: `held` is {process name: bytes}."""
+    procs = [{"pid": i, "name": n, "vram_bytes": v} for i, (n, v) in enumerate(held.items())]
+    return {"vram_used": used, "vram_total": total, "attributed": sum(held.values()) if attributed is None else attributed, "processes": procs}
+
+
+MIB = 1 << 20
+
+
+class Record(unittest.TestCase):
+    def setUp(self):
+        self.t = 100_000.0
+        self.reader = VramExplorer(loader=fake_pieces, wall=lambda: self.t)
+        self.reader._gpus = [{"index": 0, "name": "Card"}]
+
+    def add(self, at, used, held, **kw):
+        self.t = at
+        self.reader.record(0, reading(used, held, **kw))
+
+    def test_a_bucket_is_the_mean_of_its_readings_so_the_processes_add_up(self):
+        self.add(self.t, 100 * MIB, {"a.exe": 60 * MIB, "b.exe": 40 * MIB})
+        self.add(self.t + 5, 300 * MIB, {"a.exe": 200 * MIB, "b.exe": 100 * MIB})
+        self.t += 5
+        out = self.reader.processes(0, 300)
+        names = {s["name"]: s["used"][-1] for s in out["series"]}
+        self.assertEqual(names, {"a.exe": 130 * MIB, "b.exe": 70 * MIB})
+        self.assertEqual(out["used"][-1], 200 * MIB)
+        self.assertEqual((out["range_s"], out["step_s"], len(out["used"]), out["gpu"], out["total"]), (300, 10, 30, "Card", 1000))
+        self.assertTrue(all(v is None for v in out["used"][:-1]))
+
+    def test_the_biggest_processes_are_drawn_and_the_rest_summed(self):
+        held = {f"p{i}.exe": (20 - i) * 10 * MIB for i in range(12)}
+        self.add(self.t, sum(held.values()), held)
+        out = self.reader.processes(0, 300)
+        self.assertEqual(len(out["series"]), 8)
+        self.assertEqual(out["series"][0]["name"], "p0.exe")
+        self.assertEqual(out["other"][-1], sum(v for k, v in held.items() if k not in {s["name"] for s in out["series"]}))
+
+    def test_what_no_process_accounts_for_is_its_own_figure(self):
+        self.add(self.t, 500 * MIB, {"a.exe": 100 * MIB}, attributed=100 * MIB)
+        self.assertEqual(self.reader.processes(0, 300)["unattributed"][-1], 400 * MIB)
+
+    def test_a_process_with_the_same_name_is_one_series_and_a_tiny_one_is_left_out(self):
+        self.add(self.t, 100 * MIB, {})
+        self.reader.record(0, {"vram_used": 100 * MIB, "vram_total": 1000, "attributed": 0, "processes": [
+            {"pid": 1, "name": "python.exe", "vram_bytes": 30 * MIB}, {"pid": 2, "name": "python.exe", "vram_bytes": 20 * MIB},
+            {"pid": 3, "name": "tiny.exe", "vram_bytes": 1000}]})
+        out = self.reader.processes(0, 300)
+        self.assertEqual([(s["name"], s["used"][-1]) for s in out["series"]], [("python.exe", 25 * MIB)])   # mean of the two readings
+
+    def test_a_reading_with_an_error_or_no_figure_is_not_recorded(self):
+        self.reader.record(0, {"error": "ValueError: x", "gpus": []})
+        self.reader.record(0, {"vram_used": None, "processes": []})
+        self.assertEqual(self.reader.processes(0, 300)["series"], [])
+
+    def test_the_range_is_kept_inside_what_is_stored(self):
+        self.assertEqual(self.reader.processes(0, 1)["range_s"], 10)
+        self.assertEqual(self.reader.processes(0, 10 ** 9)["range_s"], 86_400)
+
+    def test_start_records_every_adapter_and_close_stops_it(self):
+        FakeCollector.made = []
+        recorded = []
+        done = threading.Event()
+        reader = VramExplorer(loader=fake_pieces)
+        original = reader.record
+
+        def record(index, result):
+            original(index, {"vram_used": 5 * MIB, "vram_total": 1000, "attributed": 0, "processes": []})
+            recorded.append(index)
+            if len(recorded) == 2:
+                done.set()
+        reader.record = record
+        with mock.patch.object(vram_explorer.time, "sleep"):
+            reader.start()
+            thread = reader._thread
+            reader.start()                     # a second call does nothing
+            self.assertIs(reader._thread, thread)
+            self.assertTrue(done.wait(5))
+            reader.close()
+            thread.join(5)
+        self.assertEqual(recorded[:2], [0, 1])
+        self.assertFalse(thread.is_alive())
+
 class Imported(unittest.TestCase):
     def test_the_collector_and_the_report_load_here(self):
         for name in ("collector", "report"):
@@ -208,11 +291,18 @@ class Routes(unittest.TestCase):
         self.httpd = serve(self.svc, port=0)
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         self.asked = []
+        self.started = 0
 
         class Fake:
             def snapshot(me, index):
                 self.asked.append(index)
                 return {"gpu": "Fake", "index": index, "gpus": [{"index": 0, "name": "Fake"}]}
+
+            def start(me):
+                self.started += 1
+
+            def processes(me, index, range_s):
+                return {"range_s": range_s, "gpu_index": index, "series": []}
 
             def close(me):
                 self.closed = True
@@ -247,11 +337,46 @@ class Routes(unittest.TestCase):
         self.assertEqual(self.get("/api/vram/explorer")[1]["index"], 0)
         self.assertEqual(self.asked, [1, 0])
 
+    def test_the_processes_route_reads_the_adapter_and_range_asked_and_starts_the_record(self):
+        code, out = self.get("/api/vram/processes?gpu=1&range=3600")
+        self.assertEqual((code, out["gpu_index"], out["range_s"]), (200, 1, 3600))
+        self.assertEqual(self.get("/api/vram/processes?range=x")[1]["range_s"], 300)
+        self.assertEqual(self.started, 2)
+
     def test_closing_the_server_closes_the_explorer(self):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.assertTrue(self.closed)
         self.httpd = serve(self.svc, port=0)      # tearDown closes this one
+
+
+class Page(unittest.TestCase):
+    """The page is a view of its own under Monitor, beside Server LLM, Hardware, LOGS and Security."""
+
+    def test_the_view_the_subtab_and_the_scripts_are_wired(self):
+        web = ROOT / "serve" / "web"
+        index = (web / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="view-vram"', index)
+        self.assertIn('web/vramexplorer.js', index)
+        self.assertIn('web/vramexplorer.css', index)
+        self.assertNotIn('id="tab-vram"', index)                        # not a tab inside the Server LLM page
+        subtabs = (web / "subtabs.js").read_text(encoding="utf-8")
+        self.assertIn('{ id: "vram", view: "vram"', subtabs)
+        app = (web / "app.js").read_text(encoding="utf-8")
+        self.assertIn('vram: "stats"', app)
+        self.assertIn('"vram"]', app)
+        i18n = (web / "i18n.js").read_text(encoding="utf-8")
+        self.assertEqual(i18n.count('"tab.vram"'), 2)                   # English and Italian
+
+    def test_the_list_scrolls_inside_its_own_box_and_keeps_its_header(self):
+        css = (ROOT / "serve" / "web" / "vramexplorer.css").read_text(encoding="utf-8")
+        self.assertRegex(css, r"\.vx-scroll \{[^}]*overflow: auto")
+        self.assertRegex(css, r"\.vx-scroll thead th \{[^}]*position: sticky")
+
+    def test_the_chart_has_a_switch_between_the_total_and_the_processes(self):
+        js = (ROOT / "serve" / "web" / "vramexplorer.js").read_text(encoding="utf-8")
+        self.assertIn('["process", "By process"]', js)
+        self.assertIn("api/vram/processes", js)
 
 
 if __name__ == "__main__":

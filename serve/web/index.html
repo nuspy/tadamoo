@@ -897,23 +897,6 @@
         </div>
       </section>
 
-      <section class="sec vramhist" id="vh" aria-labelledby="vh-h">
-        <div class="sh"><b id="vh-h">VRAM over time</b><span class="grow"></span><div class="seg" id="vh-range" role="group" aria-label="Time range"></div></div>
-        <div class="cb">
-          <div class="read"><span>In use now</span><b id="vh-now">—</b></div>
-          <div class="chart" id="chart-vh">
-            <div class="g" style="top:0"><span class="y0"></span></div>
-            <div class="g" style="top:50%"><span class="y1"></span></div>
-            <div class="g" style="top:100%"><span>0</span></div>
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="VRAM in use over time. Hover for values."><g id="vh-lines"></g></svg>
-            <div class="cur" hidden></div><div class="cdot" hidden></div><div class="tip" hidden></div>
-            <div class="vh-x"><span id="vh-x0"></span><span id="vh-note"></span><span>now</span></div>
-            <div class="empty vh-empty" id="vh-empty" hidden>No GPU readings yet.</div>
-          </div>
-          <div class="leg vh-leg" id="vh-leg"></div>
-        </div>
-      </section>
-
       <section class="sec">
         <div class="sh"><b>Experts</b><span class="grow"></span><span>Routed lookups, last request</span></div>
         <div class="pad">
@@ -948,7 +931,6 @@
         <div class="sh tabhead" role="tablist" aria-label="Requests and logs">
           <button class="tab" role="tab" id="tab-req" data-pane="req" aria-selected="true" aria-controls="pane-req">Requests</button>
           <button class="tab" role="tab" id="tab-log" data-pane="log" aria-selected="false" aria-controls="pane-log">Logs</button>
-          <button class="tab" role="tab" id="tab-vram" data-pane="vram" aria-selected="false" aria-controls="pane-vram">VRAM Explorer</button>
           <span class="cnt" id="pane-count">0</span>
         </div>
         <div id="pane-req" role="tabpanel" aria-labelledby="tab-req">
@@ -960,10 +942,6 @@
             </table>
             <div class="empty" id="req-empty">No requests yet.</div>
           </div>
-        </div>
-        <div id="pane-vram" role="tabpanel" aria-labelledby="tab-vram" hidden>
-          <div class="sh phead"><b>VRAM Explorer</b><span class="cnt" id="vx-count"></span></div>
-          <div class="vx" id="vx-root"></div>
         </div>
         <div id="pane-log" role="tabpanel" aria-labelledby="tab-log" hidden>
           <div class="sh phead"><b>Log</b><span class="cnt" id="log-count">0 lines</span></div>
@@ -1055,6 +1033,32 @@
     </div>
   </div>
 
+  <div class="view vramx" id="view-vram" role="tabpanel" aria-labelledby="sub-vram" hidden>
+    <section class="sec vx-chartsec" aria-labelledby="vh-h">
+      <div class="sh">
+        <b id="vh-h">VRAM over time</b><span class="grow"></span>
+        <div class="seg" id="vh-mode" role="group" aria-label="Chart"></div>
+        <div class="seg" id="vh-range" role="group" aria-label="Time range"></div>
+      </div>
+      <div class="cb">
+        <div class="read"><span id="vh-l">In use now</span><b id="vh-now">—</b></div>
+        <div class="chart" id="chart-vh">
+          <div class="g" style="top:0"><span class="y0"></span></div>
+          <div class="g" style="top:50%"><span class="y1"></span></div>
+          <div class="g" style="top:100%"><span>0</span></div>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="VRAM in use over time. Hover for values."><g id="vh-lines"></g></svg>
+          <div class="cur" hidden></div><div class="cdot" hidden></div><div class="tip" hidden></div>
+          <div class="vh-x"><span id="vh-x0"></span><span id="vh-note"></span><span>now</span></div>
+          <div class="empty vh-empty" id="vh-empty" hidden>No GPU readings yet.</div>
+        </div>
+        <div class="leg vh-leg" id="vh-leg"></div>
+      </div>
+    </section>
+    <section class="sec vx-listsec" aria-labelledby="vx-h">
+      <div class="sh"><b id="vx-h">Processes</b><span class="cnt" id="vx-count"></span></div>
+      <div class="vx" id="vx-root"></div>
+    </section>
+  </div>
   <div class="view hw" id="view-hardware" role="tabpanel" aria-labelledby="sub-hardware" hidden>
     <div class="hwgrid">
       <section class="sec wide">

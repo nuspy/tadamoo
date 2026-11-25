@@ -152,7 +152,7 @@ tr:last-child td { border-bottom: 0; }
 .tabsec [role="tabpanel"] { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .tabsec .phead { display: none; padding-left: 20px; }
 .tabsec .phead .cnt { margin-left: auto; padding-right: 0; }
-.col-r.single #tab-log { display: none; }      /* one slot: Requests and Logs show together, under one tab */
+.col-r.single .tabsec > .tabhead { display: none; }
 .col-r.single .tabsec .phead { display: flex; }
 .col-r.single #pane-req { flex: 1 1 0; min-height: 0; }
 .col-r.single #pane-log { flex: 1 1 0; min-height: 0; border-top: 1px solid var(--line-soft); }

@@ -1,5 +1,5 @@
 "use strict";
-/* The strip of pages under a tab: Monitor (Server LLM, Hardware, LOGS) and Settings (General, Inference, Models, Skills, Cloud and
+/* The strip of pages under a tab: Monitor (Server LLM, Hardware, LOGS, Security, VRAM Explorer) and Settings (General, Inference, Models, Skills, Cloud and
    privacy, Phones, Memories, Wallet). Hardware, LOGS and Wallet are still views of their own, so the scripts that serve them keep
    working; the strip only chooses which one shows. The Settings groups are sections of one view. */
 (function () {
@@ -8,7 +8,8 @@
       { id: "stats", view: "stats", label: () => T("sub.server") },
       { id: "hardware", view: "hardware", label: () => T("tab.hardware") },
       { id: "logs", view: "logs", label: () => T("tab.logs") },
-      { id: "security", view: "security", label: () => T("tab.security") }],
+      { id: "security", view: "security", label: () => T("tab.security") },
+      { id: "vram", view: "vram", label: () => T("tab.vram") }],
     canary: [
       { id: "results", view: "canary", label: () => T("sub.cn.results") },
       { id: "sessions", view: "canary", label: () => T("sub.cn.sessions") },

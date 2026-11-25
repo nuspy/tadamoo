@@ -689,7 +689,16 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/vram/explorer":
                 if self._authorized():
                     gpu = parse_qs(urlsplit(self.path).query).get("gpu", ["0"])[0]
-                    self._json(200, svc.vram_explorer().snapshot(int(gpu) if gpu.isdigit() else 0))
+                    explorer = svc.vram_explorer()
+                    explorer.start()
+                    self._json(200, explorer.snapshot(int(gpu) if gpu.isdigit() else 0))
+            elif path == "/api/vram/processes":
+                if self._authorized():
+                    query = parse_qs(urlsplit(self.path).query)
+                    gpu, span = query.get("gpu", ["0"])[0], query.get("range", ["300"])[0]
+                    explorer = svc.vram_explorer()
+                    explorer.start()
+                    self._json(200, explorer.processes(int(gpu) if gpu.isdigit() else 0, int(span) if span.isdigit() else 300))
             elif path == "/api/logs":
                 if self._authorized():
                     self._logs()
