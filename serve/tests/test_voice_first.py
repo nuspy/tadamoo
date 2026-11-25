@@ -439,6 +439,20 @@ class Lending(Base):
         self.assertIn("llm_unload", self.kinds())
         self.assertEqual(self.lend.sizes(), {})
 
+    def test_a_commit_with_no_room_for_the_function_is_named_as_the_reason_the_lend_was_not_used(self):
+        def commit_check(svc, need, with_model):
+            return {"ok": False, "reason": ("reload figures" if with_model else "the function alone"),
+                    "reason_it": ("cifre della ricarica" if with_model else "la funzione da sola")}
+        self.pool["free"] = 12000                                                  # the reload would fit the VRAM: only the commit refuses
+        with mock.patch.object(voice_loader, "commit_check", commit_check):
+            code, out = self.apply({"tts": {"on": True}})
+        self.assertEqual((code, out["error"]["code"], out["error"]["lend"]), (422, "not_enough_commit", "commit"))
+        self.assertIn("the function alone", out["error"]["message"])
+        self.assertNotIn("reload figures", out["error"]["message"])
+        self.assertIn("la funzione da sola", out["error"]["message_it"])
+        self.assertEqual(self.lender.calls, [])                                    # nothing was lent and the model was not touched
+        self.assertNotIn("llm_unload", self.kinds())
+
     def test_an_engine_that_does_not_lend_keeps_todays_behaviour(self):
         self.svc.settings_info["running"] = {"engine.vram-elastic": False}        # lending is on by default: this engine was started without it
         self.pool["free"] = 12000

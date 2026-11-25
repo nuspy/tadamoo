@@ -473,7 +473,7 @@ def apply(svc, req: dict, wait: bool = False) -> dict:
         _persist(want, only)
         return {"status": "nothing", "plan": p}
     force = bool(req.get("force"))
-    borrowed, refused = (), None
+    borrowed, refused, lend_commit = (), None, None
     if p["llm_reload"] and can_lend(svc):                        # the model keeps running: the functions borrow their VRAM from its expert cache
         lent_plan = plan(svc, want, live, lent=True)
         if lent_plan["commit_ok"] is not False:
@@ -484,13 +484,21 @@ def apply(svc, req: dict, wait: bool = False) -> dict:
                 p, borrowed = lent_plan, tuple(sizes)
             else:
                 refused = got["reason"]                          # the model is unloaded and loaded again, as without lending
+        else:
+            lend_commit = lent_plan                              # the commit has no room even for the function alone
     try:
         if p["fits"] is False and not force:
             raise models.Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                                  "message": "the functions do not fit in the VRAM that is free once the Loader's reserve is kept"}, "plan": p})
         if p["commit_ok"] is False and not force:
-            raise models.Refused(422, {"error": {"type": "insufficient_memory", "code": "not_enough_commit", "message": p["commit_reason"],
-                                                 "message_it": p["commit_reason_it"]}, "plan": p})
+            # when the engine could lend, the rule that stopped the lend is the reason the person can act on, not the model reload's figures
+            shown = lend_commit or p
+            message, message_it = shown["commit_reason"], shown["commit_reason_it"]
+            if lend_commit:
+                message = "The engine could lend the VRAM, but the Windows commit has no room for the function: " + message
+                message_it = "Il motore potrebbe prestare la VRAM, ma il commit di Windows non ha posto per la funzione: " + message_it
+            raise models.Refused(422, {"error": {"type": "insufficient_memory", "code": "not_enough_commit", "message": message,
+                                                 "message_it": message_it, **({"lend": "commit"} if lend_commit else {})}, "plan": p})
         job = start(svc, want, p, wait=wait, only=only, borrowed=borrowed)
     except BaseException:
         _give_back(svc, borrowed)
