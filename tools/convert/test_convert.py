@@ -165,6 +165,14 @@ class ConvertTest(unittest.TestCase):
         self.assertTrue(all(a % 64 == 0 for a in arena))
         self.assertEqual(int(rows[1][4]), (arena[-1] + (int(rows[-1][6]) + 63) // 64 * 64))
 
+    def test_sampling_block_comes_from_the_header_over_the_fallback(self):
+        self.assertEqual(convert.model_sampling({}), (convert.SAMPLING, "converter"))
+        block, source = convert.model_sampling({"general.sampling.top_k": 40, "general.sampling.temp": 0.6})
+        self.assertEqual(source, "gguf")
+        self.assertEqual(block["top_k"], 40)
+        self.assertEqual(block["temperature"], 0.6)
+        self.assertEqual(block["top_p"], convert.SAMPLING["top_p"])
+
     def test_gguf_section_and_meta(self):
         convert.convert(self.args())
         m = self.model()
@@ -187,10 +195,13 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(meta["vision"]["mmproj"], "vision/mmproj")
         self.assertEqual(meta["sources"][0]["size"], self.gguf.stat().st_size)
         self.assertEqual(meta["version"], 2)
-        for k in ("profile", "hc8", "sampling", "engine_args"):
+        for k in ("profile", "hc8", "engine_args"):
             self.assertNotIn(k, meta)
         self.assertEqual(meta["converter"], {"tool": "tools/convert/convert.py"})
         self.assertEqual(meta["gguf_kv"]["general.sampling.top_k"], 20)
+        # the sampling block: the header's general.sampling.* keys over the converter's fallback, and where it came from
+        self.assertEqual(meta["sampling"], {**convert.SAMPLING, "top_k": 20})
+        self.assertEqual(meta["sampling_source"], "gguf")
         self.assertIsNone(meta["mtp"])
         lic = meta["license"]
         self.assertEqual(lic["name"], "Qwen Community License 1.0")
