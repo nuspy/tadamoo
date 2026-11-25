@@ -61,10 +61,10 @@ bool Prefill::Run::Chunk::layer(int64_t l) {
             if (!wnn) return false;
         }
         if (wnn) {
-            gr_write_norm_rs(m.R, m.bo, m.inj, HC, (const float*) wnn->data, EPS, m.grs, m.xn16, T, m.cs);
+            gr_write_norm_rs(m.R, m.bo, m.inj, HC, (const float*) wnn->data, EPS, m.grs, m.xn16, T, 1.0f, m.cs);
             normed = true;
         } else {
-            gr_write(m.R, m.bo, m.inj, HC, T, m.cs);
+            gr_write(m.R, m.bo, m.inj, HC, T, 1.0f, m.cs);
         }
         if (half == 1 && basalt::kernels::cvec().covers(l))   // --control-vector-scaled
             basalt::kernels::cvec_apply(m.R, l, T, D, nullptr, 0, nullptr, 0, false, m.cs);

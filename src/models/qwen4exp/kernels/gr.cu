@@ -117,10 +117,10 @@ void gr_read(const float* R, const float* w_norm, const uint16_t* w_down, const 
     }
 }
 
-void gr_write(const float* R, const float* block_out, const float* inject, const GrShapes& s, float* R_out,
+void gr_write(const float* R, const float* block_out, const float* inject, const GrShapes& s, float* R_out, float wscale,
               void* stream) {
     if (s.n_embd <= 0 || s.hc <= 0) return;
-    native_gr_post(R, block_out, inject, R_out, (int) s.n_embd, (int) s.hc, stream);
+    native_gr_post(R, block_out, inject, R_out, (int) s.n_embd, (int) s.hc, wscale, stream);
     if (stream == nullptr) {
         const cudaError_t e = cudaDeviceSynchronize();
         if (e != cudaSuccess) {

@@ -60,6 +60,7 @@ struct Err {
     double rel() const { return ref > 0 ? abs / ref : abs; }
 };
 int g_fail = 0;
+float g_wscale = 1.0f;   // --wscale X: the write scale of every read
 void expect(bool ok, const char* what) {
     if (!ok) { std::printf("FAIL: %s\n", what); ++g_fail; }
 }
@@ -69,6 +70,8 @@ void expect(bool ok, const char* what) {
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
     const bool bench = argc > 1 && std::string(argv[1]) == "--bench";
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::string(argv[i]) == "--wscale") g_wscale = (float) std::atof(argv[i + 1]);
     const int N = 2560, HC = 4, D = N * HC, LR = 320, TM = 8;
     const float EPS = 1e-6f;
     std::mt19937 rng(7);
@@ -131,7 +134,7 @@ int main(int argc, char** argv) {
         for (size_t c = 0; c < tok.size(); ++c) {
             const int t = tok[c];
             K::FusedGrArgs& x = a[c];
-            x.R = out.R + (size_t) t * D; x.R_out = out.R + (size_t) t * D; x.apply = apply;
+            x.R = out.R + (size_t) t * D; x.R_out = out.R + (size_t) t * D; x.apply = apply; x.wscale = g_wscale;
             x.bo_prev = dbo + (size_t) t * N; x.inj_prev = dinj + (size_t) t * HC;
             x.w_norm = dwn;
             x.w_down = (const uint16_t*) (which == 0 ? kd : which == 1 ? (const void*) dwd : (const void*) dqd);
@@ -299,7 +302,7 @@ int main(int argc, char** argv) {
             for (int w = 0; w < 2; ++w)
                 for (int t = 0; t < T; ++t) {
                     K::FusedGrArgs& x = a[w][t];
-                    x.R = o[w].R + (size_t) t * D; x.R_out = o[w].R + (size_t) t * D; x.apply = true;
+                    x.R = o[w].R + (size_t) t * D; x.R_out = o[w].R + (size_t) t * D; x.apply = true; x.wscale = g_wscale;
                     x.bo_prev = dbo + (size_t) t * N; x.inj_prev = dinj + (size_t) t * HC; x.w_norm = dwn;
                     x.w_down = (const uint16_t*) (w ? (const void*) dwd : kd);
                     x.w_up = (const uint16_t*) (w ? (const void*) dwu : ku);

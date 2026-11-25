@@ -51,6 +51,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> pos;
     bool tol = false;
     int stamp_reps = 1;
+    float wscale = 1.0f;   // --wscale X: the write scale of every read (the layer loop's damping)
     bool check_only = false;   // --check-only: stop after the output checks (for the sanitizers)
     int rot = 0, rotpad = 0, stress = 0;   // --rot N: the timing and stamp runs cycle through N weight sets (every read starts with its matrices out of L2)
     std::string block_list = "2:4,2:100,2:165,6:4,6:100,8:169";
@@ -62,6 +63,7 @@ int main(int argc, char** argv) {
         else if (a == "--rotpad" && i + 1 < argc) rotpad = std::atoi(argv[++i]);
         else if (a == "--stress" && i + 1 < argc) stress = std::atoi(argv[++i]);
         else if (a == "--check-only") check_only = true;
+        else if (a == "--wscale" && i + 1 < argc) wscale = (float) std::atof(argv[++i]);
         else if (a == "--block" && i + 1 < argc) block_list = argv[++i];
         else pos.push_back(a);
     }
@@ -186,7 +188,7 @@ int main(int argc, char** argv) {
         if (f == 0) {
             K::FusedGrArgs a[TM];
             for (int t = 0; t < T; ++t) {
-                a[t].R = x.R + (size_t) t * D; a[t].R_out = x.R + (size_t) t * D; a[t].apply = apply;
+                a[t].R = x.R + (size_t) t * D; a[t].R_out = x.R + (size_t) t * D; a[t].apply = apply; a[t].wscale = wscale;
                 a[t].bo_prev = dbo + (size_t) t * N; a[t].inj_prev = dinj + (size_t) t * HC;
                 a[t].w_norm = dwn; a[t].w_down = dwd; a[t].w_up = dwu; a[t].w_inject = inject ? dwi : nullptr;
                 a[t].lo = x.lo + (size_t) t * LR; a[t].rs = x.rs + (size_t) t * HC;
@@ -200,7 +202,7 @@ int main(int argc, char** argv) {
         } else {
             K::HcFusedArgs a;
             const WSet w = wcur >= 0 ? ws[wcur] : WSet{dwd, dwu, dwi, dwr};
-            a.T = T; a.R = x.R; a.R_out = x.R; a.apply = apply; a.bo_prev = dbo; a.inj_prev = dinj;
+            a.T = T; a.R = x.R; a.R_out = x.R; a.apply = apply; a.wscale = wscale; a.bo_prev = dbo; a.inj_prev = dinj;
             a.w_norm = dwn; a.w_down = w.wd; a.w_up = w.wu; a.w_inject = inject ? w.wi : nullptr;
             a.lo = x.lo; a.rs = x.rs; a.inject_out = x.io; a.mixed = x.mix; a.xn = x.xn;
             if (router) { a.w_router = w.wr; a.logits = x.logits; a.ids = x.ids; a.weights = x.w; }

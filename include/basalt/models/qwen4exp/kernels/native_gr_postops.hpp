@@ -23,6 +23,6 @@ void native_gr_pre_gated(const float* xn, float* gate, float* mixed,
 // residual/output contain [n_embd,hc], block_out has n_embd elements.
 // output may equal residual exactly; all other overlaps are invalid.
 void native_gr_post(const float* residual, const float* block_out, const float* inject,
-                    float* output, int n_embd, int hc, void* stream);
+                    float* output, int n_embd, int hc, float wscale, void* stream);
 
 } // namespace basalt::kernels

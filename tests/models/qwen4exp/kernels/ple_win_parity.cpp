@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
     auto reference = [&](int T) {   // the verify window's per-row chain
         for (int t = 0; t < T; ++t) {
             float* Rt = R + (size_t) t * D;
-            k::native_gr_post(Rt, bo + (size_t) t * N, inj + (size_t) t * H, Rt, N, H, st);
+            k::native_gr_post(Rt, bo + (size_t) t * N, inj + (size_t) t * H, Rt, N, H, 1.0f, st);
             k::PleOut po;
             po.normalized = normalized;
             po.result = Rt;

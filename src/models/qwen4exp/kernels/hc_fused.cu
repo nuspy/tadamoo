@@ -455,7 +455,7 @@ __device__ void cn_x(const HcFusedArgs& a, int hs, int tid, char* smem, float* p
     float4* X = reinterpret_cast<float4*>(smem + CN_XOFF);
 #pragma unroll
     for (int k = 0; k < T; ++k) {
-        const float gw = a.apply ? 2.0f * sigmoidf_(ip[k] / (float) HC) : 0.0f;
+        const float gw = a.apply ? a.wscale * (2.0f * sigmoidf_(ip[k] / (float) HC)) : 0.0f;
         float sq = 0.0f;
 #pragma unroll
         for (int j = 0; j < NV; ++j) {
@@ -636,7 +636,7 @@ __device__ void hc_up_pre(const HcFusedArgs& a, UpSlice sl, int tid, char* smem)
         const int k = idx / (HC * nc), rem = idx - k * HC * nc, c = rem / nc, dd = rem - c * nc;
         const int i = c * N + sl.c0 + dd;
         float rv = a.R[(size_t) k * D + i];
-        if (a.apply) rv = fmaf(a.bo_prev[(size_t) k * N + sl.c0 + dd], 2.0f * sigmoidf_(a.inj_prev[k * HC + c] / (float) HC), rv);
+        if (a.apply) rv = fmaf(a.bo_prev[(size_t) k * N + sl.c0 + dd], a.wscale * (2.0f * sigmoidf_(a.inj_prev[k * HC + c] / (float) HC)), rv);
         u.rp[idx] = rv;
         u.px[idx] = rv * a.w_norm[i];
     }

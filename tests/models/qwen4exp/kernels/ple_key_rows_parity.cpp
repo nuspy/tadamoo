@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
         auto chain = [&](int r0, int n, float* h, float* sn) {
             for (int t = r0; t < r0 + n; ++t) {
                 float* Rt = R + (size_t) t * D;
-                k::native_gr_post(Rt, bo + (size_t) t * N, inj + (size_t) t * H, Rt, N, H, st);
+                k::native_gr_post(Rt, bo + (size_t) t * N, inj + (size_t) t * H, Rt, N, H, 1.0f, st);
                 k::PleOut po;
                 po.normalized = normalized;
                 po.result = Rt;

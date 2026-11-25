@@ -238,7 +238,7 @@ bool MtpDrafter::record_forward(int T, int step_row0, cudaStream_t cs, std::stri
                 }
                 hc_fused_read(h, cs);
             } else if (T == 1) {   // one row: the write, then the per-row read (its own rounding)
-                gr_write(R_, bo_, inj_, gs, R_, cs);
+                gr_write(R_, bo_, inj_, gs, R_, 1.0f, cs);
                 gr_read(R_, fa[0].w_norm, fa[0].w_down, fa[0].w_up, fa[0].w_inject, EPS, gs, ss.block.gr, mixed_, inj2_, cs);
             } else {
                 fused_gr_read_multi(fa, T, xn_, cs);
@@ -273,14 +273,14 @@ bool MtpDrafter::record_forward(int T, int step_row0, cudaStream_t cs, std::stri
             if (sh_par) continue;
             native_moe_combine(parts_ + (size_t) t * K * N, w_ + t * K, shared_ + t * N, y_ + t * N, N, K, cs);
             if (!fold_write)
-                gr_write(R_ + (size_t) t * HC * N, y_ + t * N, inj2_ + t * HC, gs, R_ + (size_t) t * HC * N, cs);
+                gr_write(R_ + (size_t) t * HC * N, y_ + t * N, inj2_ + t * HC, gs, R_ + (size_t) t * HC * N, 1.0f, cs);
         }
         if (sh_par) {
             join(cs);
             for (int t = 0; t < T; ++t) {
                 native_moe_combine(parts_ + (size_t) t * K * N, w_ + t * K, shared_ + t * N, y_ + t * N, N, K, cs);
                 if (!fold_write)
-                    gr_write(R_ + (size_t) t * HC * N, y_ + t * N, inj2_ + t * HC, gs, R_ + (size_t) t * HC * N, cs);
+                    gr_write(R_ + (size_t) t * HC * N, y_ + t * N, inj2_ + t * HC, gs, R_ + (size_t) t * HC * N, 1.0f, cs);
             }
         }
         // pre_next_: the next chain step's hidden input from this row's final residual (what the step end hands on),

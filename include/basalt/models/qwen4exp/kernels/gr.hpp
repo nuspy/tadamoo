@@ -79,7 +79,7 @@ void gr_read(const float* R, const float* w_norm, const uint16_t* w_down, const 
 /// The `2*sigmoid` is what CENTRES the gate on 1, so a zero injection is a plain residual add - the source
 /// comment says so outright and `gr_write`'s test asserts it.  Note the block output is added to EVERY stream
 /// identically; only the weight is per-stream.
-void gr_write(const float* R, const float* block_out, const float* inject, const GrShapes& s, float* R_out,
+void gr_write(const float* R, const float* block_out, const float* inject, const GrShapes& s, float* R_out, float wscale,
               void* stream);
 
 }  // namespace basalt::kernels

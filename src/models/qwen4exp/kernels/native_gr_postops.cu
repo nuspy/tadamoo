@@ -64,11 +64,11 @@ __global__ void pre_gated(const float* __restrict__ xn, float* __restrict__ gate
 }
 __global__ void post(const float* residual, const float* __restrict__ block_out,
                      const float* __restrict__ inject, float* output,
-                     int n_embd, int hc, float scale) {
+                     int n_embd, int hc, float scale, float wscale) {
     const std::size_t i = std::size_t(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i >= std::size_t(n_embd) * hc) return;
     const int c = int(i / n_embd), d = int(i % n_embd);
-    const float weight = scale_zero_bias(sigmoid(scale_zero_bias(inject[c], scale)), 2.0f);
+    const float weight = scale_zero_bias(sigmoid(scale_zero_bias(inject[c], scale)), 2.0f * wscale);
     // Exact residual/output alias is supported; no other thread reads residual[i].
     output[i] = __fmaf_rn(block_out[d], weight, residual[i]);
 }
@@ -105,11 +105,11 @@ void native_gr_pre_gated(const float* xn, float* gate, float* mixed,
     check_launch();
 }
 void native_gr_post(const float* residual, const float* block_out, const float* inject,
-                    float* output, int n_embd, int hc, void* stream) {
+                    float* output, int n_embd, int hc, float wscale, void* stream) {
     check_shape(n_embd, hc);
     check_pointer(residual); check_pointer(block_out); check_pointer(inject); check_pointer(output);
     post<<<blocks(std::size_t(n_embd) * hc), THREADS, 0, static_cast<cudaStream_t>(stream)>>>(
-        residual, block_out, inject, output, n_embd, hc, 1.0f / float(hc));
+        residual, block_out, inject, output, n_embd, hc, 1.0f / float(hc), wscale);
     check_launch();
 }
 } // namespace basalt::kernels

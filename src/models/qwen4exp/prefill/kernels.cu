@@ -274,13 +274,13 @@ __global__ void __launch_bounds__(256) gr_write_norm_rs_kernel(float* __restrict
                                                                const float* __restrict__ inj, int64_t inj_ld,
                                                                const float* __restrict__ w, float eps,
                                                                float* __restrict__ rs_out, uint16_t* __restrict__ xn16,
-                                                               uint16_t* __restrict__ xn16_lo) {
+                                                               uint16_t* __restrict__ xn16_lo, float wscale) {
     __shared__ float sh[32];
     const int64_t row = blockIdx.x;                 // t * 4 + c
     const int64_t t = row / HC;
     const int c = (int) (row % HC);
     float* r = R + row * N;
-    const float sc = 2.0f * sigm(inj[t * inj_ld + c] / (float) HC);
+    const float sc = wscale * (2.0f * sigm(inj[t * inj_ld + c] / (float) HC));
     float v[GRW_PER];
     float ss = 0.0f;
     int k = 0;
@@ -334,11 +334,11 @@ __global__ void gr_mix_kernel(const float* __restrict__ xn, const float* __restr
     if (mixed_h) mixed_h[i] = hf(s);
 }
 __global__ void gr_write_kernel(float* __restrict__ R, const float* __restrict__ bo, const float* __restrict__ inj,
-                                int64_t inj_ld, int64_t T) {
+                                int64_t inj_ld, int64_t T, float wscale) {
     const int64_t i = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= T * D) return;
     const int64_t t = i / D, c = (i % D) / N, d = i % N;
-    R[i] = fmaf(bo[t * N + d], 2.0f * sigm(inj[t * inj_ld + c] / (float) HC), R[i]);
+    R[i] = fmaf(bo[t * N + d], wscale * (2.0f * sigm(inj[t * inj_ld + c] / (float) HC)), R[i]);
 }
 __global__ void gr_broadcast_kernel(const float* __restrict__ e, float* __restrict__ R, int64_t T) {
     const int64_t i = (int64_t) blockIdx.x * blockDim.x + threadIdx.x;
@@ -614,9 +614,9 @@ bool gr_up_mix(const uint16_t* lo16, const uint16_t* w_up, const float* R, const
     return true;
 }
 void gr_write_norm_rs(float* R, const float* bo, const float* inj, int64_t inj_ld, const float* w_norm_next, float eps,
-                      float* rs, uint16_t* xn16, int64_t T, void* stream, uint16_t* xn16_lo) {
+                      float* rs, uint16_t* xn16, int64_t T, float wscale, void* stream, uint16_t* xn16_lo) {
     gr_write_norm_rs_kernel<<<(unsigned) (T * HC), 256, 0, (cudaStream_t) stream>>>(R, bo, inj, inj_ld, w_norm_next, eps,
-                                                                                      rs, xn16, xn16_lo);
+                                                                                      rs, xn16, xn16_lo, wscale);
     check("gr_write_norm_rs");
 }
 void gr_silu(const float* lo, uint16_t* lo16, int64_t T, void* stream, uint16_t* lo16_lo) {
@@ -628,8 +628,8 @@ void gr_mix(const float* xn, const float* gated, float* mixed, uint16_t* mixed16
     gr_mix_kernel<<<blocks_for(T * N), 256, 0, (cudaStream_t) stream>>>(xn, gated, mixed, mixed16, T, mixed_h, mixed16_lo);
     check("gr_mix");
 }
-void gr_write(float* R, const float* bo, const float* inj, int64_t inj_ld, int64_t T, void* stream) {
-    gr_write_kernel<<<blocks_for(T * D), 256, 0, (cudaStream_t) stream>>>(R, bo, inj, inj_ld, T);
+void gr_write(float* R, const float* bo, const float* inj, int64_t inj_ld, int64_t T, float wscale, void* stream) {
+    gr_write_kernel<<<blocks_for(T * D), 256, 0, (cudaStream_t) stream>>>(R, bo, inj, inj_ld, T, wscale);
     check("gr_write");
 }
 void gr_broadcast(const float* e, float* R, int64_t T, void* stream) {

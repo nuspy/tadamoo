@@ -47,6 +47,7 @@ struct Hc8Gr {
     int sd_row, su_row, si_row;
     int T, n, hc, lr, ninj;
     bool apply;
+    float wscale;
     float eps;
 };
 
@@ -60,7 +61,7 @@ __device__ void hc8_norm(const Hc8Gr& p, int c, int t) {
     const int n = p.n;
     const float* r = p.R[t] + (size_t) c * n;
     float w = 0.0f;
-    if (p.apply) w = 2.0f / (1.0f + expf(-p.inj_prev[t][c] / (float) p.hc));
+    if (p.apply) w = p.wscale * (2.0f / (1.0f + expf(-p.inj_prev[t][c] / (float) p.hc)));
     float ss = 0.0f;
     for (int i = threadIdx.x; i < n; i += blockDim.x) {
         float v = r[i];
@@ -279,7 +280,7 @@ bool hc8_gr_read_multi(const FusedGrArgs* a, int n_tok, int64_t n_embd, int64_t 
     p.qu = vu.q; p.su = vu.s; p.su_row = vu.srow;
     if (inj) { p.qi = vi.q; p.si = vi.s; p.si_row = vi.srow; }
     p.T = n_tok; p.n = (int) n_embd; p.hc = (int) hc; p.lr = vd.rows; p.ninj = inj ? (int) hc : 0;
-    p.apply = a[0].apply; p.eps = a[0].eps;
+    p.apply = a[0].apply; p.eps = a[0].eps; p.wscale = a[0].wscale;
     cudaStream_t st = (cudaStream_t) stream;
     hc8_norm_kernel<<<dim3((unsigned) hc, (unsigned) n_tok), 256, 0, st>>>(p);
     hc8_down_kernel<<<(unsigned) ((p.lr + p.ninj + DOWN_ROWS - 1) / DOWN_ROWS), DOWN_THREADS, 0, st>>>(p);

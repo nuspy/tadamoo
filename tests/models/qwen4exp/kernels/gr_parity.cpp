@@ -586,7 +586,7 @@ int main(int argc, char** argv) {
     check(cudaMemcpy(d_bo, block_out.data(), block_out.size() * sizeof(float), cudaMemcpyHostToDevice), "c bo");
     check(cudaMemcpy(d_zi, zero_inj.data(), zero_inj.size() * sizeof(float), cudaMemcpyHostToDevice), "c zi");
 
-    basalt::kernels::gr_write(d_Rw, d_bo, d_zi, sh, d_outw, nullptr);
+    basalt::kernels::gr_write(d_Rw, d_bo, d_zi, sh, d_outw, 1.0f, nullptr);
     std::vector<float> got_write((size_t) hc_dim);
     check(cudaMemcpy(got_write.data(), d_outw, got_write.size() * sizeof(float), cudaMemcpyDeviceToHost), "c outw");
 
@@ -630,7 +630,7 @@ int main(int argc, char** argv) {
     std::vector<float> inj((size_t) hc);
     for (auto& x : inj) x = gauss(rng) * 3.0f;
     check(cudaMemcpy(d_zi, inj.data(), inj.size() * sizeof(float), cudaMemcpyHostToDevice), "c inj2");
-    basalt::kernels::gr_write(d_Rw, d_bo, d_zi, sh, d_outw, nullptr);
+    basalt::kernels::gr_write(d_Rw, d_bo, d_zi, sh, d_outw, 1.0f, nullptr);
     check(cudaMemcpy(got_write.data(), d_outw, got_write.size() * sizeof(float), cudaMemcpyDeviceToHost), "c outw2");
     double worst_stream = 0;
     for (long long c = 0; c < hc; ++c) {

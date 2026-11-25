@@ -206,7 +206,7 @@ bool Verifier::WindowRecorder::post(int64_t l) {
     stamp(l, 24);
     if (l == g.n_layers - 1) {
         if (!fuse_head_gr) {
-            for (int t = 0; t < T; ++t) gr_write(Rt(t), v_.bo_ + t * N, v_.inj2_ + t * HC, gs, Rt(t), cs);
+            for (int t = 0; t < T; ++t) gr_write(Rt(t), v_.bo_ + t * N, v_.inj2_ + t * HC, gs, Rt(t), 1.0f, cs);
             if (cvec().covers(l)) cvec_apply(Rt(0), l, n, HC * N, nullptr, 0, nullptr, 0, false, cs);
         }
     } else if (cvec().covers(l)) {

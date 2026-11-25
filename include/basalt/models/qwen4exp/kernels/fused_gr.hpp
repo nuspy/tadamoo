@@ -27,6 +27,7 @@ struct FusedGrArgs {
     bool apply = false;                ///< fold the previous half's gr_write
     const float* bo_prev = nullptr;    ///< that half's block output, n_embd
     const float* inj_prev = nullptr;   ///< that half's injection, hc
+    float wscale = 1.0f;               ///< scales the write weight 2*sigmoid (the layer loop's damping); 1 is the model's own
     const float* w_norm = nullptr;     ///< (hc * n_embd) f32
     const uint16_t* w_down = nullptr;  ///< bf16 [hc_lr][hc*n_embd]
     const uint16_t* w_up = nullptr;    ///< bf16 [hc*n_embd][hc_lr]

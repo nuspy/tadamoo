@@ -56,7 +56,7 @@ __global__ void __launch_bounds__(THREADS) gr_down_kernel(FusedGrArgs a) {
     const int t = threadIdx.x, lane = t & 31, warp = t >> 5;
     float gw[HC];
 #pragma unroll
-    for (int c = 0; c < HC; ++c) gw[c] = a.apply ? 2.0f * sigmoidf_(a.inj_prev[c] / (float) HC) : 0.0f;
+    for (int c = 0; c < HC; ++c) gw[c] = a.apply ? a.wscale * (2.0f * sigmoidf_(a.inj_prev[c] / (float) HC)) : 0.0f;
     // 1. R' * w_norm into shared memory, and the per-stream sums of squares of R'.
     float ss[HC] = {0.0f, 0.0f, 0.0f, 0.0f};
     for (int i = t * 4; i < D; i += THREADS * 4) {
@@ -124,7 +124,7 @@ __global__ void __launch_bounds__(THREADS) gr_up_kernel(FusedGrArgs a) {
         if (lane == 0) {
             float rv = a.R[i];
             if (a.apply) {
-                rv = fmaf(a.bo_prev[d0 + dd], 2.0f * sigmoidf_(a.inj_prev[c] / (float) HC), rv);
+                rv = fmaf(a.bo_prev[d0 + dd], a.wscale * (2.0f * sigmoidf_(a.inj_prev[c] / (float) HC)), rv);
                 a.R_out[i] = rv;                       // this block owns column d0+dd of every stream
             }
             const float x = rv * a.w_norm[i] * a.rs[c];
@@ -157,7 +157,7 @@ __global__ void __launch_bounds__(THREADS) gr_norm_multi_kernel(GrMulti m) {
     const int t = threadIdx.x, lane = t & 31, warp = t >> 5;
     float gw[HC];
 #pragma unroll
-    for (int c = 0; c < HC; ++c) gw[c] = a.apply ? 2.0f * sigmoidf_(a.inj_prev[c] / (float) HC) : 0.0f;
+    for (int c = 0; c < HC; ++c) gw[c] = a.apply ? a.wscale * (2.0f * sigmoidf_(a.inj_prev[c] / (float) HC)) : 0.0f;
     float ss[HC] = {0.0f, 0.0f, 0.0f, 0.0f};
     for (int i = t * 4; i < D; i += THREADS * 4) {
         const int c = i / N, d = i - c * N;
@@ -274,7 +274,7 @@ __global__ void __launch_bounds__(THREADS) gr_up_multi_kernel(GrMulti m) {
         const uint4 wa = __ldg(w4 + lane);
         const uint4 wb = lane < LR / 8 - 32 ? __ldg(w4 + 32 + lane) : make_uint4(0, 0, 0, 0);
         // the epilogue inputs of this lane's token, fetched while the dots run
-        float rv = 0.0f, wn = 0.0f, rsc = 0.0f, bo = 0.0f, ip = 0.0f;
+        float rv = 0.0f, wn = 0.0f, rsc = 0.0f, bo = 0.0f, ip = 0.0f, ws = 1.0f;
         bool apply = false;
         if (lane < T) {
             const FusedGrArgs& a = m.a[lane];
@@ -282,7 +282,7 @@ __global__ void __launch_bounds__(THREADS) gr_up_multi_kernel(GrMulti m) {
             wn = a.w_norm[i];
             rsc = a.rs[c];
             apply = a.apply;
-            if (apply) { bo = a.bo_prev[d0 + dd]; ip = a.inj_prev[c]; }
+            if (apply) { bo = a.bo_prev[d0 + dd]; ip = a.inj_prev[c]; ws = a.wscale; }
         }
         float mine = 0.0f;
 #pragma unroll
@@ -295,7 +295,7 @@ __global__ void __launch_bounds__(THREADS) gr_up_multi_kernel(GrMulti m) {
         }
         if (lane < T) {
             if (apply) {
-                rv = fmaf(bo, 2.0f * sigmoidf_(ip / (float) HC), rv);
+                rv = fmaf(bo, ws * (2.0f * sigmoidf_(ip / (float) HC)), rv);
                 m.a[lane].R_out[i] = rv;
             }
             const float x = rv * wn * rsc;
@@ -344,7 +344,7 @@ __global__ void __launch_bounds__(THREADS) gr_norm_split_kernel(GrMulti m) {
     const int c = blockIdx.y;
     float* xn = m.xn + (size_t) blockIdx.x * D;
     const int t = threadIdx.x, lane = t & 31, warp = t >> 5;
-    const float gw = a.apply ? 2.0f * sigmoidf_(a.inj_prev[c] / (float) HC) : 0.0f;
+    const float gw = a.apply ? a.wscale * (2.0f * sigmoidf_(a.inj_prev[c] / (float) HC)) : 0.0f;
     float ss = 0.0f;
     for (int i = t * 4; i < D; i += THREADS * 4) {
         if (i / N != c) continue;                       // another stream's element: another block's

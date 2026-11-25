@@ -1255,7 +1255,7 @@ bool block_layer_pre(const WeightTable& tables, const ModelGeometry& g, int64_t 
     if (ple != nullptr && ple->ready() && layer == 1 && (half == 0 || half == 1)) {
         if (pending_ffn) {
             const basalt::kernels::GrShapes gs0{g.n_embd, g.hc, g.hc_lr};
-            gr_write(bb.R, bb.block_out, bb.inject2, gs0, bb.R, stream);
+            gr_write(bb.R, bb.block_out, bb.inject2, gs0, bb.R, 1.0f, stream);
             pending_ffn = false;
         }
         basalt::kernels::PleOut po;
@@ -1317,7 +1317,7 @@ st_begin(layer, 0, stream);
     if (run1) {
     st_begin(layer, 1, stream);    if (qsa) {        if (!qsa_layer(tables, g, layer, pos, pos_base, qst, qb, bb.mixed, bb.block_out, stream, err,                            bb.dump))            return false;    } else {        if (!gdn_layer(tables, g, layer, gb, bb.mixed, bb.block_out, stream, err)) return false;    }    st_end(layer, 1, stream);    dump_half(bb, g, layer, bb.block_out, 0, g.n_embd, stream);        }
     if (run2) {
-    st_begin(layer, 2, stream);    if (!fused) gr_write(R, bb.block_out, bb.inject, gs, R, stream);    st_end(layer, 2, stream);
+    st_begin(layer, 2, stream);    if (!fused) gr_write(R, bb.block_out, bb.inject, gs, R, 1.0f, stream);    st_end(layer, 2, stream);
 // ---- half 2, UP TO AND INCLUDING THE ROUTER.  `gr_read` leaves the normed activation in `bb.mixed` and
 // the per-stream injection in `bb.inject`, and BOTH must survive until `block_layer_post` runs - which is
 // the contract the two functions have with each other and with the host loop's ordering.
@@ -1385,10 +1385,10 @@ st_begin(layer, 5, stream);
     const bool steer = basalt::kernels::cvec().covers(layer);   // --control-vector-scaled: after this write
     try {
         if (!(g_fused_gr && basalt::kernels::fused_gr_supported(g.n_embd, g.hc, g.hc_lr))) {
-            gr_write(bb.R, bb.block_out, bb.inject, gs, bb.R, stream);
+            gr_write(bb.R, bb.block_out, bb.inject, gs, bb.R, 1.0f, stream);
             if (steer) basalt::kernels::cvec_apply(bb.R, layer, 1, g.hc * g.n_embd, nullptr, 0, nullptr, 0, false, stream);
         } else if (layer == g.n_layers - 1) {
-            gr_write(bb.R, bb.block_out, bb.inject2, gs, bb.R, stream);   // materialise R for the head
+            gr_write(bb.R, bb.block_out, bb.inject2, gs, bb.R, 1.0f, stream);   // materialise R for the head
             if (steer) basalt::kernels::cvec_apply(bb.R, layer, 1, g.hc * g.n_embd, nullptr, 0, nullptr, 0, false, stream);
         } else if (steer) {
             // the write the next layer's fused read would have folded, then the vector
