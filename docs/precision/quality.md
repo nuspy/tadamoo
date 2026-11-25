@@ -35,8 +35,10 @@ the base's header and tokens, and runs the engine with `--ppl-write-base`: each 
 log-softmax, quantized over [max(min, -16), max] in 65535 steps and stored where the reader takes it from. A later run
 against that file gives the paired comparison with the build, package and flags that wrote it: `ln(PPL/base)`, KLD and
 top-1 are the shift from them, not the quality against BF16. Rewrite the base when the package, the build or a flag that
-changes the numbers (`--kv`, the verify window T, `--resident-experts`) changes. The file holds about
-`2 x n_vocab` bytes per row, 255 rows per chunk.
+changes the numbers (`--kv`, the verify window T, `--resident-experts`) changes. A row is `2 x n_vocab + 8` bytes and a
+chunk 255 rows: 120.8 MiB per chunk with the 248,320-entry vocabulary, 2.36 GiB for 20 chunks. The file is written as
+`BASE.partial` and renamed once every chunk is in, so an interrupted run never leaves a base that reads as valid. The
+report's `ln(PPL/base)` carries its paired standard error over the chunk means.
 
 ## Why llama.cpp's Q8_0 reads further from BF16
 
