@@ -663,6 +663,10 @@ if(BUILD_TESTING)
   add_executable(layout_check_test tests/core/layout_check_test.cpp)
   target_link_libraries(layout_check_test PRIVATE model_qwen4exp_engine core)
   basalt_cpu_test(NAME layout_check_test COMMAND layout_check_test)
+  # the layer-loop slot map: kinds match, the window repeats in order, the identity when off
+  add_executable(layer_loop_map_test tests/core/layer_loop_map_test.cpp)
+  target_link_libraries(layer_loop_map_test PRIVATE model_qwen4exp_engine core)
+  basalt_cpu_test(NAME layer_loop_map_test COMMAND layer_loop_map_test)
   # the expert layout text: real models' layouts and the refusals
   add_executable(expert_layout_test tests/core/expert_layout_test.cpp)
   target_link_libraries(expert_layout_test PRIVATE model_qwen4exp_engine)

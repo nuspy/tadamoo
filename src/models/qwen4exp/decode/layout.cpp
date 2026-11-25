@@ -219,8 +219,16 @@ bool geometry_from_model(const ModelFile& model, ModelGeometry& g, std::string& 
     return true;
 }
 
+namespace {
+struct LoopMap {
+    int64_t a = 0, b = 0, k = 1;
+} g_loop_map;
+}  // namespace
+
+void set_layer_loop_map(const ModelGeometry& g) { g_loop_map = {g.loop_a, g.loop_b, g.loop_k}; }
+
 std::string LayerView::name(const char* suffix) const {
-    return "blk." + std::to_string(layer_) + "." + suffix;
+    return "blk." + std::to_string(layer_source(g_loop_map.a, g_loop_map.b, g_loop_map.k, layer_)) + "." + suffix;
 }
 
 bool check_layer(const WeightTable& table, const ModelGeometry& g, int64_t layer, std::string& err) {

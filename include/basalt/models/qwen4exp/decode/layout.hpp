@@ -31,6 +31,12 @@ struct ModelGeometry {
     int64_t n_layers = 48;
     int64_t qsa_interval = 4;      ///< every 4th layer is full attention: layers 3, 7, ... 47
 
+    // Layer loop: the pack's layers [loop_a, loop_b) run loop_k times in a row.  `n_layers` counts the resulting slots
+    // (state, graphs and sequence are per slot); the weights and experts stay per pack layer.  loop_k == 1 is off.
+    int64_t loop_a = 0;
+    int64_t loop_b = 0;
+    int64_t loop_k = 1;
+
     // GDN (36 layers)
     int64_t ssm_state_size = 128;
     int64_t ssm_k_heads = 16;
@@ -60,7 +66,28 @@ struct ModelGeometry {
     /// `layer % qsa_interval == qsa_interval - 1` is full attention.  Derived, not a second list.
     int64_t n_qsa_layers() const { return n_layers / qsa_interval; }
     int64_t n_gdn_layers() const { return n_layers - n_qsa_layers(); }
+    /// Layers the pack holds: the slots minus the repeats.
+    int64_t file_layers() const { return n_layers - (loop_k - 1) * (loop_b - loop_a); }
 };
+
+/// The pack layer slot `slot` takes its weights and experts from.  The identity when the loop is off.
+inline int64_t layer_source(int64_t a, int64_t b, int64_t k, int64_t slot) {
+    const int64_t len = b - a;
+    if (k <= 1 || slot < a) return slot;
+    if (slot < a + k * len) return a + (slot - a) % len;
+    return slot - (k - 1) * len;
+}
+inline int64_t source_layer(const ModelGeometry& g, int64_t slot) { return layer_source(g.loop_a, g.loop_b, g.loop_k, slot); }
+
+/// Which pass over the window `slot` belongs to: 0 for the first pass and for every slot outside the window.
+inline int64_t loop_pass(const ModelGeometry& g, int64_t slot) {
+    const int64_t len = g.loop_b - g.loop_a;
+    if (g.loop_k <= 1 || slot < g.loop_a || slot >= g.loop_a + g.loop_k * len) return 0;
+    return (slot - g.loop_a) / len;
+}
+
+/// Sets the slot-to-pack-layer map `LayerView::name` resolves through (once, before the weights are looked up).
+void set_layer_loop_map(const ModelGeometry& g);
 
 /// The geometry of a family's default model.  qwen35moe has a plain residual and no indexer, so `hc` and `idx_q_heads`
 /// are 0 there.
