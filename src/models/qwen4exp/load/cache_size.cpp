@@ -1,6 +1,9 @@
 #include "basalt/models/qwen4exp/shared_names.hpp"
 #include "context.hpp"
 
+#include <chrono>
+#include <thread>
+
 namespace basalt::models::qwen4exp::generate {
 
 int cache_size(Context& context) {
@@ -303,8 +306,25 @@ int cache_size(Context& context) {
         // could fill the card, the driver would then page, and a request that needed a page back while the verify
         // graph spun on a host flag would never finish.  So the slots are zeroed and the free figure read again; while
         // it is short of the reserve the cache is reopened smaller.
+        //
+        // Another process loading a model takes VRAM for a while and gives part of it back, so a figure read in the
+        // middle of that is not the room this cache has.  While the figure is short it is read again every second
+        // until it is enough, or has stopped moving (three reads within 32 MiB), or 45 s have passed.
+        auto settled_free = [](size_t free_b, int64_t want) -> size_t {
+            constexpr int kSettleSeconds = 45;
+            constexpr int64_t kCalm = 32ll << 20;
+            int calm = 0;
+            for (int s = 0; s < kSettleSeconds && (int64_t) free_b < want - (64ll << 20) && calm < 3; ++s) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                size_t now = 0, total = 0;
+                cudaMemGetInfo(&now, &total);
+                const int64_t moved = (int64_t) now - (int64_t) free_b;
+                calm = (moved < 0 ? -moved : moved) <= kCalm ? calm + 1 : 0;
+                free_b = now;
+            }
+            return free_b;
+        };
         int failed = 0;
-        int zero_reads = 0;
         for (int attempt = 0;; ++attempt) {
             bool ok = false;
             {
@@ -325,21 +345,25 @@ int cache_size(Context& context) {
                 }
                 return fatal_start_error(err);
             }
-            if (!auto_cache || attempt - failed >= 6) break;
+            if (!auto_cache || attempt - failed >= 24) break;
             cudaMemset(xcache.device_slot(0), 0, (size_t) xcache.bytes());
             cudaDeviceSynchronize();
             size_t free_b = 0, total_b = 0;
             cudaMemGetInfo(&free_b, &total_b);
             const int64_t want = (int64_t) o.vram_reserve_mib << 20;
+            const size_t first_read = free_b;
+            if ((int64_t) free_b < want - (64ll << 20)) free_b = settled_free(free_b, want);
+            if (free_b != first_read)
+                basalt::log::info("basalt generate", "free VRAM %lld MiB once the slots are written, %lld MiB after it settled",
+                             (long long) (first_read >> 20), (long long) (free_b >> 20));
             if ((int64_t) free_b >= want - (64ll << 20)) break;
-            // short by (want - free); a figure of 0 only says "at least": the first two such reads give back 1 GiB
-            // each (the free figure read before the allocation can run high), later ones a quarter
-            int64_t give = want - (int64_t) free_b + (64ll << 20);
-            if (free_b < ((size_t) 16 << 20))
-                give = std::max<int64_t>(give, ++zero_reads <= 2 ? 1ll << 30 : xcache.bytes() / 4);
+            // short by (want - free); a figure of 0 only says "at least" that much, so the step is that much and the
+            // next read says how much more
+            const int64_t give = want - (int64_t) free_b + (64ll << 20);
             const int64_t keep_bytes = xcache.bytes() - give;
             basalt::log::warn("basalt generate", "only %lld MiB free once the slots are written (reserve %d MiB); "
-                                 "shrinking the expert cache", (long long) (free_b >> 20), o.vram_reserve_mib);
+                                 "shrinking the expert cache by %lld MiB", (long long) (free_b >> 20), o.vram_reserve_mib,
+                         (long long) (give >> 20));
             xcache.close();
             if (!shrink_to(keep_bytes)) break;
         }
