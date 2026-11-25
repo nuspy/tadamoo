@@ -66,6 +66,7 @@ The per-layer n-gram (PLE) table stays on disk and its rows are read as needed.
 | `--quality-t` | bench | tokens, 3 | Tokens per verify window in the gate. |
 | `--ppl-base` | serve | path | The base file that `ppl=` requests score against. |
 | `--ppl-out` | serve | path | Where `ppl=` requests write their per-row lines. |
+| `--ppl-write-base` | serve | | The `--ppl-base` file holds only its header and tokens: `ppl=` requests write this engine's rows into it. |
 | `ppl=K` | request key | chunk index | Score chunk K of `--ppl-base`, the rest of the chunk teacher-forced through verify windows. |
 | `ppl_t=T` | request key | tokens, 3 | The window width of a `ppl=` request. |
 

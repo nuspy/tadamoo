@@ -6,6 +6,9 @@
 // A serve request with `ppl=K` reads chunk K's first half as its prompt and then teacher-forces the rest through
 // the verify windows; every scored row is compared with the base row here and written as one line to
 // --ppl-out: chunk pos target nll nll_base kld same_top top top_base dlogp_top_base.
+// With --ppl-write-base the base file already holds its header and tokens (tools/ppl_gate.py --write-base) and the
+// rows are written instead of read: each row is this engine's own log-softmax, quantized over [max(min, -16), max]
+// as above, and its line in --ppl-out compares the logits with that quantized row (the quantization error).
 #include "basalt/platform/file.hpp"
 
 #include <algorithm>
@@ -24,9 +27,10 @@ namespace basalt::program {
 class PplGate {
 public:
     /// the base file and the output file, set from --ppl-base and --ppl-out before the first get()
-    static void configure(const std::string& base, const std::string& out) {
+    static void configure(const std::string& base, const std::string& out, bool write_base = false) {
         paths().first = base;
         paths().second = out;
+        writing() = write_base;
     }
     static PplGate& get() {
         static PplGate g;
@@ -78,11 +82,16 @@ private:
         static std::pair<std::string, std::string> p;
         return p;
     }
+    static bool& writing() {
+        static bool w = false;
+        return w;
+    }
     PplGate() {
         const char* base = paths().first.c_str();
         const char* out = paths().second.c_str();
         if (paths().first.empty() || paths().second.empty()) return;
-        fd_ = basalt::platform::open_fd_utf8(paths().first);
+        write_ = writing();
+        fd_ = write_ ? basalt::platform::open_update_utf8(paths().first) : basalt::platform::open_fd_utf8(paths().first);
         char magic[8];
         uint32_t n_ctx = 0;
         int32_t nv[2] = {0, 0};
@@ -122,13 +131,39 @@ private:
         return true;
     }
 
+    // a base row from head logits: log-softmax, the range [max(min, -16), max] in 65535 steps; scale, min, the codes, the padding
+    void quantize(const std::vector<float>& lg, std::vector<uint16_t>& row) const {
+        const int64_t V = n_vocab_;
+        float maxv = lg[0];
+        for (int64_t i = 1; i < V; ++i) maxv = std::max(maxv, lg[(size_t) i]);
+        double sum = 0.0;
+        for (int64_t i = 0; i < V; ++i) sum += std::exp(lg[(size_t) i] - maxv);
+        const float lse = maxv + (float) std::log(sum);
+        const float hi = maxv - lse;
+        const float lo = std::max(*std::min_element(lg.begin(), lg.begin() + V) - lse, -16.0f);
+        float scale = (hi - lo) / 65535.0f;
+        if (!(scale > 0.0f)) scale = 1.0f / 65535.0f;
+        std::memcpy(row.data(), &scale, 4);
+        std::memcpy(row.data() + 2, &lo, 4);
+        for (int64_t i = 0; i < V; ++i) {
+            const long q = std::lround((lg[(size_t) i] - lse - lo) / scale);
+            row[(size_t) (4 + i)] = (uint16_t) std::min(65535L, std::max(0L, q));
+        }
+        for (int64_t i = V; i + 4 < row_u16_; ++i) row[(size_t) (4 + i)] = 0;
+    }
+
     // the same arithmetic as llama-perplexity's KL-divergence pass
     bool row(int64_t pos, const std::vector<float>& lg) {
         const int64_t r = pos - first(), rows = n_ctx_ - 1 - first();
         const uint64_t off = 20 + (uint64_t) n_chunk_ * n_ctx_ * 4 +
                              ((uint64_t) chunk_ * rows + (uint64_t) r) * (uint64_t) row_u16_ * 2;
         base_.resize((size_t) row_u16_);
-        if (!read_at(base_.data(), base_.size() * 2, off)) return false;
+        if (write_) {
+            quantize(lg, base_);
+            if (!basalt::platform::pwrite_all(fd_, base_.data(), base_.size() * 2, off)) return false;
+        } else if (!read_at(base_.data(), base_.size() * 2, off)) {
+            return false;
+        }
         float scale, min_lp;
         std::memcpy(&scale, base_.data(), 4);
         std::memcpy(&min_lp, base_.data() + 2, 4);
@@ -159,6 +194,7 @@ private:
     }
 
     int fd_ = -1;
+    bool write_ = false;
     std::FILE* out_ = nullptr;
     int64_t n_ctx_ = 0, n_vocab_ = 0, n_chunk_ = 0, row_u16_ = 0;
     int chunk_ = -1;

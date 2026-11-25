@@ -12,10 +12,16 @@ that value.
                             [--gpu 0 ...]
   python3 tools/ppl_gate.py --report DIR/rows.tsv          # summary of a finished run
   python3 tools/ppl_gate.py --diff A/rows.tsv B/rows.tsv   # row by row: identical rows, largest NLL/KLD change
+
+A base written by this engine instead of llama.cpp (a later run against it measures the shift from this build with the
+flags given here, not the quality in absolute terms; rewrite it when the package, the build or a flag changes):
+
+  python3 tools/ppl_gate.py --write-base --text FILE.txt --model FILE.basalt --base base.kld --out DIR [--chunks 20]
 """
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import struct
 import subprocess
@@ -24,6 +30,51 @@ import time
 from pathlib import Path
 
 ENGINE_BIN = Path(__file__).resolve().parents[1] / "bin" / "basalt"
+N_CTX = 512
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+def row_bytes(n_vocab: int) -> int:
+    """One base row: scale and min (two f32), then n_vocab u16 padded to an even count."""
+    return 2 * (2 * ((n_vocab + 1) // 2) + 4)
+
+
+def base_size(n_ctx: int, n_vocab: int, n_chunk: int) -> int:
+    return 20 + n_chunk * n_ctx * 4 + n_chunk * (n_ctx - 1 - n_ctx // 2) * row_bytes(n_vocab)
+
+
+def write_base_file(path: str, chunks: list[list[int]], n_ctx: int, n_vocab: int) -> int:
+    """The base's header and tokens, with the space of its rows reserved (the engine writes them). Returns the size."""
+    if any(len(c) != n_ctx for c in chunks):
+        raise ValueError("every chunk needs exactly n_ctx tokens")
+    with open(path, "xb") as f:                                   # never over an existing base
+        f.write(b"_logits_" + struct.pack("<Iii", n_ctx, n_vocab, len(chunks)))
+        for c in chunks:
+            f.write(struct.pack(f"<{n_ctx}i", *c))
+        size = base_size(n_ctx, n_vocab, len(chunks))
+        f.truncate(size)
+    return size
+
+
+def tokenize_text(model: str, text: str) -> tuple[list[int], int]:
+    """The token ids of `text` with the model file's own tokenizer, and the model's vocabulary size."""
+    import tokenizer as ST
+    from model_file import ModelFile
+    mf = ModelFile(model)
+    vocab = json.loads(mf.read("vocab.json").decode("utf-8"))
+    tokens = [None] * len(vocab)
+    for t, i in vocab.items():
+        tokens[i] = t
+    merges = mf.read("merges.txt").decode("utf-8").replace("\r\n", "\n").split("\n")
+    types = json.loads(mf.read("token_type.json"))
+    pre = "qwen35"
+    if "tokenizer.json" in mf.sections:
+        pre = json.loads(mf.read("tokenizer.json").decode("utf-8")).get("pre", "qwen35")
+    ids = ST.Tokenizer(tokens, merges, types, pre=pre).encode(text)
+    shape = ((json.loads(mf.read("meta")).get("tensors") or {}).get("output.weight") or {}).get("shape") or []
+    if not shape:
+        sys.exit(f"{model}: the meta section has no output.weight shape (the vocabulary size)")
+    return ids, int(shape[-1])
 
 
 def read_base(path: str):
@@ -112,7 +163,8 @@ def run(a) -> int:
             "--adapt-swaps", "0", "--peer-adapt-swaps", "0", "--max-context", "4096"]
     if gpu_count() > 1:
         args += ["--gpu", "0,1"]
-    args = set_args(args, a.engine_args + ["--ppl-base", str(Path(a.base).resolve())])
+    args = set_args(args, a.engine_args + ["--ppl-base", str(Path(a.base).resolve())]
+                    + (["--ppl-write-base"] if a.write_base else []))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rows = out / "rows.tsv"
@@ -188,6 +240,9 @@ def main() -> int:
     ap.add_argument("--chunks", type=int, default=0, help="the first N chunks (0: all)")
     ap.add_argument("--t", type=int, default=3, help="tokens per verify window")
     ap.add_argument("--progress", type=int, default=10, help="a progress line every N chunks (0: none)")
+    ap.add_argument("--write-base", action="store_true",
+                    help="write --base from --text with this engine (run once; refuses an existing file), then measure")
+    ap.add_argument("--text", help="with --write-base: the plain text the chunks are cut from")
     ap.add_argument("--report", help="print the summary of an existing rows.tsv and exit")
     ap.add_argument("--diff", nargs=2, metavar=("A", "B"), help="compare two rows.tsv files row by row and exit")
     a, extra = ap.parse_known_args()
@@ -202,6 +257,19 @@ def main() -> int:
         ap.error("--model, --base and --out are required")
     if not a.engine_bin:
         ap.error("no engine binary: pass --engine-bin")
+    if a.write_base:
+        if not a.text:
+            ap.error("--write-base needs --text")
+        if Path(a.base).exists():
+            ap.error(f"{a.base} exists: a base is written once")
+        ids, n_vocab = tokenize_text(a.model, Path(a.text).read_text(encoding="utf-8"))
+        n_chunk = len(ids) // N_CTX
+        if a.chunks > 0:
+            n_chunk = min(n_chunk, a.chunks)
+        if n_chunk < 1:
+            ap.error(f"the text gives {len(ids)} tokens, fewer than one chunk of {N_CTX}")
+        size = write_base_file(a.base, [ids[k * N_CTX:(k + 1) * N_CTX] for k in range(n_chunk)], N_CTX, n_vocab)
+        print(f"base {a.base}: {n_chunk} chunks of {N_CTX}, vocabulary {n_vocab}, {size / 2**30:.2f} GiB reserved")
     return run(a)
 
 

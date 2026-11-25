@@ -235,6 +235,10 @@ int open_write_utf8(const std::string& path) {
     return _wopen(to_wide_path(path).c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, _S_IREAD | _S_IWRITE);
 }
 
+int open_update_utf8(const std::string& path) {
+    return _wopen(to_wide_path(path).c_str(), _O_RDWR | _O_BINARY);
+}
+
 int open_write_unbuffered(const std::string& path) {
     // As for reads: a caller that gets -1 writes through the file cache.
     (void) path;
@@ -364,6 +368,10 @@ int open_unbuffered(const std::string& path) {
 
 int open_write_utf8(const std::string& path) {
     return ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+}
+
+int open_update_utf8(const std::string& path) {
+    return ::open(path.c_str(), O_RDWR | O_CLOEXEC);
 }
 
 int open_write_unbuffered(const std::string& path) {

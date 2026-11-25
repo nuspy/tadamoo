@@ -173,6 +173,8 @@ void usage() {
                  "                       experts not in VRAM drop out, so the output is wrong (serve path)\n"
                  "  --ppl-base FILE      llama.cpp KL-divergence base for ppl= requests\n"
                  "  --ppl-out FILE       where ppl= requests write their per-row lines\n"
+                 "  --ppl-write-base     the --ppl-base file holds only its header and tokens; ppl= requests write\n"
+                 "                       this engine's own rows into it (tools/ppl_gate.py --write-base)\n"
                  "  --gpu-stages         capture the layer as three graphs (mixer / ffn+router / post)\n"
                  "                       and time them from OUTSIDE the capture.  The per-stage table on the\n"
                  "                       real graph that --stage-timing cannot give.  Prints and exits.\n"

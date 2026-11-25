@@ -9,7 +9,7 @@ bool QfnRequest::parse_begin() { return !runtime_.mtp_on || runtime_.mtp.use_mai
 float QfnRequest::default_relax() const { return runtime_.o.relaxed_drafting; }
 
 Flow QfnRequest::prepare_image() {
-    if (const Flow flow = begin_quality_gate(runtime_.ppl_base, runtime_.ppl_out, runtime_.S); flow != Flow::proceed) return flow;
+    if (const Flow flow = begin_quality_gate(runtime_.ppl_base, runtime_.ppl_out, runtime_.o.ppl_write_base, runtime_.S); flow != Flow::proceed) return flow;
     if (geni || !runtime_.mrope_identity) {
         // positions for every cell this request can reach; the identity again for a text request
         std::string ve;

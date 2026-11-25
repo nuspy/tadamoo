@@ -28,6 +28,16 @@ Earlier numbers were measured against a llama.cpp Q8_0 base. That base carries l
 section), so every pack read 0.003 to 0.010 KLD higher against it, and the Basalt-Plus Q8_0 pack is closer to BF16 (0.0200)
 than to it (0.0304). All numbers in these pages are against the BF16 base.
 
+### A base written by the engine
+
+`tools/ppl_gate.py --write-base --text FILE` cuts the text into 512-token chunks with the model's own tokenizer, writes
+the base's header and tokens, and runs the engine with `--ppl-write-base`: each scored row is then the engine's own fp32
+log-softmax, quantized over [max(min, -16), max] in 65535 steps and stored where the reader takes it from. A later run
+against that file gives the paired comparison with the build, package and flags that wrote it: `ln(PPL/base)`, KLD and
+top-1 are the shift from them, not the quality against BF16. Rewrite the base when the package, the build or a flag that
+changes the numbers (`--kv`, the verify window T, `--resident-experts`) changes. The file holds about
+`2 x n_vocab` bytes per row, 255 rows per chunk.
+
 ## Why llama.cpp's Q8_0 reads further from BF16
 
 llama.cpp quantizes the activations of its Q8_0 matmuls. In the hyper-connection read (down projection 10240 → 320,

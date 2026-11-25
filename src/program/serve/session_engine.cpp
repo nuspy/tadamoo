@@ -655,7 +655,7 @@ Flow SessionRuntime::run_request() {
 // Each run of pad tokens takes the next picture's rows from the request's embeddings file.
 Flow SessionRequest::prepare_image() {
     // a session keeps one row of logits, so the gate scores one row per window
-    if (const Flow flow = begin_quality_gate(runtime_.o.ppl_base, runtime_.o.ppl_out, 1); flow != Flow::proceed) return flow;
+    if (const Flow flow = begin_quality_gate(runtime_.o.ppl_base, runtime_.o.ppl_out, runtime_.o.ppl_write_base, 1); flow != Flow::proceed) return flow;
     if (!geni) return Flow::proceed;
     std::string bad;
     std::ifstream ef(emb_path, std::ios::binary);

@@ -4,11 +4,11 @@
 
 namespace basalt::program::serve {
 
-Flow Request::begin_quality_gate(const std::string& base, const std::string& out, int most_rows) {
+Flow Request::begin_quality_gate(const std::string& base, const std::string& out, bool write_base, int most_rows) {
     ppl = nullptr;
     if (req_ppl < 0) return Flow::proceed;
     std::string pe2;
-    PplGate::configure(base, out);
+    PplGate::configure(base, out, write_base);
     ppl = &PplGate::get();
     if (geni || !ppl->begin(req_ppl, ids.data(), n, runtime_.n_vocab, pe2)) {
         std::printf("ERR %s\n", geni ? "ppl: text only" : pe2.c_str());

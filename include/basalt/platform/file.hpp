@@ -123,6 +123,10 @@ int open_unbuffered(const std::string& path);
 /// failure.
 int open_write_utf8(const std::string& path);
 
+/// Opens an existing `path` for reading and writing, binary, keeping its contents: `pread` and `pwrite_all` both work
+/// on the descriptor. -1 when the file does not exist or cannot be opened.
+int open_update_utf8(const std::string& path);
+
 /// The same with writes that bypass the OS cache: buffer address, offset and count aligned to 4096. -1 where the
 /// platform gives no such descriptor, and the caller writes through `open_write_utf8` instead.
 int open_write_unbuffered(const std::string& path);

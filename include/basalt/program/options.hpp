@@ -89,6 +89,7 @@ struct CommonOptions {
     bool gpu_plan = false;
     std::string arch;                  ///< the --model file's architecture
     std::string ppl_base, ppl_out;     ///< --ppl-base, --ppl-out
+    bool ppl_write_base = false;       ///< --ppl-write-base: ppl= requests write the base's rows instead of reading them
     std::string model_name;            ///< the adapter's community-row name, for --gpu-plan
     std::string quality_flags;         ///< the flags the quality gate starts this model with, for --gpu-plan
     std::string community_quant;       ///< the adapter's quant label for community rows when the pack name has none
