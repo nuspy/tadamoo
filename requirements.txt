@@ -11,6 +11,7 @@ pillow==12.3.0
 zxing-cpp==3.1.1                       # reads the QR code of an authenticator export from a picture or a camera frame (Apache-2.0)
 pypdf==7.0.1
 psutil==7.2.2
+nvidia-ml-py==13.615.71   # the VRAM Explorer reads NVML through it (serve/gputaskman; the Monitor tab): pure Python, the library itself comes with the driver (BSD-3)
 requests==2.33.1
 cryptography==46.0.7
 python-docx==1.2.0           # the Word tools of the harness (docx_outline, docx_read, docx_edit, docx_create)

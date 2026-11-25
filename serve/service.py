@@ -780,6 +780,13 @@ class Service:
             from serve.util.telemetry import Telemetry
             self.telemetry = Telemetry(extra=self.telemetry_extra, gpu_indices=getattr(self, "gpu_indices", None) or [0])
 
+    def vram_explorer(self):
+        """The VRAM Explorer's collectors, made at the first request."""
+        if getattr(self, "_vram_explorer", None) is None:
+            from serve.vram_explorer import VramExplorer
+            self._vram_explorer = VramExplorer()
+        return self._vram_explorer
+
     def telemetry_extra(self) -> dict:
         """This model's speeds, for the hardware sampler behind GET /metrics."""
         return {"tok_s": self._tok_s(), "prefill_tok_s_mean": self._prefill_tok_s_mean(),

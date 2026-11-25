@@ -681,6 +681,15 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/metrics":
                 if self._authorized():
                     self._json(200, svc.metrics())
+            elif path == "/api/vram/history":
+                if self._authorized():
+                    span = parse_qs(urlsplit(self.path).query).get("range", ["300"])[0]
+                    hist = getattr(getattr(svc, "telemetry", None), "vram_history", None)
+                    self._json(200, hist(int(span) if span.isdigit() else 300) if hist else {"gpus": []})
+            elif path == "/api/vram/explorer":
+                if self._authorized():
+                    gpu = parse_qs(urlsplit(self.path).query).get("gpu", ["0"])[0]
+                    self._json(200, svc.vram_explorer().snapshot(int(gpu) if gpu.isdigit() else 0))
             elif path == "/api/logs":
                 if self._authorized():
                     self._logs()
@@ -5224,6 +5233,9 @@ class Server(ThreadingHTTPServer):
         stop = getattr(getattr(self.svc, "telemetry", None), "stop", None)
         if stop is not None:
             stop()
+        explorer = getattr(self.svc, "_vram_explorer", None)
+        if explorer is not None:
+            explorer.close()
 
     def handle_error(self, request, client_address):
         if not isinstance(sys.exc_info()[1], ConnectionError):   # a hang-up needs no stack trace

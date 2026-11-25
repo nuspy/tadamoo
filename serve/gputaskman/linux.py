@@ -1,0 +1,441 @@
+"""Linux GPU backend: adapters and per-process usage from NVML (and DRM fdinfo for AMD), with an honest WSL mode.
+
+Native Linux: NVML attributes VRAM (running compute/graphics processes) and SM/encoder/decoder load
+(process utilization samples) to Linux PIDs, which plays the role the WDDM counters play on Windows.
+There is no Linux equivalent of WDDM's shared-memory spill or commit counters, so those stay empty.
+
+WSL: the GPU is paravirtualized through /dev/dxg and the Windows host charges every Linux process's
+VRAM to the VM worker (vmwp.exe). NVML's process lists come back empty, and its utilization samples
+carry *Windows host* PIDs, which must never be looked up in Linux's /proc. In WSL we therefore only
+report device-wide numbers, plus the Linux processes that hold /dev/dxg open, marked unattributed.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from collections import defaultdict
+from functools import lru_cache
+
+from .dxgi import VENDOR_NVIDIA, Adapter
+from .pdh import AdapterGpu, ProcGpu
+
+try:
+    import pynvml as N
+except ImportError:  # pragma: no cover
+    N = None
+
+
+@lru_cache(maxsize=1)
+def is_wsl() -> bool:
+    if os.path.exists("/dev/dxg"):
+        return True
+    try:
+        with open("/proc/sys/kernel/osrelease", encoding="ascii") as f:
+            return "microsoft" in f.read().lower()
+    except OSError:
+        return False
+
+
+def pci_key(bus_id: str) -> int:
+    """'00000000:01:00.0' -> stable integer adapter key (the Linux stand-in for a WDDM LUID)."""
+    return int(re.sub(r"[^0-9a-f]", "", bus_id.lower()) or "0", 16)
+
+
+def _bus_id(handle) -> str:
+    pci = N.nvmlDeviceGetPciInfo(handle)
+    bus = pci.busId
+    return bus.decode() if isinstance(bus, bytes) else str(bus)
+
+
+def _nvml_devices() -> list[tuple[int, object]]:
+    """(adapter key, handle) per GPU NVML can open; a lost or failing GPU is skipped, not fatal."""
+    out = []
+    try:
+        count = N.nvmlDeviceGetCount()
+    except Exception:
+        return out
+    for i in range(count):
+        try:
+            h = N.nvmlDeviceGetHandleByIndex(i)
+        except Exception:
+            continue
+        try:
+            key = pci_key(_bus_id(h))
+        except Exception:
+            key = i + 1
+        out.append((key, h))
+    return out
+
+
+def enumerate_adapters() -> list[Adapter]:
+    """NVIDIA GPUs through NVML, plus AMD GPUs through AMD SMI in WSL (or DRM on native Linux),
+    Intel GPUs through DRM, and Huawei Ascend NPUs through npu-smi."""
+    out = _nvml_adapters()
+    if is_wsl():
+        seen = {a.luid for a in out}
+        out += [a for a in _amdsmi_adapters() if a.luid not in seen]
+    else:
+        from . import drm
+
+        seen = {a.luid for a in out}
+        out += [a for a in drm.adapters(drm.cards()) if a.luid not in seen]
+        # Ascend NPUs (no DRM): dual-chip cards yield one adapter per chip.
+        from . import ascend
+
+        seen |= {a.luid for a in out}
+        out += [a for a in ascend.cached_chips_adapters() if a.luid not in seen]
+    return out
+
+
+def _amdsmi_adapters() -> list[Adapter]:
+    from .amdsmi import _bdf, _import_amdsmi, _read_vram_bytes, amdsmi_session, set_discovery_status
+    from .dxgi import VENDOR_AMD
+
+    set_discovery_status("")
+    if not os.path.exists("/dev/dxg"):
+        set_discovery_status("cannot access /dev/dxg; WSL GPU paravirtualization is unavailable")
+        return []
+    api = _import_amdsmi()
+    if api is None:
+        return []
+    out = []
+    try:
+        with amdsmi_session(api):
+            for h in api.amdsmi_get_processor_handles():
+                try:
+                    bdf = str(api.amdsmi_get_gpu_device_bdf(h))
+                except Exception as error:
+                    set_discovery_status(f"could not read a GPU's PCI address ({type(error).__name__}: {error})")
+                    continue
+                pci_addr = _bdf(bdf)
+                if pci_addr is None:
+                    set_discovery_status("reported an unsupported or ambiguous PCI address; that GPU was skipped")
+                    continue
+                try:
+                    asic = api.amdsmi_get_gpu_asic_info(h) or {}
+                    name = str(asic.get("market_name") or "AMD GPU")
+                except Exception:
+                    name = "AMD GPU"
+                total, _ = _read_vram_bytes(api, h, wsl=True)
+                out.append(Adapter(luid=pci_key(bdf), name=name, vendor_id=VENDOR_AMD, dedicated_vram=total or 0,
+                                   shared_system=0, software=False, pci_address=pci_addr))
+        unique = [a for a in out if sum(b.pci_address == a.pci_address for b in out) == 1]
+        if len(unique) != len(out):
+            set_discovery_status("reported duplicate PCI addresses; ambiguous GPUs were skipped")
+        out = unique
+        if not out:
+            set_discovery_status("found no usable WSL GPU; the installed stack may not support this GPU or driver")
+    except Exception as error:
+        set_discovery_status(f"WSL discovery failed ({type(error).__name__}: {error})")
+    return out
+
+
+def _nvml_adapters() -> list[Adapter]:
+    if N is None:
+        return []
+    try:
+        N.nvmlInit()
+    except Exception:
+        return []
+    out = []
+    try:
+        for key, h in _nvml_devices():
+            try:
+                name = N.nvmlDeviceGetName(h)
+                name = name.decode() if isinstance(name, bytes) else name
+                total = N.nvmlDeviceGetMemoryInfo(h).total
+            except Exception:
+                continue
+            out.append(Adapter(luid=key, name=name, vendor_id=VENDOR_NVIDIA, dedicated_vram=total,
+                               shared_system=0, software=False))
+    finally:
+        try:
+            N.nvmlShutdown()
+        except Exception:
+            pass
+    return out
+
+
+PROC_PID_INIT_INO = 0xEFFFFFFC  # the kernel's fixed inode number for the initial (host) PID namespace
+
+
+@lru_cache(maxsize=1)
+def in_child_pid_namespace() -> bool | None:
+    """True inside a container with its own PID namespace, where NVML reports host PIDs. False in the host
+    namespace (bare metal, or a container run with --pid=host), where NVML's PIDs are this /proc's PIDs.
+    None when it can't be told."""
+    try:
+        link = os.readlink("/proc/self/ns/pid")  # "pid:[4026531836]"
+        return int(link.split("[", 1)[1].rstrip("]")) != PROC_PID_INIT_INO
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def dxg_pids(exclude: set[int] | None = None) -> set[int]:
+    """Linux PIDs with /dev/dxg open: the processes that use the GPU under WSL. Other users' processes
+    are only visible when running as root."""
+    exclude = exclude or set()
+    pids = set()
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit() or int(entry.name) in exclude:
+            continue
+        try:
+            fds = os.scandir(f"/proc/{entry.name}/fd")
+        except OSError:
+            continue
+        with fds:
+            for fd in fds:
+                try:
+                    if os.readlink(fd.path) == "/dev/dxg":
+                        pids.add(int(entry.name))
+                        break
+                except OSError:
+                    continue
+    return pids
+
+
+def nvidia_holders() -> set[int]:
+    """Local PIDs with an NVIDIA device file open (/dev/nvidia0, nvidiactl, nvidia-uvm, ...)."""
+    pids = set()
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            fds = os.scandir(f"/proc/{entry.name}/fd")
+        except OSError:
+            continue
+        with fds:
+            for fd in fds:
+                try:
+                    if os.readlink(fd.path).startswith("/dev/nvidia"):
+                        pids.add(int(entry.name))
+                        break
+                except OSError:
+                    continue
+    return pids
+
+
+def has_cuda(pid: int) -> bool:
+    """libcuda.so mapped: a CUDA candidate, not proof of context ownership. NVML-only tools such as
+    nvidia-smi open the same device files but do not load libcuda, so they don't count."""
+    try:
+        with open(f"/proc/{pid}/maps", encoding="utf-8", errors="replace") as f:
+            return any("/libcuda.so" in line for line in f)
+    except OSError:
+        return False
+
+
+class PidMatcher:
+    """Containers: NVML reports *host* PIDs, which mean nothing in the container's /proc. Both PID
+    namespaces number processes in creation order, so the container's local candidates are matched to
+    NVML's unresolved PIDs by order. A new NVML PID and a new local candidate appearing together keeps
+    a stable pair while both live, but does not prove ownership: a device handle, mapped libcuda, and
+    correlated starts do not establish that the local process owns that NVML context. Matches remain
+    "order" guesses unless ownership is uniquely established or all viable matches give the same bytes.
+    Unmatched NVML PIDs also have unresolved local ownership."""
+
+    def __init__(self) -> None:
+        self.pairs: dict[int, int] = {}  # host pid -> stable local candidate pairing
+        self.prev_host: set[int] | None = None
+        self.prev_local: set[int] = set()
+
+    def update(self, host: list[int], local: list[int]) -> tuple[dict[int, tuple[int, str]], list[int]]:
+        """Returns ({host pid: (local pid, confidence)}, unmatched host pids)."""
+        first = self.prev_host is None
+        hs, ls = set(host), set(local)
+        self.pairs = {h: l for h, l in self.pairs.items() if h in hs and l in ls}
+        if not first:
+            new_h = [h for h in host if h not in self.prev_host and h not in self.pairs]
+            new_l = [p for p in local if p not in self.prev_local and p not in self.pairs.values()]
+            if len(new_h) == len(new_l) == 1:
+                self.pairs[new_h[0]] = new_l[0]
+        self.prev_host, self.prev_local = hs, ls
+        out = {h: (l, "order") for h, l in self.pairs.items()}
+        rest_h = sorted((h for h in host if h not in self.pairs), reverse=True)  # newest first
+        rest_l = sorted((p for p in local if p not in self.pairs.values()), reverse=True)
+        for h, l in zip(rest_h, rest_l):
+            out[h] = (l, "order")
+        return out, rest_h[len(rest_l):]
+
+
+def _value(v) -> int | None:
+    # NVML reports NVML_VALUE_NOT_AVAILABLE (unsigned -1) or None when per-process memory is hidden.
+    if v is None or v >= (1 << 63):
+        return None
+    return int(v)
+
+
+class LinuxCounters:
+    """Same interface as pdh.GpuCounters: sample() -> ({adapter key: {pid: ProcGpu}}, {adapter key: AdapterGpu})."""
+
+    def __init__(self) -> None:
+        self.wsl = is_wsl()
+        self.ok = False
+        self._devices: list[tuple[int, object]] = []
+        self._last_ts: dict[int, int] = {}
+        self.dxg_holders: set[int] = set()
+        self.process_status: dict[int, str] = {}
+        self._matcher = PidMatcher()
+        # Measured NVML counters keyed by host PID; local ownership is unresolved.
+        # These PIDs must never be looked up in this /proc.
+        self.host_procs: dict[int, dict[int, ProcGpu]] = {}
+        # AMD (amdgpu) and Intel (i915/xe) GPUs: per-process VRAM/GTT and engine time from DRM
+        # fdinfo. Native Linux only;
+        # under WSL the GPU is /dev/dxg and no DRM driver is involved.
+        self.drm = None
+        if not self.wsl:
+            from .drm import DrmCounters
+
+            drm = DrmCounters()  # cheap: only lists cards; the Collector starts it if an AMD GPU is selected
+            self.drm = drm if drm.ok else None
+        # A Collector attaches an Ascend provider only when an Ascend chip is selected.
+        self.ascend = None
+        self._wsl_keys = [a.luid for a in _amdsmi_adapters()] if self.wsl else []
+        self._nvml_ok = False
+        if N is None:
+            self.ok = bool(self._wsl_keys)
+            return
+        try:
+            N.nvmlInit()
+        except Exception:
+            self.ok = bool(self._wsl_keys)
+            return
+        self.ok = True
+        self._nvml_ok = True
+        try:
+            self._devices = _nvml_devices()
+        except Exception:
+            self._devices = []
+
+    @staticmethod
+    def _processes(fn, h) -> tuple[list, Exception | None]:
+        try:
+            return list(fn(h)), None
+        except Exception as error:
+            return [], error
+
+    def _utilization(self, key: int, h) -> dict[int, object]:
+        """Latest utilization sample per PID since the previous call."""
+        try:
+            samples = N.nvmlDeviceGetProcessUtilization(h, self._last_ts.get(key, 0))
+        except Exception:  # NVML_ERROR_NOT_FOUND when nothing ran since the last sample
+            return {}
+        latest: dict[int, object] = {}
+        for s in samples:
+            if s.pid not in latest or s.timeStamp > latest[s.pid].timeStamp:
+                latest[s.pid] = s
+        if latest:
+            self._last_ts[key] = max(s.timeStamp for s in latest.values())
+        return latest
+
+    def sample(self) -> tuple[dict[int, dict[int, ProcGpu]], dict[int, AdapterGpu]]:
+        procs: dict[int, dict[int, ProcGpu]] = defaultdict(dict)
+        adapters: dict[int, AdapterGpu] = defaultdict(AdapterGpu)
+        self._compute_pids: set[int] = set()
+        self.dxg_holders = set()
+        self.process_status = {}
+        for key, h in self._devices:
+            try:
+                adapters[key].dedicated = float(N.nvmlDeviceGetMemoryInfo(h).used)
+            except Exception:
+                pass
+            if self.wsl:
+                continue  # NVML per-process data is empty or keyed by Windows host PIDs here
+            compute, compute_error = self._processes(N.nvmlDeviceGetComputeRunningProcesses, h)
+            graphics, graphics_error = self._processes(N.nvmlDeviceGetGraphicsRunningProcesses, h)
+            failures = [
+                f"{kind} process list failed ({type(error).__name__}: {error})"
+                for kind, error in (("compute", compute_error), ("graphics", graphics_error))
+                if error is not None
+            ]
+            if failures:
+                self.process_status[key] = "NVML " + "; ".join(failures) + "; attributed total is unknown."
+            compute_pids = {p.pid for p in compute}
+            self._compute_pids |= compute_pids
+            per = procs[key]
+            for p in compute + graphics:
+                g = per.setdefault(p.pid, ProcGpu())
+                used = _value(getattr(p, "usedGpuMemory", None))
+                if used is None:
+                    g.attributed = False
+                    g.available.discard("dedicated")
+                    g.dedicated = 0.0
+                elif g.attributed:
+                    # A process in both lists reports the same allocation twice; don't double count.
+                    g.dedicated = max(g.dedicated, float(used))
+            for pid, s in self._utilization(key, h).items():
+                if pid not in per:
+                    continue  # utilization for a process NVML no longer lists (or another PID namespace)
+                g = per[pid]
+                g.engines["compute" if pid in compute_pids else "3d"] += float(s.smUtil)
+                g.engines["encode"] += float(s.encUtil)
+                g.engines["decode"] += float(s.decUtil)
+        if not self.wsl:
+            self._resolve_namespaces(procs)
+        if self.wsl and (self._devices or self._wsl_keys):
+            self.dxg_holders = dxg_pids()
+            users = self.dxg_holders - {os.getpid()}
+            # WSL does not say which GPU a process uses; with one GPU (the common case) that's unambiguous.
+            keys = [key for key, _ in self._devices]
+            keys += [k for k in self._wsl_keys if k not in keys]
+            for key in keys:
+                for pid in users:
+                    procs[key][pid] = ProcGpu(attributed=False)
+        if self.drm is not None:
+            drm_procs, drm_adapters = self.drm.sample()
+            procs.update(drm_procs)
+            adapters.update(drm_adapters)
+        if self.ascend is not None and self.ascend.ok:
+            asc_procs, asc_adapters = self.ascend.sample()
+            procs.update(asc_procs)
+            adapters.update(asc_adapters)
+        return procs, adapters
+
+    def _resolve_namespaces(self, procs: dict[int, dict[int, ProcGpu]]) -> None:
+        """Keep measured host counters apart from guessed local owners. In the host PID namespace
+        (bare metal, --pid=host) NVML PIDs already are local, including other users' processes. In a
+        child namespace every NVML PID is a host PID, even one that happens to equal a local PID;
+        PidMatcher supplies only local display hints, not measured counters."""
+        self.host_procs = {}
+        nv_pids = {pid for per in procs.values() for pid in per}
+        # A coincidentally existing /proc PID cannot prove ownership if namespace detection failed.
+        unresolved = sorted(nv_pids) if in_child_pid_namespace() is not False else []
+        if not unresolved:
+            self._matcher.update([], [])
+            return
+        holders = nvidia_holders()
+        me = os.getpid()
+        local = sorted(p for p in holders - (nv_pids - set(unresolved)) if p != me and has_cuda(p))
+        compute = [pid for pid in unresolved if pid in self._compute_pids]  # CUDA, so local libcuda users
+        matched, _ = self._matcher.update(compute, local)
+        unresolved = set(unresolved)
+        for key, per in procs.items():
+            moved: dict[int, ProcGpu] = {}  # a local candidate PID may equal a host PID not yet removed
+            for pid in [p for p in per if p in unresolved]:
+                g = per.pop(pid)
+                self.host_procs.setdefault(key, {})[pid] = g
+                if not g.attributed:
+                    g.dedicated = 0.0
+                    g.available.discard("dedicated")
+                if pid in matched:
+                    lpid, confidence = matched[pid]
+                    moved[lpid] = ProcGpu(
+                        attributed=False, inferred=g.shown_vram, inferred_by=confidence,
+                        available=set(),
+                        engine_reason="NVML engines are measured for a host PID; its local owner is unresolved.",
+                    )
+            per.update(moved)
+
+    def close(self) -> None:
+        if self.drm is not None:
+            self.drm.close()
+        if self.ascend is not None:
+            self.ascend.close()
+        if self._nvml_ok:
+            try:
+                N.nvmlShutdown()
+            except Exception:
+                pass
+            self._nvml_ok = False
+        self.ok = False

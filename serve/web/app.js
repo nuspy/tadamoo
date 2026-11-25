@@ -266,14 +266,17 @@ function drawHardware(eng, st, hw, gpus, names, sh) {
   text("#h-build", eng.version || "-");
 }
 
-const PANE = { req: "0", log: "0 lines" };
+const PANE = { req: "0", log: "0 lines", vram: "" };
 let paneOn = "req";
 // tabbed (several slots): one panel shows; split (one slot): both show, stacked
 function pane(p = paneOn) {
   paneOn = p;
   const split = $(".col-r").classList.contains("single");
-  $$("#reqs .tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === p)));
-  $("#pane-req").hidden = !split && p !== "req"; $("#pane-log").hidden = !split && p !== "log";
+  $$("#reqs .tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === p || (split && p === "log" && t.dataset.pane === "req"))));
+  $("#tab-req").textContent = split ? "Requests and logs" : "Requests";
+  // the VRAM Explorer takes the whole panel; in split mode Requests and Logs show together
+  $("#pane-req").hidden = p === "vram" || (!split && p !== "req"); $("#pane-log").hidden = p === "vram" || (!split && p !== "log");
+  $("#pane-vram").hidden = p !== "vram";
   text("#pane-count", PANE[p]);
   scrollLog();
 }

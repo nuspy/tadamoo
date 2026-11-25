@@ -239,6 +239,9 @@ GPU_KEYS = ("util", "mem_used", "mem_total", "temp", "power", "power_limit", "pc
             "pcie_rx_mb", "pcie_tx_mb", "sm_clock", "mem_clock", "throttle")
 SERIES = ("tok_s", "prefill_tok_s_mean", "disk_read_mb")      # series kept as history
 GPU_SERIES = ("util", "power", "temp")         # per-card series kept as history
+LONG_STEP_S = 10                               # the VRAM history keeps one point per this many seconds: the peak within it
+LONG_POINTS = 24 * 3600 // LONG_STEP_S         # a day of them
+LONG_SHOWN = 240                               # most points a vram_history() answer carries
 
 
 def _r2(v):
@@ -258,6 +261,10 @@ class Telemetry:
         self.slot_hist = collections.deque(maxlen=HISTORY)     # per sample: each slot's tok/s
         self.gpus = [(i, g) for i, g in ((i, gpu_factory(i)) for i in dict.fromkeys(gpu_indices or [0])) if g.ok()]
         self.gpu_hist = {i: {k: collections.deque(maxlen=HISTORY) for k in GPU_SERIES} for i, _ in self.gpus}
+        self.vram_long = collections.deque(maxlen=LONG_POINTS)  # (time, {card: used bytes}), peaks of LONG_STEP_S
+        self._long_peak: dict = {}
+        self._long_since = 0.0
+        self._vram_total: dict = {}
         try:
             import psutil  # noqa: F401
             self.ps = sys.modules["psutil"]
@@ -342,11 +349,42 @@ class Telemetry:
                 if h:
                     for k in GPU_SERIES:
                         h[k].append(_r2(g.get(k)))
+                used = g.get("mem_used")
+                if isinstance(used, (int, float)):
+                    self._long_peak[g["index"]] = max(self._long_peak.get(g["index"], 0), used)
+                    self._vram_total[g["index"]] = g.get("mem_total")
+            t = time.time()
+            if self._long_peak and t - self._long_since >= LONG_STEP_S:
+                self.vram_long.append((t, dict(self._long_peak)))
+                self._long_peak.clear()
+                self._long_since = t
 
     def _loop(self):
         while not self._stopped.is_set():
             self.record(self.sample())
             self._stopped.wait(1.0)
+
+    def vram_history(self, range_s: int) -> dict:
+        """The VRAM in use per card over the last `range_s` seconds, newest last: the peak of each bucket, at most
+        LONG_SHOWN buckets, a bucket None where nothing was read."""
+        range_s = max(LONG_STEP_S, min(int(range_s), LONG_POINTS * LONG_STEP_S))
+        step = max(LONG_STEP_S, -(-range_s // LONG_SHOWN))
+        t_end = time.time()
+        n = range_s // step
+        edge = t_end - n * step
+        names = {i: g.name() for i, g in self.gpus}
+        with self.lock:
+            points = [p for p in self.vram_long if p[0] > edge]
+            total = dict(self._vram_total)
+        cards = sorted({i for _, used in points for i in used} | set(total))
+        used = {i: [None] * n for i in cards}
+        for t, row in points:
+            b = min(n - 1, int((t - edge) // step))
+            for i, v in row.items():
+                if used[i][b] is None or v > used[i][b]:
+                    used[i][b] = v
+        return {"range_s": range_s, "step_s": step, "end": t_end,
+                "gpus": [{"index": i, "name": names.get(i), "total": total.get(i), "used": used[i]} for i in cards]}
 
     def snapshot(self):
         with self.lock:

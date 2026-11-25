@@ -1080,6 +1080,29 @@
         "Plausibile, non provato: una skill lunga data a ogni passo pesa sul contesto; per questo quelle di un solo passo vanno sul passo."
       ],
       "branch": false
+    },
+    {
+      "id": "rm53",
+      "num": 53,
+      "group": "todo",
+      "title": "Monitor: tab VRAM Explorer e grafico dell'uso della VRAM nel tempo",
+      "summary": "Il motore di gputaskman (MIT, Scott Hanselman) è importato nel progetto: VRAM per processo e, per i modelli locali, pesi e KV cache. Nel Monitor un tab «VRAM Explorer» accanto a Requests e Logs, più un grafico dell'uso della VRAM nel tempo (storico di 24 ore, scale da 5 minuti a 24 ore, una curva per scheda).",
+      "status": "run",
+      "solved": [
+        "Importati in serve/gputaskman/ i moduli senza interfaccia terminale (23 file, con la licenza MIT, anche in THIRD_PARTY_LICENSES); si importano con il nostro Python 3.10 (25 novembre).",
+        "Server: storico lungo della VRAM per scheda (un punto ogni 10 s con il picco, 24 ore, in memoria) su GET /api/vram/history; lettore a richiesta su GET /api/vram/explorer (serve/vram_explorer.py), acceso solo mentre il tab è aperto e chiuso dopo 2 minuti senza richieste.",
+        "Pagina Monitor: grafico «VRAM over time» (5 min, 1 h, 6 h, 24 h) nella colonna sinistra e tab «VRAM Explorer» (con un solo slot, sotto la voce «Requests and logs»). nvidia-ml-py è nei requisiti.",
+        "Provato sulla pagina vera con un server di prova (motore finto, dati temporanei) sulla RTX 5090: grafico, passaggio del mouse, scala 1 h, tabella per processo, larghezza di 390 px senza scroll orizzontale. Test: serve/tests/test_vram_explorer.py (18) e i 1243 test delle pagine passano."
+      ],
+      "decisions": [
+        "Il grafico è nel tempo e non solo gli ultimi 60 secondi (tua precisazione del 25 novembre).",
+        "Il grafico (NVML) e la tabella (contatori di Windows) leggono due fonti: i totali differiscono di qualche centinaio di MiB; la pagina lo dice."
+      ],
+      "risks": [
+        "Non provato con un modello caricato (la GPU non è stata usata): non si è visto il grafico con un carico vero né i pesi e la KV cache di Basalt nella tabella.",
+        "Non ancora nell'app in uso: serve il commit unito nell'albero di E: e il riavvio del server."
+      ],
+      "branch": false
     }
   ]
 }

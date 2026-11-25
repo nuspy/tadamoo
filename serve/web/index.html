@@ -59,6 +59,7 @@
 <link rel="stylesheet" href="web/export.css">
 <link rel="stylesheet" href="web/checkpoints.css">
 <link rel="stylesheet" href="web/netwatch.css">
+<link rel="stylesheet" href="web/vramexplorer.css">
 <link rel="stylesheet" href="web/rea.css">
 <link rel="stylesheet" href="web/target.css">
 <link rel="stylesheet" href="web/coding.css">
@@ -196,6 +197,7 @@
 <script defer src="web/voicesubtabs.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
+<script defer src="web/vramexplorer.js"></script>
 <script defer src="web/rea.js"></script>
 <script defer src="web/canary.js"></script>
 <script defer src="web/canarytab.js"></script>
@@ -895,6 +897,23 @@
         </div>
       </section>
 
+      <section class="sec vramhist" id="vh" aria-labelledby="vh-h">
+        <div class="sh"><b id="vh-h">VRAM over time</b><span class="grow"></span><div class="seg" id="vh-range" role="group" aria-label="Time range"></div></div>
+        <div class="cb">
+          <div class="read"><span>In use now</span><b id="vh-now">—</b></div>
+          <div class="chart" id="chart-vh">
+            <div class="g" style="top:0"><span class="y0"></span></div>
+            <div class="g" style="top:50%"><span class="y1"></span></div>
+            <div class="g" style="top:100%"><span>0</span></div>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="VRAM in use over time. Hover for values."><g id="vh-lines"></g></svg>
+            <div class="cur" hidden></div><div class="cdot" hidden></div><div class="tip" hidden></div>
+            <div class="vh-x"><span id="vh-x0"></span><span id="vh-note"></span><span>now</span></div>
+            <div class="empty vh-empty" id="vh-empty" hidden>No GPU readings yet.</div>
+          </div>
+          <div class="leg vh-leg" id="vh-leg"></div>
+        </div>
+      </section>
+
       <section class="sec">
         <div class="sh"><b>Experts</b><span class="grow"></span><span>Routed lookups, last request</span></div>
         <div class="pad">
@@ -929,6 +948,7 @@
         <div class="sh tabhead" role="tablist" aria-label="Requests and logs">
           <button class="tab" role="tab" id="tab-req" data-pane="req" aria-selected="true" aria-controls="pane-req">Requests</button>
           <button class="tab" role="tab" id="tab-log" data-pane="log" aria-selected="false" aria-controls="pane-log">Logs</button>
+          <button class="tab" role="tab" id="tab-vram" data-pane="vram" aria-selected="false" aria-controls="pane-vram">VRAM Explorer</button>
           <span class="cnt" id="pane-count">0</span>
         </div>
         <div id="pane-req" role="tabpanel" aria-labelledby="tab-req">
@@ -940,6 +960,10 @@
             </table>
             <div class="empty" id="req-empty">No requests yet.</div>
           </div>
+        </div>
+        <div id="pane-vram" role="tabpanel" aria-labelledby="tab-vram" hidden>
+          <div class="sh phead"><b>VRAM Explorer</b><span class="cnt" id="vx-count"></span></div>
+          <div class="vx" id="vx-root"></div>
         </div>
         <div id="pane-log" role="tabpanel" aria-labelledby="tab-log" hidden>
           <div class="sh phead"><b>Log</b><span class="cnt" id="log-count">0 lines</span></div>
