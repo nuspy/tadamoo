@@ -3734,13 +3734,13 @@ class MergeLines(unittest.TestCase):
     """merges.txt of a model file written on Windows has CRLF line ends; the tokenizer must still accept it."""
 
     def test_crlf_and_lf_read_the_same(self):
-        from serve.server import merge_lines
+        from serve.engine.modelfile import merge_lines
         self.assertEqual(merge_lines(b"a b\r\nc d"), ["a b", "c d"])
         self.assertEqual(merge_lines(b"a b\nc d"), ["a b", "c d"])
 
     def test_the_tokenizer_accepts_a_crlf_merges_file(self):
         import tokenizer as ST
-        from serve.server import merge_lines
+        from serve.engine.modelfile import merge_lines
         tokens = ["a", "b", "ab", "\u0120"]
         plain = ST.Tokenizer(tokens, merge_lines(b"a b"), [1] * len(tokens))
         crlf = ST.Tokenizer(tokens, merge_lines(b"a b\r\n\xc4\xa0 a"), [1] * len(tokens))

@@ -76,11 +76,6 @@ def grammar_entry(on: bool, cli: list[str], used: list[str]) -> tuple[bool, str]
     return (on, origin) if origin else None
 
 
-def merge_lines(raw: bytes) -> list[str]:
-    """The merges of a model file's merges.txt, one per line; a file written with CRLF reads like one written with LF."""
-    return raw.decode("utf-8").replace("\r\n", "\n").split("\n")
-
-
 def open_when_ready(svc, url, now=False, opener=None):
     """Open the page once, after the first weights load; at once when no load is under way (mock, lazy)."""
     if opener is None:
@@ -270,15 +265,7 @@ def main() -> int:
     if not a.mock_engine and a.model and "vocab.json" not in files:
         fail(f"tokenizer missing: {a.tokenizer}/vocab.json")
     if "vocab.json" in files:
-        import tokenizer as ST
-        vocab = json.loads(files["vocab.json"].decode("utf-8"))
-        tokens = [None] * len(vocab)
-        for t, i in vocab.items():
-            tokens[i] = t
-        merges = merge_lines(files["merges.txt"])
-        types = json.loads(files["token_type.json"])
-        pre = json.loads(files["tokenizer.json"].decode("utf-8")).get("pre", "qwen35") if "tokenizer.json" in files else "qwen35"
-        tok = ST.Tokenizer(tokens, merges, types, pre=pre)
+        tok = modelfile.build_tokenizer(files)
     if not a.mock_engine and not a.model:               # --standby without a model: the Loader chooses one
         engine, vision, sampling_defaults = NoEngine(), None, {}
         cfg.setdefault("model_name", "no model loaded")

@@ -71,6 +71,23 @@ def tokenizer_files(mf: ModelFile) -> dict[str, bytes]:
     return {n: mf.read("tokenizer/" + n) for n in TOKENIZER_SECTIONS if "tokenizer/" + n in mf.sections}
 
 
+def merge_lines(raw: bytes) -> list[str]:
+    """The merges of a model file's merges.txt, one per line; a file written with CRLF reads like one written with LF."""
+    return raw.decode("utf-8").replace("\r\n", "\n").split("\n")
+
+
+def build_tokenizer(files: dict[str, bytes]):
+    """The byte-level BPE tokenizer of a model's tokenizer files (`tokenizer_files`, or a folder read the same way)."""
+    import tokenizer as ST
+    vocab = json.loads(files["vocab.json"].decode("utf-8"))
+    tokens = [None] * len(vocab)
+    for t, i in vocab.items():
+        tokens[i] = t
+    types = json.loads(files["token_type.json"])
+    pre = json.loads(files["tokenizer.json"].decode("utf-8")).get("pre", "qwen35") if "tokenizer.json" in files else "qwen35"
+    return ST.Tokenizer(tokens, merge_lines(files["merges.txt"]), types, pre=pre)
+
+
 def write_section(mf: ModelFile, name: str, dest: Path) -> None:
     """Copy a section to `dest` via a temporary name so a partial file is never used."""
     dest.parent.mkdir(parents=True, exist_ok=True)

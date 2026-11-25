@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import struct
 import subprocess
 import sys
@@ -32,6 +33,7 @@ from pathlib import Path
 ENGINE_BIN = Path(__file__).resolve().parents[1] / "bin" / "basalt"
 N_CTX = 512
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def row_bytes(n_vocab: int) -> int:
@@ -58,19 +60,10 @@ def write_base_file(path: str, chunks: list[list[int]], n_ctx: int, n_vocab: int
 
 def tokenize_text(model: str, text: str) -> tuple[list[int], int]:
     """The token ids of `text` with the model file's own tokenizer, and the model's vocabulary size."""
-    import tokenizer as ST
     from model_file import ModelFile
+    from serve.engine import modelfile
     mf = ModelFile(model)
-    vocab = json.loads(mf.read("vocab.json").decode("utf-8"))
-    tokens = [None] * len(vocab)
-    for t, i in vocab.items():
-        tokens[i] = t
-    merges = mf.read("merges.txt").decode("utf-8").replace("\r\n", "\n").split("\n")
-    types = json.loads(mf.read("token_type.json"))
-    pre = "qwen35"
-    if "tokenizer.json" in mf.sections:
-        pre = json.loads(mf.read("tokenizer.json").decode("utf-8")).get("pre", "qwen35")
-    ids = ST.Tokenizer(tokens, merges, types, pre=pre).encode(text)
+    ids = modelfile.build_tokenizer(modelfile.tokenizer_files(mf)).encode(text)
     shape = ((json.loads(mf.read("meta")).get("tensors") or {}).get("output.weight") or {}).get("shape") or []
     if not shape:
         sys.exit(f"{model}: the meta section has no output.weight shape (the vocabulary size)")
@@ -86,15 +79,26 @@ def read_base(path: str):
     return n_ctx, n_vocab, n_chunk, [toks[k * n_ctx:(k + 1) * n_ctx] for k in range(n_chunk)]
 
 
+def paired_se(by_chunk: dict[int, list[float]]) -> float:
+    """The standard error of the mean of nll - nll_base, taken over the chunk means (the rows of a chunk are not independent)."""
+    means = [sum(v) / len(v) for v in by_chunk.values() if v]
+    if len(means) < 2:
+        return float("nan")
+    m = sum(means) / len(means)
+    return math.sqrt(sum((x - m) ** 2 for x in means) / (len(means) - 1) / len(means))
+
+
 def summary(rows_path: str, extra: dict | None = None) -> str:
     nll, nllb, kld, same, dlp = [], [], [], 0, []
     chunks = set()
+    by_chunk: dict[int, list[float]] = {}
     for line in open(rows_path):
         f = line.split("\t")
         if len(f) < 10:
             continue
         chunks.add(int(f[0]))
         nll.append(float(f[3])); nllb.append(float(f[4])); kld.append(float(f[5]))
+        by_chunk.setdefault(int(f[0]), []).append(nll[-1] - nllb[-1])
         same += int(f[6]); dlp.append(float(f[9]))
     n = len(nll)
     if n == 0:
@@ -105,7 +109,7 @@ def summary(rows_path: str, extra: dict | None = None) -> str:
     se = math.sqrt(max(0.0, sum(v * v for v in nll) / n - mn * mn) / max(1, n - 1))
     out = [f"chunks {len(chunks)}  rows {n}",
            f"PPL {math.exp(mn):.4f} +/- {math.exp(mn) * se:.4f}   base PPL {math.exp(sum(nllb) / n):.4f}   "
-           f"ln(PPL/base) {mn - sum(nllb) / n:.5f}",
+           f"ln(PPL/base) {mn - sum(nllb) / n:.5f} +/- {paired_se(by_chunk):.5f} (paired, over chunks)",
            f"KLD mean {sum(kld) / n:.5f}  median {pct(0.5):.5f}  p99 {pct(0.99):.4f}  max {ks[-1]:.4f}",
            f"same top-1 {100.0 * same / n:.2f}%   mean |dlogp| of the base top-1 {sum(dlp) / n:.5f}"]
     if extra:
@@ -260,16 +264,26 @@ def main() -> int:
     if a.write_base:
         if not a.text:
             ap.error("--write-base needs --text")
-        if Path(a.base).exists():
-            ap.error(f"{a.base} exists: a base is written once")
+        final = a.base
+        partial = final + ".partial"                      # renamed to `final` only when every chunk was written
+        if Path(final).exists() or Path(partial).exists():
+            ap.error(f"{final} or {partial} exists: a base is written once")
         ids, n_vocab = tokenize_text(a.model, Path(a.text).read_text(encoding="utf-8"))
         n_chunk = len(ids) // N_CTX
         if a.chunks > 0:
             n_chunk = min(n_chunk, a.chunks)
         if n_chunk < 1:
             ap.error(f"the text gives {len(ids)} tokens, fewer than one chunk of {N_CTX}")
-        size = write_base_file(a.base, [ids[k * N_CTX:(k + 1) * N_CTX] for k in range(n_chunk)], N_CTX, n_vocab)
-        print(f"base {a.base}: {n_chunk} chunks of {N_CTX}, vocabulary {n_vocab}, {size / 2**30:.2f} GiB reserved")
+        size = write_base_file(partial, [ids[k * N_CTX:(k + 1) * N_CTX] for k in range(n_chunk)], N_CTX, n_vocab)
+        print(f"base {final}: {n_chunk} chunks of {N_CTX}, vocabulary {n_vocab}, {size / 2**30:.2f} GiB reserved")
+        a.base = partial
+        a.chunks = n_chunk
+        code = run(a)
+        if code == 0:
+            os.replace(partial, final)
+        else:
+            print(f"the run did not finish: {partial} is incomplete and is not a base")
+        return code
     return run(a)
 
 
