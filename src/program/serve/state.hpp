@@ -136,6 +136,8 @@ public:
     virtual bool park_idle_engine(std::string& e) = 0;
     virtual void vram_commit_sweep() {}   // a model on Windows gives back the commit its GPU allocations are charged between requests
     virtual void kv_ceiling_note() {}   // a model with an elastic KV sends its ceiling again when it moves
+    virtual bool regrow_pending() { return false; }   // the expert cache is backed less than its arena and no lend is in force: the idle loop keeps looking for room
+    virtual void regrow_idle() {}   // between requests: maps the cache's unbacked tail into the VRAM free above the reserve
     // ---- the console's figures (console_stats.hpp), once the server sends STATS
     ConsoleStats stats{};
     /// The model's expert counts so far (none for a dense model).

@@ -376,6 +376,7 @@ private:
     std::vector<float> img_rows{};
     std::vector<const float*> row_ptr{};
     std::vector<std::pair<int32_t, int32_t>> vram_evicted{};   // (residency index, slot) the shrinks took
+    bool regrow_failed{};   // the idle regrow failed once: it does not try again
     VramArbiter arbiter{};   // the reserve in force and the targets of every shrink and grow of the cache
     int64_t chunk_full{};
     int64_t kKvGrowCells{};
@@ -470,6 +471,8 @@ private:
     int64_t kv_ceiling();
     void kv_ceiling_note() override;
     void vram_commit_sweep() override;
+    bool regrow_pending() override;
+    void regrow_idle() override;
     int64_t kv_growth_bytes();
     int64_t vram_usage();
     void init_arbiter();

@@ -75,9 +75,12 @@ Flow Runtime::dispatch() {
         // idle: once no line has come for a second (a client's next turn usually comes sooner), what a crash would
         // lose goes to disk, then the idle conversations whose time is up leave VRAM, one at a time while no line
         // waits
-        bool got = false, parking = true;
+        // While the expert cache is backed less than its arena, the loop also looks every few seconds for VRAM that
+        // another program gave up and maps it into the cache again.
+        bool got = false, parking = true, regrowing = regrow_pending();
+        auto regrow_due = Clock::now();
         std::string pe;
-        while (!got && (disk.enabled() || parking)) {
+        while (!got && (disk.enabled() || parking || regrowing)) {
             const int r = next_line_within(line, 1000);
             if (r < 0) { basalt::log::info("basalt serve", "input pipe closed"); return Flow::quit; }
             got = r == 1;
@@ -85,7 +88,12 @@ Flow Runtime::dispatch() {
             if (got) break;
             parking = parking && park_idle_engine(pe);
             if (!pe.empty()) { std::printf("ERR %s\n", pe.c_str()); return Flow::error; }
-            if (!parking) break;
+            if (regrowing && Clock::now() >= regrow_due) {
+                regrow_due = Clock::now() + std::chrono::seconds(5);
+                regrow_idle();
+                regrowing = regrow_pending();
+            }
+            if (!parking && !regrowing) break;
         }
         if (!got && !next_line(line)) { basalt::log::info("basalt serve", "input pipe closed"); return Flow::quit; }
     }

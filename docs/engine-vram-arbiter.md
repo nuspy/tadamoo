@@ -136,3 +136,24 @@ the rules above reduce to the old formulas there, and decode is bitwise identica
 lent, the slots at load are those of the same server without the flag (the elastic KV's, more than the flag gave
 before with a fully resident KV); only a KV fit that ends inside a large segment rounds differently. Precision is not
 touched: only where experts and KV cells live changes, never how they are computed.
+
+## A start that is short of VRAM, and VRAM that frees later
+
+With `--expert-cache auto` the slots are written and the free VRAM is read again: it must still hold the reserve.
+Another program loading a model at the same time takes VRAM for a while and gives part of it back, so a short reading is
+read again every second until it is enough, has stopped moving (three reads within 32 MiB) or 45 seconds have passed.
+Only then is the cache short, and it gives back what is missing (never a fixed share), up to 24 times.
+
+- **Segmented cache** (`--vram-elastic`, one GPU): the cache keeps its arena. The tail is unmapped with `shrink`, at the
+  largest segment boundary that leaves the reserve, and the slots past the backed ones are registered as evicted in
+  profile order. The log says `expert cache: N of M slots backed; the other X GiB of the arena stay unmapped until VRAM
+  frees`. Below 128 backed slots the cache is reopened smaller instead.
+- **One allocation** (no `--vram-elastic`) or two GPUs: the cache is reopened smaller, as before.
+- **Between requests**, while the cache is backed less than its arena and nothing is lent out (`lent_mib` 0), the engine
+  looks every 5 seconds at the free VRAM. When the room the arbiter counts (free above the reserve) is 64 MiB or more, it
+  runs `cache_regrow`: the segments are mapped again and each new slot is filled from the RAM copy. The log says `the
+  expert cache grew by N slots into the VRAM that freed`. A failure is logged once and ends the looking. While VRAM is
+  lent (`VRAM <reserve>`, SLEEP) the loop does nothing: the lend's own return grows the cache, as above.
+
+The VRAM another program holds without lending it through `VRAM` is not taken back by the engine: it stays that
+program's until it frees it.

@@ -605,6 +605,10 @@ int QfnRuntime::init_tiers() {
         if (pl >= 0 && pl < g.n_layers && pe >= 0 && pe < g.n_expert && prof_rank[(size_t) (pl * g.n_expert + pe)] == (int32_t) profile.size())
             prof_rank[(size_t) (pl * g.n_expert + pe)] = (int32_t) i;
     }
+    // a start that left the cache's tail unmapped (the VRAM was short then): those slots are what `cache_regrow` fills
+    // when VRAM frees, each with the next expert of the profile that no GPU holds
+    for (int64_t k = xcache.slots(); k < xcache.full_slots() && k < (int64_t) profile.size(); ++k)
+        vram_evicted.emplace_back((int32_t) (profile[(size_t) k].first * g.n_expert + profile[(size_t) k].second), (int32_t) k);
 
     // The resident RAM mode on one GPU, with or without the peer: a round's swaps move in three steps at window
     // boundaries, with no host copy and no blocking copy on the decode path.  (1) The evicted experts' slots are

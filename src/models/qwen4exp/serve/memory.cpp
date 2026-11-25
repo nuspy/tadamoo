@@ -93,6 +93,36 @@ void QfnRuntime::vram_commit_sweep() {
                           (double) sweep.released_bytes / 1073741824.0, (double) sweep.total_released / 1073741824.0);
 }
 
+// the cache is backed less than it was opened with (the start's shortfall, an elastic KV's tail) and no VRAM is lent
+// out: the idle loop keeps looking for room
+bool QfnRuntime::regrow_pending() {
+    return !regrow_failed && !peer.valid() && arbiter.lending() && arbiter.lent_mib() == 0 && xcache.segmented() &&
+           xcache.mapped_bytes() < xcache.full_bytes();
+}
+
+// between requests: the VRAM another program gave up on its own (a model it unloaded) is mapped into the cache again,
+// into the room the arbiter counts (the free VRAM above the reserve), each new slot filled from the RAM copy
+void QfnRuntime::regrow_idle() {
+    if (!regrow_pending()) return;
+    size_t free_b = 0, total_b = 0;
+    cudaMemGetInfo(&free_b, &total_b);
+    if (arbiter.room((int64_t) free_b, vram_usage()) < (64ll << 20)) return;
+    std::string e;
+    apply_pending(true);                     // the adaptive tier's swaps in flight land first
+    if (!xq_drain()) e = "an adaptive swap failed";
+    const int64_t before = xcache.slots();
+    if (e.empty() && cache_regrow(e) && xcache.slots() > before) {
+        cudaMemGetInfo(&free_b, &total_b);
+        basalt::log::info("basalt serve", "the expert cache grew by %lld slots into the VRAM that freed: %lld of %lld slots "
+                          "backed, %.2f GiB free", (long long) (xcache.slots() - before), (long long) xcache.slots(),
+                          (long long) xcache.full_slots(), (double) free_b / 1073741824.0);
+    }
+    if (!e.empty()) {
+        regrow_failed = true;
+        basalt::log::warn("basalt serve", "the expert cache could not grow into the free VRAM: %s", e.c_str());
+    }
+}
+
 // the owner of the cache's backed size, before anything shrinks or grows it: the layout, the start's reserve and
 // slots, and whether VRAM may lend
 void QfnRuntime::init_arbiter() {

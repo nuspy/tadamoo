@@ -325,12 +325,15 @@ int cache_size(Context& context) {
             return free_b;
         };
         int failed = 0;
+        bool opened = false;          // the cache is open and kept as it is: its tail was unmapped, not reopened smaller
+        bool tail_unmapped = false;
         for (int attempt = 0;; ++attempt) {
-            bool ok = false;
-            {
+            bool ok = opened;
+            if (!opened) {
                 ok = sized_slots.empty()
                     ? xcache.open(o.expert_cache, g.n_layers, g.n_expert, (int64_t) basalt::kernels::cpu::expert_layout().max_blob, err)
                     : xcache.open_sized(sized_slots, g.n_layers, g.n_expert, err);
+                opened = ok;
             }
             if (!ok) {
                 // A device allocation can also be charged to the system commit (RAM + page file), so with a small page
@@ -364,8 +367,30 @@ int cache_size(Context& context) {
             basalt::log::warn("basalt generate", "only %lld MiB free once the slots are written (reserve %d MiB); "
                                  "shrinking the expert cache by %lld MiB", (long long) (free_b >> 20), o.vram_reserve_mib,
                          (long long) (give >> 20));
+            // An elastic (segmented) cache keeps its arena: the tail is unmapped, not reopened smaller, so the VRAM
+            // that frees later (another program's model unloaded) can be mapped back between requests.  Nothing is
+            // resident in the slots yet, so the tail holds no expert and no loan.  The cache keeps at least the
+            // prompt path's 128 slots; below that, or without segments, it is reopened smaller.
+            if (!multi_gpu && xcache.segmented()) {
+                int64_t keep = 0;
+                for (const int64_t end : xcache.segment_ends())
+                    if (end <= xcache.mapped_bytes() - give) keep = end;    // the largest boundary at or below what may stay
+                std::string shrink_err;
+                if (keep >= xcache.bytes_of(128) && keep < xcache.mapped_bytes() && xcache.shrink(keep, shrink_err)) {
+                    tail_unmapped = true;
+                    continue;
+                }
+            }
             xcache.close();
+            opened = false;
             if (!shrink_to(keep_bytes)) break;
+        }
+        if (tail_unmapped && xcache.valid()) {
+            o.expert_cache = (int) xcache.slots();
+            basalt::log::info("basalt generate", "expert cache: %lld of %lld slots backed; the other %.2f GiB of the arena stay "
+                                 "unmapped until VRAM frees",
+                         (long long) xcache.slots(), (long long) xcache.full_slots(),
+                         (double) (xcache.full_bytes() - xcache.bytes()) / 1073741824.0);
         }
         if (failed > 0 && o.expert_cache > 0)
             basalt::log::warn("basalt generate", "expert cache: %d slots (%.2f GiB) after %d smaller tries - a bigger "
