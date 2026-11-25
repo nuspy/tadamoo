@@ -265,5 +265,30 @@ class Cli(Tmp):
         self.assertIn("vision: GPU 8 is not found by nvidia-smi", err.getvalue())
 
 
+class SupervisorConfig(Tmp):
+    """The Loader's load goes through supervisor.engine_config, which must hand model_config a ModelSpec."""
+
+    def args(self, path, **kw):
+        import argparse
+        return argparse.Namespace(**{"model": path, "engine_bin": str(self.engine_bin), "gpu": None, "vision": "off",
+                                     "vision_hold": "keep", "vision_projector": "auto", **kw})
+
+    def test_the_config_is_the_one_the_server_start_builds(self):
+        from serve import supervisor
+        path = self.build()
+        words = ["--spec", "3"]
+        want = modelfile.model_config(modelfile.ModelSpec(path, engine_words=tuple(words)), str(self.engine_bin))
+        self.assertEqual(supervisor.engine_config(self.args(path), words), want)
+
+    def test_the_vision_mode_and_the_card_reach_the_spec(self):
+        from serve import supervisor
+        path = self.build(vision=True)
+        with mock.patch.object(modelfile, "model_config", side_effect=ValueError("stop")) as mc:
+            with self.assertRaises(ValueError):
+                supervisor.engine_config(self.args(path, vision="cpu", gpu=1, vision_hold="release"), [])
+        spec = mc.call_args.args[0]
+        self.assertEqual((spec.path, spec.vision, spec.gpu, spec.hold), (path, "cpu", 1, "release"))
+
+
 if __name__ == "__main__":
     unittest.main()

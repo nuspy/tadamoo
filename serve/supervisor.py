@@ -90,9 +90,9 @@ def engine_config(a, words: list[str], mock: bool = False) -> dict:
             raise ValueError("vision-hold release: this engine binary does not know --vision-release; build the engine again")
     try:
         projector = loader.projector_path(getattr(a, "vision_projector", "auto"), a.model) if vision_arg else None
-        cfg.update({k: v for k, v in modelfile.model_config(
-            a.model, a.engine_bin, vision=vision_arg,
-            engine_words=words, projector=projector, hold=hold).items() if k not in cfg})
+        spec = modelfile.ModelSpec(a.model, gpu=a.gpu, vision=vision_arg, engine_words=tuple(words),
+                                   projector=projector, hold=hold)
+        cfg.update({k: v for k, v in modelfile.model_config(spec, a.engine_bin).items() if k not in cfg})
     except (OSError, KeyError) as e:
         raise ValueError(f"{a.model}: {e}") from None
     return cfg
