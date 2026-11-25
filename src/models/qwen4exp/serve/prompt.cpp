@@ -298,7 +298,7 @@ int QfnRuntime::init_prompt() {
     // whose cache already filled its reserve, that is the over-subscription the auto sizing avoids - so the
     // chunk is the largest one every participant can lend (a smaller chunk only reads slower)
     if (pf_borrow && d_res != nullptr) {
-        pf_parts.push_back({&xcache, &ss, &sp, -1, 0, multi_gpu ? split_at[0] : g.n_layers, -1, -1, 0, {}});
+        pf_parts.push_back({&xcache, &ss, &sp, -1, 0, multi_gpu ? split_at[0] : g.file_layers(), -1, -1, 0, {}});   // [lb, le) bounds the scans of the per-pack-layer residency table
         for (auto& st : stages)
             pf_parts.push_back({&st->cache, &st->ss, &st->sp, st->dev, st->lb, st->le, -1, -1, 0, {}});
         // The two tests plan_lend makes for CUDA0 alone, one participant at a time: a loan must leave the
