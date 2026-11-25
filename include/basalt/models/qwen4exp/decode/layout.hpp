@@ -19,6 +19,7 @@
 #include "basalt/core/weights.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 namespace basalt::core {
@@ -36,6 +37,7 @@ struct ModelGeometry {
     int64_t loop_a = 0;
     int64_t loop_b = 0;
     int64_t loop_k = 1;
+    float loop_alpha[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};   ///< the write weight of each pass over the window
 
     // GDN (36 layers)
     int64_t ssm_state_size = 128;
@@ -86,8 +88,44 @@ inline int64_t loop_pass(const ModelGeometry& g, int64_t slot) {
     return (slot - g.loop_a) / len;
 }
 
+/// The factor on the write weight of slot `slot` (both halves of the slot): the pass's alpha inside the window, 1 outside.
+inline float write_scale(const ModelGeometry& g, int64_t slot) {
+    const int64_t len = g.loop_b - g.loop_a;
+    if (g.loop_k <= 1 || slot < g.loop_a || slot >= g.loop_a + g.loop_k * len) return 1.0f;
+    return g.loop_alpha[(slot - g.loop_a) / len];
+}
+
 /// Sets the slot-to-pack-layer map `LayerView::name` resolves through (once, before the weights are looked up).
 void set_layer_loop_map(const ModelGeometry& g);
+
+/// `--layer-loop A:B:K --layer-loop-alpha a1,...,aK`: the pack's layers [A, B) run K times, pass i writing with weight a_i.
+/// K = 1 is the loop off.  The most passes one window takes.
+constexpr int kLoopMaxK = 8;
+struct LayerLoopSpec {
+    int64_t a = 0, b = 0, k = 1;
+    float alpha[kLoopMaxK] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    bool on() const { return k > 1; }
+};
+/// The two flags' text (either may be empty), checked for their own form only: A:B:K with 2 <= A < B and 1 <= K <= kLoopMaxK,
+/// exactly K finite non-negative alphas (1 each when the flag is absent).  False with `err` naming what is wrong.
+bool parse_layer_loop(const std::string& window, const std::string& alphas, LayerLoopSpec& out, std::string& err);
+/// Applies a spec to the geometry of the pack: the window must end within the pack and be a multiple of the full-attention
+/// interval long.  Sets the window, the alphas, the slot count and the slot map together; nothing sees them half set.
+bool apply_layer_loop(ModelGeometry& g, const LayerLoopSpec& s, std::string& err);
+/// `layer loop: [8,16) x2, alpha 1,0.5, 56 slots`
+std::string layer_loop_text(const ModelGeometry& g);
+/// The words that tell two loop configurations apart: the window, K and the alphas' bits.  A conversation's identity hashes
+/// them when the loop is on (two windows of the same slot count are two models).
+inline void layer_loop_key(const ModelGeometry& g, int64_t (&key)[3 + kLoopMaxK]) {
+    key[0] = g.loop_a;
+    key[1] = g.loop_b;
+    key[2] = g.loop_k;
+    for (int i = 0; i < kLoopMaxK; ++i) {
+        uint32_t bits;
+        std::memcpy(&bits, &g.loop_alpha[i], sizeof bits);
+        key[3 + i] = bits;
+    }
+}
 /// The pack layer of `slot` through the map `set_layer_loop_map` set, for code that holds no geometry.
 int64_t mapped_source(int64_t slot);
 

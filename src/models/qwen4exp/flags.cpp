@@ -97,6 +97,8 @@ bool parse_flag(const std::string& a, model::FlagArgs& args, Options& o, int& co
     else if (a == "--short-read") o.short_read = std::max(0LL, std::atoll(args.next("--short-read")));
     else if (a == "--suffix-draft") o.suffix_draft = std::max(0, std::atoi(args.next("--suffix-draft")));
     else if (a == "--mtp-max-t") o.mtp_max_t = std::max(0, std::atoi(args.next("--mtp-max-t")));
+    else if (a == "--layer-loop") o.layer_loop = args.next("--layer-loop");
+    else if (a == "--layer-loop-alpha") o.layer_loop_alpha = args.next("--layer-loop-alpha");
     else if (a == "--control-vector") o.cvec_files.push_back({args.next("--control-vector"), 1.0f});
     else if (a == "--control-vector-scaled") {
         // FILE:SCALE, comma-separated; the LAST colon splits

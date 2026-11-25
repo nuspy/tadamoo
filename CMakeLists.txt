@@ -667,6 +667,10 @@ if(BUILD_TESTING)
   add_executable(layer_loop_map_test tests/core/layer_loop_map_test.cpp)
   target_link_libraries(layer_loop_map_test PRIVATE model_qwen4exp_engine core)
   basalt_cpu_test(NAME layer_loop_map_test COMMAND layer_loop_map_test)
+  # the layer-loop flags: their form, the refusals, the geometry, the write scale, the identity words
+  add_executable(layer_loop_config_test tests/core/layer_loop_config_test.cpp)
+  target_link_libraries(layer_loop_config_test PRIVATE model_qwen4exp_engine core)
+  basalt_cpu_test(NAME layer_loop_config_test COMMAND layer_loop_config_test)
   # the expert layout text: real models' layouts and the refusals
   add_executable(expert_layout_test tests/core/expert_layout_test.cpp)
   target_link_libraries(expert_layout_test PRIVATE model_qwen4exp_engine)

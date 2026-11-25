@@ -44,7 +44,7 @@ void fused_gr_read(const FusedGrArgs& a, void* stream);
 
 /// Plan v0.3 P6: the same read for up to 8 tokens that share the weights (a verify window): the weights are read
 /// once for all of them.  `a[t]` is token t's arguments (its own R, pending write, lo, rs, inject, mixed; the four
-/// weight pointers and eps must be the same for every t); `xn_scratch` is n_tok * hc * n_embd floats.  Every
+/// weight pointers, eps and wscale must be the same for every t: a window sits in one slot); `xn_scratch` is n_tok * hc * n_embd floats.  Every
 /// token's outputs are bitwise `fused_gr_read(a[t])`.
 constexpr int kFusedGrMaxT = 8;
 void fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, void* stream,
@@ -54,6 +54,7 @@ void fused_gr_read_multi(const FusedGrArgs* a, int n_tok, float* xn_scratch, voi
 /// down + inject, up); a token's outputs come from the same operations whatever n_tok.  `rs` and `lo` are written as
 /// above; R' goes to R_out (when apply) before the down kernel reads it.  False, with nothing enqueued, when w_down has
 /// no copy.  fused_gr_read, fused_gr_read_multi and gr_read take this path for such matrices.
+/// The weights, eps and wscale are a[0]'s for every token.
 bool hc8_gr_read_multi(const FusedGrArgs* a, int n_tok, int64_t n_embd, int64_t hc, void* stream);
 /// The multi read's variants, all computing every output with the plain read's operations in its order, so bitwise
 /// the plain read's and the single-token read's: plain (the norm one block per token, the down projection on 41 blocks), split (the norm

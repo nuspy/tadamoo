@@ -410,11 +410,11 @@ struct TokenGraph {
     int64_t flushes = 0;             ///< cudaStreamQuery calls made because a ring was slow to appear
 };
 
-/// The VRAM expert tier inside the token graph.  Residency is STATIC during a token (a `n_layers x n_expert` table,
+/// The VRAM expert tier inside the token graph.  Residency is STATIC during a token (a `pack layers x n_expert` table,
 /// slot or -1, on the device; the host pool reads its own copy), so the hit list is built on the device right after
 /// the ring and the hits run while the CPU computes the misses.
 struct TokenHits {
-    const int32_t* d_res = nullptr;      ///< device [n_layers * n_expert]
+    const int32_t* d_res = nullptr;      ///< device [pack layers * n_expert]
     int64_t n_expert = 0;
     const uint8_t* cache_base = nullptr; ///< slot 0 of the VRAM expert arena
     int64_t blob = 0;                    ///< bytes per slot

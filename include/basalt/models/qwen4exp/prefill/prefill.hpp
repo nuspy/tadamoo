@@ -64,7 +64,7 @@ public:
     /// callbacks stay.  The device `init` ran on must be current.
     void reset();
 
-    /// `host_res`: the static residency table (n_layers x n_expert, slot or -1) or null; `cache` its slots.
+    /// `host_res`: the static residency table (pack layers x n_expert, slot or -1) or null; `cache` its slots.
     /// `borrow`/`borrow_bytes`: device memory to carve every buffer from (the top slots of the expert cache,
     /// lent for the prompt and refilled after it); null = allocate normally.
     bool init(const core::WeightTable& wt, const core::ModelGeometry& g, core::SessionState& ss,
@@ -125,7 +125,7 @@ public:
     /// Starts counting, per (layer, expert), the routed entries of the prompt rows this stage and the stages after it
     /// read, from zero.  Call with the stream idle (between requests).
     void route_hist_reset();
-    /// Adds the counts since `route_hist_reset` (n_layers x n_expert, each stage fills its own layers) into `out`
+    /// Adds the counts since `route_hist_reset` (pack layers x n_expert, each stage fills its own layers) into `out`
     /// and the prompt tokens they cover into `tokens`, and stops counting.  False when counting was not started.
     bool route_hist_take(std::vector<uint32_t>& out, int64_t& tokens);
 
@@ -140,7 +140,7 @@ public:
     /// through host staging into the ring.  Independent of set_peer.
     void set_ring_peer(core::PeerExperts* peer);
     /// A stage on another card than the main one: an expert with no pinned host copy that the cache on `device` holds
-    /// (`res`: n_layers x n_expert slot or -1, read at every chunk) is copied from that card through host staging into
+    /// (`res`: pack layers x n_expert slot or -1, read at every chunk) is copied from that card through host staging into
     /// the ring.  Null `res`: none.
     void set_ring_remote(const int32_t* res, const core::ExpertCache* cache, int device);
     /// Off: the peer card's share (set_peer) is skipped, every expert of a chunk stays on this card - while the peer

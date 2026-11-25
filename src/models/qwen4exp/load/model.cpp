@@ -42,6 +42,20 @@ int model(Context& context) {
         }
         basalt::kernels::rope_scaling_set(rope_cfg);
     }
+    {   // the layer loop: the geometry turns into the slots' before anything is sized from it
+        basalt::core::LayerLoopSpec loop;
+        std::string loop_err;
+        if (!basalt::core::parse_layer_loop(o.layer_loop, o.layer_loop_alpha, loop, loop_err) ||
+            !basalt::core::apply_layer_loop(g, loop, loop_err)) {
+            basalt::log::error("basalt generate", "%s", loop_err.c_str());
+            return 2;
+        }
+        if (loop.on()) {
+            basalt::log::info("basalt generate", "%s", basalt::core::layer_loop_text(g).c_str());
+            basalt::log::info("basalt generate", "layer loop: expert swaps and the prompt look-ahead are off");
+            o.adapt_swaps = 0;
+        }
+    }
     basalt::core::LoadPlan reads;
     std::vector<std::function<bool(std::string&)>> after;
     basalt::core::Loader loader;

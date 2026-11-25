@@ -1,7 +1,10 @@
 // src/models/qwen4exp/decode/layout.cpp - the shape checks.  See the header for why this exists.
 #include "basalt/models/qwen4exp/decode/layout.hpp"
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 namespace basalt::core {
 namespace {
@@ -228,6 +231,92 @@ struct LoopMap {
 void set_layer_loop_map(const ModelGeometry& g) { g_loop_map = {g.loop_a, g.loop_b, g.loop_k}; }
 
 int64_t mapped_source(int64_t slot) { return layer_source(g_loop_map.a, g_loop_map.b, g_loop_map.k, slot); }
+
+namespace {
+// a whole decimal integer, no sign, no trailing text
+bool whole(const std::string& s, int64_t& v) {
+    if (s.empty() || s.size() > 6) return false;
+    for (const char c : s)
+        if (c < '0' || c > '9') return false;
+    v = std::atoll(s.c_str());
+    return true;
+}
+}  // namespace
+
+bool parse_layer_loop(const std::string& window, const std::string& alphas, LayerLoopSpec& out, std::string& err) {
+    out = LayerLoopSpec{};
+    if (window.empty()) {
+        if (!alphas.empty()) { err = "--layer-loop-alpha needs --layer-loop"; return false; }
+        return true;
+    }
+    const size_t c1 = window.find(':'), c2 = c1 == std::string::npos ? c1 : window.find(':', c1 + 1);
+    int64_t a = 0, b = 0, k = 0;
+    if (c2 == std::string::npos || window.find(':', c2 + 1) != std::string::npos || !whole(window.substr(0, c1), a) ||
+        !whole(window.substr(c1 + 1, c2 - c1 - 1), b) || !whole(window.substr(c2 + 1), k)) {
+        err = "--layer-loop expects A:B:K, three whole numbers (got '" + window + "')";
+        return false;
+    }
+    if (k < 1 || k > kLoopMaxK) { err = "--layer-loop: K is 1 to " + std::to_string(kLoopMaxK) + " (1 is off)"; return false; }
+    if (a < 2) { err = "--layer-loop: the window starts at layer 2 or later (layers 0 and 1 carry the embedding and the PLE)"; return false; }
+    if (a >= b) { err = "--layer-loop: A must be below B"; return false; }
+    std::vector<float> list;
+    if (!alphas.empty()) {
+        size_t from = 0;
+        for (;;) {
+            const size_t to = alphas.find(',', from);
+            const std::string item = alphas.substr(from, to == std::string::npos ? std::string::npos : to - from);
+            char* end = nullptr;
+            const float v = item.empty() ? NAN : std::strtof(item.c_str(), &end);
+            if (item.empty() || *end != '\0' || !std::isfinite(v) || v < 0.0f) {
+                err = "--layer-loop-alpha: '" + item + "' is not a finite number from 0 up";
+                return false;
+            }
+            list.push_back(v);
+            if (to == std::string::npos) break;
+            from = to + 1;
+        }
+        if ((int64_t) list.size() != k) {
+            err = "--layer-loop-alpha: K = " + std::to_string(k) + " needs " + std::to_string(k) + " values, got " + std::to_string(list.size());
+            return false;
+        }
+    }
+    out.a = a;
+    out.b = b;
+    out.k = k;
+    for (size_t i = 0; i < list.size(); ++i) out.alpha[i] = list[i];
+    return true;
+}
+
+bool apply_layer_loop(ModelGeometry& g, const LayerLoopSpec& s, std::string& err) {
+    if (!s.on()) return true;
+    if (s.b > g.n_layers) {
+        err = "--layer-loop: B = " + std::to_string((long long) s.b) + " is past the model's " + std::to_string((long long) g.n_layers) + " layers";
+        return false;
+    }
+    if ((s.b - s.a) % g.qsa_interval != 0) {
+        err = "--layer-loop: the window is " + std::to_string((long long) (s.b - s.a)) + " layers; it must be a multiple of " +
+              std::to_string((long long) g.qsa_interval) + " (a full-attention layer every " + std::to_string((long long) g.qsa_interval) + ")";
+        return false;
+    }
+    g.loop_a = s.a;
+    g.loop_b = s.b;
+    g.loop_k = s.k;
+    for (int i = 0; i < kLoopMaxK; ++i) g.loop_alpha[i] = s.alpha[i];
+    g.n_layers += (s.k - 1) * (s.b - s.a);
+    set_layer_loop_map(g);
+    return true;
+}
+
+std::string layer_loop_text(const ModelGeometry& g) {
+    std::string a;
+    for (int64_t i = 0; i < g.loop_k; ++i) {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%g", (double) g.loop_alpha[i]);
+        a += (i ? "," : "") + std::string(buf);
+    }
+    return "layer loop: [" + std::to_string((long long) g.loop_a) + "," + std::to_string((long long) g.loop_b) + ") x" +
+           std::to_string((long long) g.loop_k) + ", alpha " + a + ", " + std::to_string((long long) g.n_layers) + " slots";
+}
 
 std::string LayerView::name(const char* suffix) const {
     return "blk." + std::to_string(mapped_source(layer_)) + "." + suffix;

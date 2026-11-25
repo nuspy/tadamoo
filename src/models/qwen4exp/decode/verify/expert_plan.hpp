@@ -15,7 +15,7 @@ namespace basalt::core {
 // by one persistent kernel per window, the CPU pool by the host loop (only its own entries).
 struct DecMoe {
     int64_t rings = 0;                       ///< rings per window (one per layer)
-    int32_t* res0 = nullptr;                 ///< CUDA0: [n_layers * n_expert] CUDA0 slot or -1 (host_res mirrored)
+    int32_t* res0 = nullptr;                 ///< CUDA0: [pack layers * n_expert] CUDA0 slot or -1 (host_res mirrored)
     int32_t* res1 = nullptr;                 ///< CUDA0: the same for the peer's slots
     std::vector<int32_t> shadow0, shadow1;   ///< what res0 / res1 hold
     CpuWarm* warm = nullptr;                 ///< the CPU tier's warm-up (null: off)
@@ -27,7 +27,7 @@ struct DecMoe {
     void* xq_pub = nullptr;   // the side stream's q8_1 rows for the ring
     unsigned int* vsync = nullptr;           ///< its counters
     unsigned long long* wstat = nullptr;   // the per-layer wait counters (device), with --wait-stats
-    unsigned long long* ptab0 = nullptr;   // [n_layers * n_expert] CUDA0 blob address or 0
+    unsigned long long* ptab0 = nullptr;   // [pack layers * n_expert] CUDA0 blob address or 0
     unsigned int* pub = nullptr;           // [rings][4] the FFN read's counts for the ring's block (HcFusedArgs::pub_ctr)
     unsigned int* cseen = nullptr;         // the combine's last ring whose CPU word it saw (dec_moe_combine's cpu_seen)
     unsigned long long* route_counts = nullptr;   // [8] what the opt-in routing changes did (route_report); null: none on
@@ -52,7 +52,7 @@ struct DecMoe {
     // the peer card
     int pdev = -1;
     cudaStream_t ps = nullptr;
-    unsigned long long* ptab = nullptr;      ///< [n_layers * n_expert] blob address or 0
+    unsigned long long* ptab = nullptr;      ///< [pack layers * n_expert] blob address or 0
     basalt::kernels::NativeExpertLayout* lay = nullptr;
     void* pscr = nullptr;
     unsigned int* parr = nullptr;
@@ -68,7 +68,7 @@ struct DecMoe {
         PeerExperts* peer = nullptr;
         int dev = -1;
         cudaStream_t ps = nullptr;
-        int32_t* res = nullptr;                  ///< CUDA0: [n_layers * n_expert] its slot or -1
+        int32_t* res = nullptr;                  ///< CUDA0: [pack layers * n_expert] its slot or -1
         std::vector<int32_t> shadow;             ///< what res holds
         unsigned long long* ptab = nullptr;      ///< its card: blob address or 0
         basalt::kernels::NativeExpertLayout* lay = nullptr;

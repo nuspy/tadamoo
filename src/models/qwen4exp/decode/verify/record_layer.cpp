@@ -97,10 +97,11 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
         pending = false;
     }
     auto gr_read_group = [&](int half, bool apply, float* inj_prev, float* inj_out) {
+        const float ws = write_scale(g, half == 0 ? l - 1 : l);   // the write folded here: the previous slot's FFN half, or this slot's attention half
         FusedGrArgs fa[kFusedGrMaxT];
         for (int t = 0; t < T; ++t) {
             FusedGrArgs& a = fa[t];
-            a.R = Rt(t); a.R_out = Rt(t); a.apply = apply;
+            a.R = Rt(t); a.R_out = Rt(t); a.apply = apply; a.wscale = ws;
             a.bo_prev = v_.bo_ + t * N; a.inj_prev = inj_prev + t * HC;
             a.w_norm = (const float*) wn[half]->data; a.w_down = (const uint16_t*) wd[half]->data;
             a.w_up = (const uint16_t*) wu[half]->data; a.w_inject = (const uint16_t*) wi[half]->data;
@@ -111,8 +112,9 @@ bool Verifier::WindowRecorder::pre(int64_t l) {
                             (int) (l * kProfPer + (half == 0 ? 27 : 30)));
     };
     auto hc_args = [&](int half, bool apply, float* inj_prev, float* inj_out) {
+        const float ws = write_scale(g, half == 0 ? l - 1 : l);   // the write folded here: the previous slot's FFN half, or this slot's attention half
         HcFusedArgs h;
-        h.T = n; h.R = Rt(0); h.R_out = Rt(0); h.apply = apply;
+        h.T = n; h.R = Rt(0); h.R_out = Rt(0); h.apply = apply; h.wscale = ws;
         h.bo_prev = v_.bo_; h.inj_prev = inj_prev;
         h.w_norm = (const float*) wn[half]->data; h.w_down = (const uint16_t*) wd[half]->data;
         h.w_up = (const uint16_t*) wu[half]->data; h.w_inject = (const uint16_t*) wi[half]->data;

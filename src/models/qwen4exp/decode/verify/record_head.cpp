@@ -27,11 +27,12 @@ bool Verifier::WindowRecorder::head() {
         const WeightRef *hn = wt.find("output_hc_norm.weight"), *hd = wt.find("output_hc_down.weight"),
                         *hu = wt.find("output_hc_up.weight");
         if (!hn || !hd || !hu) { err = "verify: an output_hc_* weight is missing"; return false; }
+        const float ws_head = write_scale(g, g.n_layers - 1);   // the last slot's FFN write, folded into the head's read
         if (fuse_head_gr) {
             FusedGrArgs fa[kFusedGrMaxT];
             for (int t = 0; t < T; ++t) {
                 FusedGrArgs& a = fa[t];
-                a.R = Rt(t); a.R_out = Rt(t); a.apply = true;
+                a.R = Rt(t); a.R_out = Rt(t); a.apply = true; a.wscale = ws_head;
                 a.bo_prev = v_.bo_ + t * N; a.inj_prev = v_.inj2_ + t * HC;
                 a.w_norm = (const float*) hn->data;
                 a.w_down = (const uint16_t*) hd->data;
@@ -45,7 +46,7 @@ bool Verifier::WindowRecorder::head() {
             }
             if (dec_hc) {
                 HcFusedArgs h;
-                h.T = T; h.R = Rt(0); h.R_out = Rt(0); h.apply = true; h.bo_prev = v_.bo_; h.inj_prev = v_.inj2_;
+                h.T = T; h.R = Rt(0); h.R_out = Rt(0); h.apply = true; h.wscale = ws_head; h.bo_prev = v_.bo_; h.inj_prev = v_.inj2_;
                 h.w_norm = (const float*) hn->data; h.w_down = (const uint16_t*) hd->data; h.w_up = (const uint16_t*) hu->data;
                 h.eps = EPS; h.lo = v_.lo_; h.rs = v_.rs_; h.mixed = v_.head_mixed_; h.xn = v_.xn_;
                 hc_fused_read(h, cs);

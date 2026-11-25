@@ -56,8 +56,8 @@ using PoolMultiFn = void (*)(void* user, const float* x_f, const int32_t* ids, i
                              int64_t layer);
 
 struct VerifyHits {
-    const int32_t* d_res = nullptr;      ///< device [n_layers * n_expert] slot or -1
-    const int32_t* h_res = nullptr;      ///< host [n_layers * n_expert] slot or -1 (when all >= 0 in stage: zero-doorbell)
+    const int32_t* d_res = nullptr;      ///< device [pack layers * n_expert] slot or -1
+    const int32_t* h_res = nullptr;      ///< host [pack layers * n_expert] slot or -1 (when all >= 0 in stage: zero-doorbell)
     const uint8_t* cache_base = nullptr; ///< slot 0 of the VRAM expert arena
     const uint64_t* slot_off = nullptr;   // host per-slot offsets when slots differ in size (null: slot * blob)
     int64_t n_slots = 0;   // how many (for the device copy)

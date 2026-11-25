@@ -48,6 +48,11 @@ uint64_t conversation_identity(const Options& o, const basalt::core::ModelGeomet
     const int64_t geo[] = {g.n_embd, g.n_layers, g.qsa_interval, g.ssm_state_size, g.ssm_v_heads, g.n_head_kv,
                            g.head_dim, g.idx_key_dim, g.n_expert, g.n_ff};
     h = conversation_store_hash(geo, sizeof geo, h);
+    if (g.loop_k > 1) {   // two windows of the same slot count, or two alphas, are two models; a loop off hashes as before
+        int64_t loop[3 + basalt::core::kLoopMaxK];
+        basalt::core::layer_loop_key(g, loop);
+        h = conversation_store_hash(loop, sizeof loop, h);
+    }
     h = basalt::core::conversation_store_hash_file(o.model, h);
     for (const auto& [path, scale] : o.lora_files) h = basalt::core::conversation_store_hash_file(path, h);
     return h;

@@ -72,7 +72,7 @@ struct ExpertDispatch {
     /// so the decision is made exactly once, on this layer's ids, and neither side can re-decide it.
     std::vector<uint8_t> is_hit;
     bool decided = false;
-    /// Token graph: the STATIC residency table (`n_layers x n_expert`, slot or -1), the host's copy of what the device
+    /// Token graph: the STATIC residency table (`pack layers x n_expert`, slot or -1), the host's copy of what the device
     /// hit path reads.  When set, the pool leaves a resident expert's row at zero (the GPU computes it) without any
     /// `Launch` callback.
     const int32_t* host_res = nullptr;

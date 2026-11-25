@@ -137,6 +137,9 @@ struct Options : CommonOptions {
     /// `experimental-speed-projection` profile passes `--control-vector-scaled FILE:1.0 --control-vector-layer-range
     /// 4 44 --cvec-mode project --cvec-dir per-layer`.  None by default; --serve switches a loaded one per request.
     std::vector<std::pair<std::string, float>> cvec_files;
+    /// --layer-loop A:B:K and --layer-loop-alpha a1,...,aK (decode/layout.hpp): the pack's layers [A, B) run K times, pass i
+    /// writing with weight a_i.  Empty: no loop.
+    std::string layer_loop, layer_loop_alpha;
     int cvec_first = -1, cvec_last = -1;   ///< llama.cpp's defaults: 1 .. the last layer
     int cvec_mode = 1;                     ///< 0 = project, 1 = add (llama.cpp's default)
     int cvec_single = -1;                  ///< --cvec-dir single:L (project mode): layer L's direction everywhere

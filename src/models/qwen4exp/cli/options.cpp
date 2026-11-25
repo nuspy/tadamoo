@@ -6,6 +6,7 @@
 #include "basalt/model/rope_flags.hpp"
 #include "basalt/kernels/sampler.hpp"
 #include "basalt/log.hpp"
+#include "basalt/models/qwen4exp/decode/layout.hpp"
 #include "basalt/models/qwen4exp/options.hpp"
 
 #include <algorithm>
@@ -128,6 +129,22 @@ std::optional<int> validate_generation_options(const Options& o, bool multi_gpu,
     if (o.peer_device >= 1 && !o.layer_split.empty()) {
         basalt::log::error("basalt generate", "--peer-device cannot be combined with --layer-split (use one or the other)");
         return 2;
+    }
+    if (!o.layer_loop.empty() || !o.layer_loop_alpha.empty()) {
+        basalt::core::LayerLoopSpec loop;
+        std::string why;
+        if (!basalt::core::parse_layer_loop(o.layer_loop, o.layer_loop_alpha, loop, why)) {
+            basalt::log::error("basalt generate", "%s", why.c_str());
+            return 2;
+        }
+        if (loop.on() && (multi_gpu || o.peer_device >= 1 || !o.layer_split.empty())) {
+            basalt::log::error("basalt generate", "--layer-loop runs on one GPU: not with --gpu 0,1, --peer-device or --layer-split");
+            return 2;
+        }
+        if (loop.on() && !o.cvec_files.empty()) {
+            basalt::log::error("basalt generate", "--layer-loop cannot be combined with a control vector");
+            return 2;
+        }
     }
 
     // The whole-model graph measurements replay every layer through CUDA0's session, which a layer split carves to
