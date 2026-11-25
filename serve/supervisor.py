@@ -536,7 +536,7 @@ class Supervisor:
         free, reserve = now.get("vram_free"), int(v["engine.vram-reserve-mib"]) * loader.MiB
         if free is not None and v["engine.expert-cache"] in ("auto", 0, "0", None) and free < reserve // 2:
             return f"VRAM free after the load {free // loader.MiB} MiB, the reserve is {reserve // loader.MiB} MiB"
-        limit, used = now.get("commit_limit"), now.get("commit_used")
+        limit, used = loader.commit_limit_of(now)[0], now.get("commit_used")
         if limit and used is not None and used > limit - loader.keep_bytes(limit, share):
             return f"commit in use {used / loader.GiB:.1f} GiB of {limit / loader.GiB:.1f} GiB"
         total, avail = now.get("ram_total"), now.get("ram_available")
@@ -556,7 +556,7 @@ class Supervisor:
         self._set(phase="measuring", step="check")
         try:
             now = loader.system_now(getattr(self.svc, "gpu_index", 0))
-            limit, used = now.get("commit_limit"), now.get("commit_used")
+            limit, used = loader.commit_limit_of(now)[0], now.get("commit_used")
             if limit and used is not None and used / limit >= loader.MEASURE_COMMIT_MAX:
                 raise RuntimeError(f"the commit in use is {used / limit:.0%} of the limit: the measurement starts only "
                                    f"below {loader.MEASURE_COMMIT_MAX:.0%} (close other programs)")

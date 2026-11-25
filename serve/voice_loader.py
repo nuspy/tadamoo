@@ -244,14 +244,15 @@ def commit_check(svc, need_mib: int, with_model: bool) -> dict:
             problem = next((x for x in p["problems"] if x["code"] == "commit"), None)
         else:
             now = loader.system_now(_gpu(svc))
-            limit, used = now.get("commit_limit"), now.get("commit_used")
+            limit, counted_max = loader.commit_limit_of(now)    # RAM plus the page file's maximum, as the model's own check counts it
+            used = now.get("commit_used")
             if limit is None or used is None:
                 out["ok"] = None
             else:
                 share = loader.free_share()
                 keep, have = loader.keep_bytes(limit, share), limit - used
                 if need_mib * MIB > have - keep:
-                    problem = {"code": "commit", "need": need_mib * MIB, "have": have, "keep": keep, "share": share}
+                    problem = {"code": "commit", "need": need_mib * MIB, "have": have, "keep": keep, "share": share, "max_counted": counted_max}
     except (ValueError, OSError, KeyError):
         out["ok"] = None
     if problem is not None:

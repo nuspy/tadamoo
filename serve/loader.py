@@ -279,6 +279,15 @@ def free_share() -> float:
         return FREE_SHARE
 
 
+def commit_limit_of(system: dict) -> tuple:
+    """(the commit limit a plan counts, whether it is the page file's maximum): RAM plus the page file's MAXIMUM when `system_now` gave it
+    (a dynamic page file grows on demand, up to that), else the limit now."""
+    limit, top = system.get("commit_limit"), system.get("commit_limit_max")
+    if limit and top and top > limit:
+        return top, True
+    return limit, False
+
+
 def counts_page_file_max() -> bool:
     """Whether the commit the plan counts is RAM plus the page file's MAXIMUM (Windows grows the file while the model loads) instead of its size now. On unless
     the person turns it off: an allocation that arrives faster than the file grows can stop a load."""
@@ -518,10 +527,8 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
         host.append(_item("measured", corr["ram"]))
     # ---- available and the rules
     total, avail = system.get("ram_total"), system.get("ram_available")
-    limit, used = system.get("commit_limit"), system.get("commit_used")
-    counted_max = bool(limit and system.get("commit_limit_max") and system["commit_limit_max"] > limit)
-    if counted_max:
-        limit = system["commit_limit_max"]
+    limit, counted_max = commit_limit_of(system)
+    used = system.get("commit_used")
     ram_avail = None if avail is None else avail + holds["ram"]
     commit_avail = None if limit is None or used is None else limit - used + holds["commit"]
     # the lent slots' RAM copies: elastic (the engine keeps what fits above its own margin), so they are shown in the
@@ -1028,7 +1035,7 @@ def wizard_hardware(gpu_index: int = 0) -> dict:
     system = system_now(gpu_index)
     g = hardware.gpu(gpu_index)
     adapters = hardware.displays()
-    limit, used = system.get("commit_limit"), system.get("commit_used")
+    limit, used = commit_limit_of(system)[0], system.get("commit_used")
     share_used = used / limit if limit and used is not None else None
     return {"system": system, "cpu": hardware.cpu(), "gpu": g, "displays": adapters,
             "monitor": hardware.monitor_on(g, adapters), "page_file": hardware.page_file(),

@@ -36,7 +36,8 @@ class Commit(Base):
 
         def now(gpu=0):
             used = self.commit["used"] + sum(self.commit["per_load"].get(f, 0) * MIB for f, s in self.voice.state.items() if s["state"] == "loaded")
-            return {**ROOMY, "vram_total": 24000 * MIB, "vram_free": self.pool["free"] * MIB, "commit_limit": self.commit["limit"], "commit_used": used}
+            return {**ROOMY, "vram_total": 24000 * MIB, "vram_free": self.pool["free"] * MIB, "commit_limit": self.commit["limit"], "commit_used": used,
+                    **({"commit_limit_max": self.commit["limit_max"]} if "limit_max" in self.commit else {})}
         p = mock.patch.object(loader, "system_now", now)
         self.patches.insert(0, p)                                                  # stopped before the base class's own patch, which it covers
         p.start()
@@ -94,6 +95,16 @@ class CommitPlan(Commit):
         self.assertEqual(posts(self), [])
         code, out = self.apply({"tts": {"on": True}}, force=True)
         self.assertEqual(code, 202, out)
+
+    def test_a_function_loaded_beside_the_model_counts_the_page_files_maximum_like_the_models_own_check(self):
+        self.commit["limit"], self.commit["used"] = 100 * GiB, 95 * GiB            # 5 GiB left under the limit now, and the share kept free is more
+        self.assertFalse(voice_loader.commit_check(self.svc, 1000, False)["ok"])
+        self.commit["limit_max"] = 250 * GiB                                       # the page file may grow to its maximum
+        self.assertTrue(voice_loader.commit_check(self.svc, 1000, False)["ok"])
+        self.commit["used"] = 240 * GiB                                            # a refusal that remains says what the limit counted
+        out = voice_loader.commit_check(self.svc, 1000, False)
+        self.assertFalse(out["ok"])
+        self.assertIn("page file's maximum", out["reason"])
 
     def test_nothing_to_load_asks_nothing_of_the_commit(self):
         code, p = self.req("POST", "/api/voice/functions/plan", {})

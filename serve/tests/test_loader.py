@@ -422,5 +422,27 @@ class EngineRestart(unittest.TestCase):
         self.assertEqual(svc.settings_info["running"]["engine.kv"], "q4_0")
 
 
+class CommitLimit(unittest.TestCase):
+    """A dynamic page file grows on demand up to its maximum: every check of the commit counts that limit, not the size it has now."""
+
+    GiB = 1 << 30
+
+    def test_the_limit_a_plan_counts_is_ram_plus_the_page_files_maximum_when_it_is_known(self):
+        g = self.GiB
+        self.assertEqual(loader.commit_limit_of({"commit_limit": 160 * g, "commit_limit_max": 225 * g}), (225 * g, True))
+        self.assertEqual(loader.commit_limit_of({"commit_limit": 160 * g}), (160 * g, False))
+        self.assertEqual(loader.commit_limit_of({"commit_limit": 160 * g, "commit_limit_max": 100 * g}), (160 * g, False))
+        self.assertEqual(loader.commit_limit_of({}), (None, False))
+
+    def test_the_share_of_the_commit_in_use_is_taken_against_that_limit(self):
+        from serve import models
+        g = self.GiB
+        now = {"commit_limit": 160 * g, "commit_used": 150 * g, "commit_limit_max": 225 * g}
+        with mock.patch.object(loader, "system_now", return_value=now):
+            self.assertAlmostEqual(models._commit_share(), 150 / 225)
+        with mock.patch.object(loader, "system_now", return_value={k: v for k, v in now.items() if k != "commit_limit_max"}):
+            self.assertAlmostEqual(models._commit_share(), 150 / 160)
+
+
 if __name__ == "__main__":
     unittest.main()

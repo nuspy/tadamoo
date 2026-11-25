@@ -401,7 +401,7 @@ def wizard_measure(svc, req: dict) -> dict:
     except ValueError as e:
         raise Refused(400, {"error": {"type": "invalid_request_error", "message": str(e)}}) from None
     now = loader.system_now(getattr(svc, "gpu_index", 0))
-    limit, used = now.get("commit_limit"), now.get("commit_used")
+    limit, used = loader.commit_limit_of(now)[0], now.get("commit_used")
     if limit and used is not None and used / limit >= loader.MEASURE_COMMIT_MAX:
         raise Refused(409, {"error": {"type": "insufficient_memory", "code": "commit_high",
                                       "message": f"the commit in use is {used / limit:.0%} of the limit: the "

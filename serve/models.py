@@ -1137,7 +1137,7 @@ def resolve(model: str | None = None, profile: str | None = None, config: str | 
 def _commit_share() -> float | None:
     from serve import loader
     s = loader.system_now()
-    lim, used = s.get("commit_limit"), s.get("commit_used")
+    lim, used = loader.commit_limit_of(s)[0], s.get("commit_used")
     return None if not lim or used is None else used / lim
 
 
