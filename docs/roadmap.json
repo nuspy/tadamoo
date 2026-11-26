@@ -1153,6 +1153,44 @@
         "Decisione dell'utente: spendere le 70 prove (3-4 ore ciascuna) su [8,16) K=2, oppure chiudere la tappa 0. Su wikitext nessun beneficio misurato: se c'è, lo mostrano solo le 70 prove."
       ],
       "branch": false
+    },
+    {
+      "id": "rm56",
+      "num": 56,
+      "group": "todo",
+      "title": "Link ai file consegnati non cliccabili nelle risposte (sessione demonology)",
+      "summary": "Alle 10:09 e 10:12 del 26 novembre il modello ha scritto [nome](file:ID:nome) invece di [nome](tadamoo-file:ID): la pagina trasforma in bottone solo tadamoo-file, quindi il resto restava testo. Alle 10:06 e 11:01 il formato era giusto e il bottone c'era.",
+      "status": "todo",
+      "solved": [
+        "Causa trovata nei log e nel codice (serve/web/chat.js riga 62 trasforma solo tadamoo-file:ID). Il risultato di publish_output_file (tadamoo/attachment_tools.py finish) mostra solo l'etichetta [file:ID:nome] e non dice come scrivere il link; la regola sta solo nel paragrafo fisso FILES_GUIDANCE (tadamoo/visuals.py) e il modello ha copiato la forma dell'etichetta."
+      ],
+      "decisions": [
+        "Da decidere con l'utente: (a) mettere nel risultato dello strumento la riga esatta da scrivere, (b) far accettare alla pagina anche file:ID[:nome] come bottone, oppure entrambe."
+      ],
+      "risks": [
+        "Se si fa solo (b) il modello continua a scrivere una forma sbagliata e funziona per caso; se si fa solo (a) un errore futuro resta testo."
+      ],
+      "branch": false
+    },
+    {
+      "id": "rm57",
+      "num": 57,
+      "group": "todo",
+      "title": "Controllo «lavora finché non è fatto»: richiami inutili dopo la consegna (sessione demonology)",
+      "summary": "Dopo la consegna del link il controllo di completamento ha rimandato il modello al lavoro tre volte nella sessione, tutte su motivi sbagliati; l'ultima (11:02) ha portato a rileggere il dossier e a riscriverlo intero (write_file di 27,9 KB, annullato prima di partire).",
+      "status": "todo",
+      "solved": [
+        "11:02: la richiesta «Rimandamelo» è sotto 80 caratteri, quindi _request_words (tadamoo/agent_loop.py) le aggiunge la richiesta precedente (il compito lungo); il lettore ha visto «Ricrea…» e ha detto che il modello non aveva ricreato il contenuto.",
+        "10:06 e 10:09: il lettore ha letto «0 file writes or edits» perché _work_line conta write_output_file ma non publish_output_file né i file scritti da script o download: ha detto che il file non c'era, mentre era stato consegnato.",
+        "10:06: l'elenco dei compiti restava aperto (todo_write non aggiornato) e ha causato il primo richiamo."
+      ],
+      "decisions": [
+        "Da decidere con l'utente: contare publish_output_file e le scritture da comandi nella riga del lavoro; non agganciare la richiesta precedente quando il messaggio breve chiede una cosa nuova e piccola (reinvio, correzione di un link); ricordare al modello di aggiornare l'elenco dei compiti."
+      ],
+      "risks": [
+        "Un controllo più permissivo può lasciar passare lavori davvero incompleti: va provato su richieste vere."
+      ],
+      "branch": false
     }
   ]
 }
