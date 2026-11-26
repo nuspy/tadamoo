@@ -225,3 +225,27 @@ def test_this_server_takes_every_reasoning_level_llmswitch_offers():
     assert shown["none"] == {"enable_thinking": False} and shown["minimal"] == {"reasoning_effort": "minimal"}      # the dialect says what a template takes for minimal
     assert shown["low"] == {"reasoning_effort": "low"} and shown["medium"] == {"reasoning_effort": "medium"} and shown["high"] == {"reasoning_effort": "high"}
     assert shown["xhigh"] == shown["max"] == {"reasoning_effort": "max"}
+
+
+def test_a_call_goes_down_the_list_of_providers_in_its_order_when_the_routes_before_it_do_not_answer(world):
+    cloud, local, reg, ledger = world
+    second, third = Cloud(), Cloud()
+    try:
+        ids = [reg.add({"type": "openai_compat", "name": n, "base_url": c.url + "/v1", "api_key": "k" * 12, "model": "m"})["id"] for n, c in (("A", cloud), ("B", second), ("C", third))]
+        reg.set_consent("executor", True)
+
+        def down(**kw):
+            raise TadamooError(0, "the engine is down")
+        local.chat_completion = down                                           # the primary is the loaded model and it fails
+        cloud.status = second.status = 500                                      # so do the first two providers
+        out = RoutedClient("executor", reg, local, ledger).chat_completion(MSG)
+        assert out["choices"][0]["message"]["content"] and (len(cloud.requests), len(second.requests), len(third.requests)) == (1, 1, 1)
+        reg.reorder([ids[2], ids[0], ids[1]])                                   # C first: it answers at once and the others are not asked again
+        RoutedClient("executor", reg, local, ledger).chat_completion(MSG)
+        assert (len(cloud.requests), len(second.requests), len(third.requests)) == (1, 1, 2)
+        third.status = 500                                                      # all fail: the last error is the one raised
+        with pytest.raises(TadamooError):
+            RoutedClient("executor", reg, local, ledger).chat_completion(MSG)
+    finally:
+        second.close()
+        third.close()

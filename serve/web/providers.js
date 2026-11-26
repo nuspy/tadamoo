@@ -258,9 +258,34 @@
   }
 
   /* ---- the providers ---- */
-  function providerCard(p) {
+  /* the order of the list is the order the providers are tried in when the chosen route does not answer */
+  async function putOrder(ids) {
+    const r = await call("POST", "api/llm/providers/order", { ids });
+    if (r.ok) { say(T("pv.order.saved")); await refresh(); } else say(explain(r), true);
+  }
+  function moved(id, to) {                                                    // the ids with `id` put at position `to`
+    const ids = state.providers.map(x => x.id).filter(x => x !== id);
+    ids.splice(Math.max(0, Math.min(ids.length, to)), 0, id);
+    return ids;
+  }
+  function orderControls(p, i, n) {
+    const up = btn("▲", "ghost", () => putOrder(moved(p.id, i - 1))), down = btn("▼", "ghost", () => putOrder(moved(p.id, i + 1)));
+    up.setAttribute("aria-label", T("pv.order.up", p.name)); down.setAttribute("aria-label", T("pv.order.down", p.name));
+    up.disabled = i === 0; down.disabled = i === n - 1;
+    return h("div", "pv-order", h("span", "pv-pos", String(i + 1)), up, down);
+  }
+  let dragged = "";
+  function dragRows(card, p, i) {                                             // a mouse drags a card onto another; touch and keyboard use the arrows
+    card.draggable = editing !== p.id;
+    card.addEventListener("dragstart", e => { dragged = p.id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", p.id); } catch (err) { /* the id is kept in `dragged` */ } card.classList.add("pv-dragging"); });
+    card.addEventListener("dragend", () => { dragged = ""; card.classList.remove("pv-dragging"); });
+    card.addEventListener("dragover", e => { if (dragged && dragged !== p.id) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } });
+    card.addEventListener("drop", e => { e.preventDefault(); if (dragged && dragged !== p.id) putOrder(moved(dragged, i)); dragged = ""; });
+  }
+  function providerCard(p, i, n) {
     const card = h("li", "pv-card");
-    const head = h("div", "pv-head", h("b", "", p.name), h("span", "pv-badge", p.is_local ? T("pv.onpc") : T("pv.outside")),
+    dragRows(card, p, i);
+    const head = h("div", "pv-head", orderControls(p, i, n), h("b", "", p.name), h("span", "pv-badge", p.is_local ? T("pv.onpc") : T("pv.outside")),
       p.judge_only ? h("span", "pv-badge", T("pv.judgeOnly")) : null, p.agent_only ? h("span", "pv-badge", T("pv.agentOnly")) : null);
     const meta = h("p", "dim pv-meta", `${p.label || p.type}${p.model ? " · " + p.model : ""}${p.base_url ? " · " + p.base_url : ""} · ${p.has_key ? T("pv.key.yes") : T("pv.key.no")}`);
     const cap = p.daily_token_cap ? h("p", "dim pv-meta", T("pv.cap", nfmt(p.used_today), nfmt(p.daily_token_cap))) : null;
@@ -356,7 +381,7 @@
     sec.append(h("div", "sh", h("b", "", T("pv.providers"))), h("p", "setnote", T("pv.providers.help")));
     const list = h("ul", "pv-list");
     if (!state.providers.length) list.append(h("li", "dim", T("pv.none")));
-    state.providers.forEach(p => list.append(providerCard(p)));
+    state.providers.forEach((p, i) => list.append(providerCard(p, i, state.providers.length)));
     sec.append(list);
     const add = h("details", "pv-add"); add.append(h("summary", "", T("pv.new")), form(null));
     sec.append(add);

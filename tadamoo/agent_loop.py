@@ -55,6 +55,7 @@ MAX_CALLS_PER_MESSAGE = 16     # tool calls run from one model message; the rest
 # the first words of a message that tells the agent its last answer was wrong (Italian and English)
 CORRECTION = re.compile(r"^\W*(no\b|non è (?:così|quello|giusto|corretto)|non \w+ (?:quello|giusto)|sbagliat|errat|hai sbagliato|non funziona|that'?s (?:not|wrong)|wrong\b|incorrect|not what i)", re.IGNORECASE)
 MAX_COMPLETION_ROUNDS = 2      # times the completion check may send the model back to finish, per request
+WINDOW_ASK_S = 30.0            # how often the context budget is asked for again while a request runs (the route of a call may change)
 MAX_STOP_DENIALS = 2           # times a stop hook may send the model back to work, per request
 BUDGET_WARN_AT = 0.9           # the share of a budget used at which the model is told it is nearly spent
 BUDGET_WARNING = ("[harness] The budget for this answer is nearly used up. Save now the result that was asked for, even if it is not complete, finish "
@@ -284,6 +285,8 @@ class AgentLoop:
         self.empty_deferred = False               # the latest run ended empty and left the second try to the session
         self.review: Optional[Callable[[str, str, str], Optional[str]]] = None      # the technical session's look at whether the request was followed as named (tadamoo/review.py)
         self.completion: Optional[Callable[[str, str, str], str]] = None      # "work until done": the note that sends the model back to finish, or "" (tadamoo/completion.py)
+        self.refresh_window: Optional[Callable[[], None]] = None      # asks the server for the context again and sets the budget by it (tadamoo/stack.py)
+        self._window_asked = 0.0
         self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (tadamoo/lessons.py)
         self.learn: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None   # told how a request went and what it taught, when its run ends
         self._recorder: Any = None
@@ -1416,6 +1419,9 @@ class AgentLoop:
         """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller.
         A summary of the older steps (tadamoo/compaction.py) is announced with its report: what was replaced and what the server will read again."""
         ctx = self.context
+        if self.refresh_window is not None and time.monotonic() - self._window_asked >= WINDOW_ASK_S:
+            self._window_asked = time.monotonic()
+            self.refresh_window()
         due, before = False, 0
         if self.hooks is not None:
             try:

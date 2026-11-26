@@ -98,3 +98,30 @@ def test_the_limits_of_a_provider_are_kept_cleared_and_shown_by_the_providers_pa
         with pytest.raises(LlmError):
             api.update_provider(added["id"], {"context_window": bad})
     assert api.update_provider(added["id"], {"name": "x"})["context_window"] == 200000
+
+
+class _Loader:
+    """What the local engine says about its model: loaded or not."""
+
+    def __init__(self, loaded):
+        self.loaded = loaded
+
+    def status(self):
+        return {"loaded": self.loaded, "loading": False}
+
+
+def test_the_window_is_the_one_of_the_route_a_call_takes_now_a_fallback_included(world):  # noqa: F811
+    cloud, local, reg, ledger = world
+    local.context_window = lambda *a, **k: 131072
+    pid = reg.add({"type": "openai_compat", "base_url": cloud.url + "/v1", "api_key": "k" * 12, "model": "m"})["id"]
+    reg.set_consent("executor", True)
+    nothing = RoutedClient("executor", reg, local, ledger, loader=_Loader(False))
+    loaded = RoutedClient("executor", reg, local, ledger, loader=_Loader(True))
+    assert loaded.context_window() == 131072                                    # the call goes to the loaded model: its own window
+    assert nothing.context_window() is None                                     # it falls back to the provider, which has none: not the local engine's
+    reg.set_limits(pid, context_window=1000000, max_output=0)
+    assert nothing.context_window() == 1000000 and loaded.context_window() == 131072
+    reg.assign_checked("eval", pid)
+    assert RoutedClient("eval", reg, local, ledger).context_window() == 1000000
+    reg.set_limits(pid, 0, 0)
+    assert RoutedClient("eval", reg, local, ledger).context_window() is None    # a provider with no window declared says nothing

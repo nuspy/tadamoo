@@ -355,6 +355,29 @@ class SecureRegistry(Registry):
         if was_primary:
             self.set_primary("")                                    # the Primary model goes back to the local engine
 
+    def reorder(self, ids: List[str]) -> None:
+        """The providers in the order the person gave: it is the order they are tried when the chosen route does not answer. Exactly the saved
+        providers, each once."""
+        data = self.load()
+        have = {p["id"]: p for p in data.get("providers", [])}
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids) or set(ids) != set(have):
+            raise ValueError("send every provider once")
+        data["providers"] = [have[i] for i in ids]
+        self.save(data)
+
+    def failover_chain(self, function: str) -> List[Optional[str]]:
+        """The routes a call tries, in order: the chosen one, the loaded model, then the other providers in the order of the Providers page. A
+        function that must stay where it is pointed (`direct`) has no other. `fallback_chain` is what a route may be judged by; this is what is tried."""
+        data = self.load()
+        first = (data.get("assignments") or {}).get(function) or None
+        chain: List[Optional[str]] = [first]
+        if functions.direct(function) or (first is not None and is_local(self._find(data, first), self.local_hosts)):
+            return chain                                            # a model on this PC pointed at by name does not give way to another one
+        if first is not None:
+            chain.append(None)
+        chain += [p["id"] for p in data.get("providers", []) if p["id"] != first and not TYPES.get(p.get("type") or "", {}).get("this_server")]
+        return chain
+
     def chosen(self, function: str) -> str:
         """What the person chose for the function, as saved: a provider id, `PRIMARY`, or "" for the local engine."""
         value = dict.get(self.load().get("assignments") or {}, function) or ""

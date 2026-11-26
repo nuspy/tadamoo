@@ -1168,6 +1168,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         agent.learn = keep_lessons
     agent.review = review.make_review(technical if technical is not None else client)
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
+    agent.refresh_window = refresh_budget
     if cfg.course_watch:
         agent.course = course.Watcher(getattr(agent, "lessons_for", None))
     if cfg.self_block:

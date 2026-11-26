@@ -222,8 +222,13 @@ class RoutedClient:
         return int(ask()) if callable(ask) else 0
 
     def context_window(self, *a: Any, **k: Any) -> Any:
-        """The window the agent plans by: the one the person gave the assigned cloud route, else the loaded model's own."""
-        return self.profile().context_window or self.local.context_window(*a, **k)
+        """The window the agent plans by, for the route a call of this function takes now (a fallback when no model is loaded included): the one
+        the person gave that provider, None when the record has none (the loaded model's window is not a provider's); the loaded model's own
+        when the call goes to it."""
+        pid, _ = self.registry.resolve_route(self.function, local_loaded=not self._nothing_loaded())
+        if pid is None:
+            return self.local.context_window(*a, **k)
+        return self.profile(pid).context_window
 
     def profile(self, pid: Optional[str] = None) -> RouteProfile:
         """What the route this function is pointed at (or the provider `pid`) can do. The loaded model has the plain profile."""
@@ -252,7 +257,7 @@ class RoutedClient:
                         tool_choice: Any = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, timeout: float = 60.0,
                         response_format: Optional[Dict[str, Any]] = None, extra: Optional[Dict[str, Any]] = None,
                         on_delta: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
-        chain = self.registry.fallback_chain(self.function)
+        chain = self.registry.failover_chain(self.function)
         spoken = [False]
 
         def tell(kind: str, text: str) -> None:
@@ -262,6 +267,8 @@ class RoutedClient:
         failure: Optional[TadamooError] = None
         tried: List[str] = []
         for n, pid in enumerate(chain):
+            if pid and pid in tried:                          # already tried as the fallback of the loaded model
+                continue
             if pid and TYPES.get((self.registry._find(self.registry.load(), pid) or {}).get("type") or "", {}).get("this_server"):
                 pid = None                                   # "TaDaMoo (this server)" is the loaded model, whatever the way it is named
             nothing_loaded = False
@@ -280,7 +287,7 @@ class RoutedClient:
                 tried.append(pid)
             ok, why = self.registry.check(self.function, pid)
             if not ok:
-                failure = NotAllowed(why)
+                failure = failure or NotAllowed(why)            # an attempt that failed says more than a route that was not allowed
                 continue
             try:
                 if pid is None:
