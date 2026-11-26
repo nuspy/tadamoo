@@ -1260,6 +1260,25 @@
         "Non verificata a vista nella pagina vera (solo test e controllo DOM esistente); l'app in uso gira ancora da master."
       ],
       "branch": true
+    },
+    {
+      "id": "rm61",
+      "num": 61,
+      "group": "todo",
+      "title": "Risposte lunghe a parti: soglia dal limite misurato (22k token?) contro il comportamento reale del modello (chiude a 1,5-3k)",
+      "summary": "Verifica chiesta dall'utente (26 novembre): non esiste un limite fisso di 4000 token. Soglia 3000 token se il modello non è misurato, altrimenti 60% di length.limit_tokens; parti da ~2000 parole (~3000 token) con tetto ~7000 token (2000 x 1,6 x 2,2); il «4k» viene dal consiglio di Gemini Neon (non misurato) e dalle misure nostre: first_stop 1560 token (IQ4_XS) e 3192 (IQ3_S); studio: chiesto 10000 parole il modello chiude mediamente a 5045, 6000 a 3285, 3000 a 2073, sempre finish=stop.",
+      "status": "todo",
+      "solved": [
+        "Il comportamento è del modello (chiude il turno da solo), non un limite di finestra o di uscita: non contraddice 1M di contesto e 131k di uscita, che sono tetti e non scelte del modello.",
+        "Dal record misurato del motore locale (IQ4_XS): limit_tokens = max(reliable 30000, observed_max 37092) = 37092 -> soglia = 60% = 22255 token (circa 14800 parole in italiano). Il reliable_tokens somma 19-34 pezzi continuati da ~1k token e observed_max conta il ragionamento: sono molto più della risposta in un turno (first_stop 1560-3192; studio ~5000 parole). Se confermato dal server vivo, una relazione da 5000 parole (~7500 token) NON verrebbe divisa in parti."
+      ],
+      "decisions": [
+        "Da verificare sul server vivo (GET /v1/status, length.limit_tokens) e da decidere con l'utente: basare la soglia su first_stop_tokens e sul rapporto chiesto/scritto misurato, non su reliable_tokens e observed_max (ragionamento compreso); e non applicare la misura del motore locale a una conversazione su un provider cloud."
+      ],
+      "risks": [
+        "Soglia troppo bassa = parti inutili e più chiamate; troppo alta = il turno chiude a metà del testo."
+      ],
+      "branch": false
     }
   ]
 }
