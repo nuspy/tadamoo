@@ -148,15 +148,15 @@ The server also speaks both APIs outward, so editors and tools you already use c
 
 ## Install
 
-**Current release: 2.3, *victory-lap*.**
+**Current release: 2.4, *victory-lap*.**
 
 | What | Where | For |
 |---|---|---|
-| **Windows**, complete | [windows-v2.3](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.3) | the app, the engine, the server and Python on one PC |
-| **Windows**, GUI only | [windows-gui-only-v2.3](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.3) | a window on a server that runs elsewhere |
-| **Linux**, complete | [linux-complete-v2.3](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.3) | the harness, the installer and the Basalt-Plus engine |
-| **Linux**, server | [server-linux-v2.3](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.3) | the harness and the installer |
-| **Android** | [android-v2.3](https://github.com/nuspy/tadamoo/releases/tag/android-v2.3) | the phone app |
+| **Windows**, complete | [windows-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.4) | the app, the engine, the server and Python on one PC |
+| **Windows**, GUI only | [windows-gui-only-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.4) | a window on a server that runs elsewhere |
+| **Linux**, complete | [linux-complete-v2.4](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.4) | the harness, the installer and the Basalt-Plus engine |
+| **Linux**, server | [server-linux-v2.4](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.4) | the harness and the installer |
+| **Android** | [android-v2.4](https://github.com/nuspy/tadamoo/releases/tag/android-v2.4) | the phone app |
 | **Mac** | compile from this repository | the window on a server (prepared in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_party/` and ship inside the Windows and Linux packages.
@@ -164,7 +164,7 @@ agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_
 On Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v2.3.tar.gz && cd tadamoo-2.3
+tar xzf TaDaMoo-linux-complete-v2.4.tar.gz && cd tadamoo-2.4
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
