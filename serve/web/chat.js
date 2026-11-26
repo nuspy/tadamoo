@@ -59,7 +59,7 @@
       .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400}\.(?:png|jpe?g|gif|webp|svg))\)/gi, (_, name, path) =>   // a link to a picture shows it and keeps the button that saves it
         `<span class="afig"><img class="aimg" data-path="${path}" alt="${name}" hidden></span>`
         + `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/\[([^\]\n]+)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, name, id) =>
+      .replace(/\[([^\]\n]+)\]\((?:tadamoo-)?file:([a-f0-9]{12})(?::[^)\s]*)?\)/g, (_, name, id) =>      // also the form of the [file:ID:name] label, which a model sometimes copies
         `<button type="button" class="afile" data-kind="file" data-id="${id}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
       .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
         `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)

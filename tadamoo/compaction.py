@@ -413,7 +413,7 @@ class Compaction:
         what the server read from its cache for the first request after it (once)."""
         if prompt_tokens > 0:
             base = ctx.estimate_tokens(messages)
-            self.overhead = int(min(max(prompt_tokens - base, -0.3 * base), 0.25 * ctx.budget_tokens))
+            self.overhead = int(min(max(prompt_tokens - base, -0.3 * base), 0.5 * ctx.budget_tokens))
         waiting, self._waiting = self._waiting, None
         if waiting is None:
             return None

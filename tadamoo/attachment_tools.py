@@ -144,7 +144,8 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         if meta["verified"]:
             return (f"{mark} Saved for the person: {meta['name']} ({meta['check']}{counts(data)}). "
                     "This copy is outside your working folder, so file and shell tools cannot open it. "
-                    "They get a button to save it where they want. Do not describe it as saved elsewhere.")
+                    "They get a button to save it where they want. Do not describe it as saved elsewhere. "
+                    f"To offer it in your answer write [{meta['name']}](tadamoo-file:{meta['id']}) exactly; the bracketed label at the start of this line is not a link.")
         return f"{mark} The file was written but it did not pass the check: {meta['check']}. Fix it and write it again before telling the person it is done."
 
     def write_output_file(name: str, content: str) -> str:

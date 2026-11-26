@@ -288,6 +288,7 @@ def test_a_file_the_agent_makes_is_checked_before_it_is_offered(tools):
     ok = registry.execute("write_output_file", {"name": "dati.json", "content": '{"a": [1, 2]}'})
     assert ok.startswith("[file:") and "opens correctly" in ok
     meta_id = ok.split("[file:")[1].split(":")[0]
+    assert f"[dati.json](tadamoo-file:{meta_id})" in ok and "is not a link" in ok         # the result says how to link it, so the label is not copied as the link
     meta, path = outputs.get("s1", meta_id)
     assert meta["verified"] and path.read_text() == '{"a": [1, 2]}'
     bad = registry.execute("write_output_file", {"name": "rotto.json", "content": "{not json"})

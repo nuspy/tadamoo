@@ -88,6 +88,18 @@ def test_the_line_about_the_work_counts_the_calls_and_the_last_command_and_does_
     assert "2 tool calls (0 failed)" in line and "1 file writes or edits" in line and "1 commands run; the last one ended with exit code 0" in line
 
 
+def test_a_file_given_to_the_person_counts_as_a_file_written_and_the_mission_card_names_commands_and_deliveries(tmp_path):
+    from types import SimpleNamespace as NS
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    agent, _ = make(ws, ScriptedClient(say("unused")), permissions=PermissionManager(level=PermissionLevel.AUTO))
+    agent.turns = [NS(tool_calls=[NS(decision="executed", tool_name="publish_output_file", is_error=False, output="ok", arguments={"path": "D:/docs/report.md"}),
+                                  NS(decision="executed", tool_name="shell_command", is_error=False, output={"exit_code": 0}, arguments={"command": "curl -L -o a.pdf https://x.example/a.pdf"})])]
+    assert "1 file writes or edits" in agent._work_line()
+    card = agent._mission_note()
+    assert "delivered so far: D:/docs/report.md" in card and "Commands run so far" in card and "curl -L -o a.pdf" in card
+
+
 def test_a_message_that_is_not_the_persons_does_not_take_the_request_away_from_the_checks(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -126,4 +138,5 @@ def test_a_short_follow_up_is_read_with_the_request_before_it(tmp_path):
     agent.run("what will the weather in Budapest be tomorrow")
     agent.run("write the answer")
     assert "earlier request" in seen[-1] and "weather in Budapest" in seen[-1]
+    assert "judge the answer against the message above" in seen[-1]                    # the earlier request is context, not the thing to judge
     assert seen[0] == "what will the weather in Budapest be tomorrow"

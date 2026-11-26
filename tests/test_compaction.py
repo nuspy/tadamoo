@@ -378,7 +378,7 @@ def test_the_server_count_after_a_compaction_fills_the_report(tmp_path):
     ctx.take_compaction()
     assert ctx.note_usage(out, 1800, 1000)["observed"] == {"prompt_tokens": 1800, "cached_tokens": 1000, "read_again": 800}
     assert ctx.note_usage(out, 1800, 1000) is None
-    assert comp.overhead == min(1800 - ctx.estimate_tokens(out), 1000) and comp.reports[-1]["observed"]["cached_tokens"] == 1000
+    assert comp.overhead == min(1800 - ctx.estimate_tokens(out), 2000) and comp.reports[-1]["observed"]["cached_tokens"] == 1000
 
 
 def test_the_servers_count_includes_what_the_messages_do_not(tmp_path):
@@ -388,7 +388,7 @@ def test_the_servers_count_includes_what_the_messages_do_not(tmp_path):
     ctx.note_usage(msgs, ctx.estimate_tokens(msgs) + 900, 0)           # the tool list takes 900 tokens
     assert comp.overhead == 900 and comp.current(ctx, msgs) == ctx.estimate_tokens(msgs) + 900
     ctx.note_usage(msgs, 10 ** 6, 0)
-    assert comp.overhead == 1000                                       # never more than a quarter of the budget
+    assert comp.overhead == 2000                                       # never more than half of the budget
 
 
 def test_manual_compaction_works_on_a_small_conversation_and_when_switched_off(tmp_path):

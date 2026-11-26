@@ -65,8 +65,8 @@ CODE_MASKED_NOTE = ("[harness] The code kept whole in this session passed its sh
                     "path of the saved full text ({paths}). Read them again with read_file when you need their lines.")
 GRACE_NOTE = ("[harness] The budget for this answer is used up. Do not call any tool. Write your final report now: what is done, what is "
               "not done, and what the next step is.")
-TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them, or update the list with todo_write if they no longer "
-             "apply, then answer again.")
+TODO_NOTE = ("[harness] Your checklist still has unfinished items:\n{items}\nFinish them; mark with todo_write the ones that are already done and drop "
+             "the ones that no longer apply; then answer again.")
 UNREACHABLE_WAIT_FIRST = 2.0   # seconds before the first new try when the server cannot be reached; it doubles up to the cap
 UNREACHABLE_WAIT_MAX = 60.0
 ENGINE_FAULT = re.compile(r"layer \d+ never rang|illegal memory access|engine (?:stopped|reported)", re.IGNORECASE)
@@ -470,13 +470,17 @@ class AgentLoop:
         for t in self.turns:
             for c in t.tool_calls:
                 path = (c.arguments or {}).get("path") if isinstance(c.arguments, dict) else None
-                if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file") and not c.is_error and isinstance(path, str) and path not in paths:
+                if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file", "publish_output_file") and not c.is_error and isinstance(path, str) and path not in paths:
                     paths.append(path)
         lines = ["[harness] Mission card, kept across folds. Request: " + (self.mission.get("request") or self.last_user_text)[:300]]
         if open_items:
             lines.append("Open items:" + chr(10) + open_items)
         if paths:
-            lines.append("Files written or edited so far: " + ", ".join(paths[-12:]))
+            lines.append("Files written, edited or delivered so far: " + ", ".join(paths[-12:]))
+        commands = [" ".join(str((c.arguments or {}).get("command") or "").split())[:100] for t in self.turns for c in t.tool_calls
+                    if c.tool_name == "shell_command" and not c.is_error and isinstance(c.arguments, dict) and (c.arguments or {}).get("command")]
+        if commands:
+            lines.append("Commands run so far (the last " + str(min(6, len(commands))) + "; they may have made files or downloads): " + " | ".join(commands[-6:]))
         return chr(10).join(lines)
 
     def _begin_learning(self, request: str) -> None:
@@ -1510,7 +1514,7 @@ class AgentLoop:
         theirs (a plan's note, an event) blanks `last_user_text` so it can authorise nothing, but the request it interrupted is still the request."""
         now = self.last_user_text or str((self.mission or {}).get("request") or "")
         if now and len(now) < 80 and self._earlier_request and self._earlier_request != now:       # "write the answer" means nothing alone
-            return f"{now}\n(a follow-up to the person's earlier request: {self._earlier_request[:300]})"
+            return f"{now}\n(a follow-up to the person's earlier request, given only so that the message above can be understood; judge the answer against the message above, not against it: {self._earlier_request[:300]})"
         return now
 
     def _call_lines(self) -> str:
@@ -1520,7 +1524,7 @@ class AgentLoop:
     def _work_line(self) -> str:
         """One line about what this request's work did, from the calls themselves, for the reader that checks whether it is met."""
         calls = [c for t in self.turns for c in t.tool_calls if c.decision == "executed"]
-        written = sum(1 for c in calls if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file") and not c.is_error)
+        written = sum(1 for c in calls if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "xlsx_edit", "xlsx_create", "pptx_edit", "pptx_create", "pdf_edit", "write_output_file", "publish_output_file") and not c.is_error)
         shells = [c for c in calls if c.tool_name in ("shell_command", "run_code")]
         code = ""
         if shells and isinstance(shells[-1].output, dict) and "exit_code" in shells[-1].output:
