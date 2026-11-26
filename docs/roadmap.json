@@ -1228,7 +1228,8 @@
         "Dopo una richiesta a vuoto il budget non viene più riletto fino alla richiesta successiva (session.py:1898); l'esito nullo è silenzioso (stack.py refresh_budget).",
         "Rotta cloud (26 novembre, segnalazione dell'utente: la sessione «Demonology QW 4» girava su un provider cloud): LlmClient.context_window (tadamoo/llm/client.py:224) vale l'attributo context_window del provider dell'assegnazione, altrimenti chiede al motore LOCALE (non al cloud): motore non caricato = nulla = 32768. Gli attributi oggi: Z.AI vuoto, Qwen 4 Max 132044, Qwen 4 Flash 131072. Il profilo segue l'assegnazione della funzione (@primary), non la rotta davvero usata dopo il ripiego automatico «nessun modello caricato» verso un altro provider (chat_completion). Nel registro d'uso del 26 la sola chiamata executor cloud è delle 09:00:52 su Z.AI glm-5.3 (prompt 34727); non ci sono chiamate «qwen»: la rotta della sessione non è dimostrata dai dati.",
         "Finestra di Qwen 4 Max (dubbio dell'utente, 26 novembre): la pagina ufficiale Alibaba Cloud Model Studio per qwen4-max-preview indica 1M di contesto e 393216 token di uscita (da una ricerca in rete, pagina non aperta). Negli attributi del provider c'è 132044 (Qwen 4 Max) e 131072 (Flash): troppo bassi, il budget della conversazione sarebbe 8 volte più piccolo del vero. La preview risulta finita il 25 novembre alle 24:00 (UTC+8) e il modello potrebbe non essere più disponibile: da verificare.",
-        "Valori fissi nella compaction (verificati 26 novembre): la chiamata di riassunto ha max_tokens = answer_tokens 1500 (side_uses.py, regolabile 200-4000), blocchi da 10000 token, lettura massima 96000 caratteri e riassunto fino a 8000 caratteri (compaction.py) senza legame con la finestra o con max_output del provider; su una rotta esterna la finestra tecnica è al massimo EXTERNAL_WINDOW = 30000 (side_uses.py:31, llm/client.py:219), sul motore locale è side-context=32000 della configurazione. Un riassunto che arriva a 8000 caratteri non sta in 1500 token: 3 riassunti su 7 si sono interrotti per lunghezza due volte e sono passati all'estrazione meccanica."
+        "Valori fissi nella compaction (verificati 26 novembre): la chiamata di riassunto ha max_tokens = answer_tokens 1500 (side_uses.py, regolabile 200-4000), blocchi da 10000 token, lettura massima 96000 caratteri e riassunto fino a 8000 caratteri (compaction.py) senza legame con la finestra o con max_output del provider; su una rotta esterna la finestra tecnica è al massimo EXTERNAL_WINDOW = 30000 (side_uses.py:31, llm/client.py:219), sul motore locale è side-context=32000 della configurazione. Un riassunto che arriva a 8000 caratteri non sta in 1500 token: 3 riassunti su 7 si sono interrotti per lunghezza due volte e sono passati all'estrazione meccanica.",
+        "PROVA su branch (26 novembre, richiesta dell'utente): fix/context-window-route (worktree D:/Projects/basalt-wt-ctx, commit 0f921f9c1, NON unito a master): context_window segue la rotta effettiva (ripiego compreso), il budget si rilegge ogni 30 s durante la richiesta, il limite del riassunto passa a 3000 token; test del branch verdi (tests llm e compaction, 139). Resta: tetto del peso fisso in compaction.py:416, suite completa, prova su sessione reale (in coda per quando l'utente è al PC), valori dei provider (Qwen 4 Max 1000000 e 393216; GLM-5.3 1000000 e 131072, da verificare)."
       ],
       "decisions": [
         "Da decidere con l'utente: rileggere la finestra dal server anche durante la richiesta mentre il budget è quello di riserva; non compattare presto sul valore di riserva; far registrare alla scheda di missione anche i file creati da comandi; rifare i riassunti interrotti invece di passare all'estrazione.",
@@ -1240,6 +1241,25 @@
         "Rileggere la finestra durante la richiesta cambia la soglia di compattazione a metà esecuzione: va provato con una richiesta lunga vera."
       ],
       "branch": false
+    },
+    {
+      "id": "rm60",
+      "num": 60,
+      "group": "todo",
+      "title": "Ordine dei provider trascinabile e ripiego a catena nell'ordine della lista",
+      "summary": "Richiesta dell'utente (26 novembre): nella pagina Models > Providers i provider si possono trascinare; l'ordine è quello in cui si provano quando la rotta scelta non risponde (primo, poi secondo, poi terzo). Fatto sul branch feat/provider-order (worktree D:/Projects/basalt-wt-order, commit 155aa54e9, NON unito a master).",
+      "status": "todo",
+      "solved": [
+        "Registro: reorder(ids) e failover_chain(funzione) in tadamoo/llm/store.py; il client prova la catena (rotta scelta, modello caricato, poi i provider nell'ordine della lista) e un errore non seguito da testo scritto manda alla rotta successiva, con le stesse regole (consenso, tetto); l'errore vero resta quello sollevato. POST /api/llm/providers/order; pagina con posizione, frecce su/giù (tocco e tastiera, 44 px) e trascinamento col mouse; test e docs/harness.md aggiornati; 139 test verdi.",
+        "Una funzione puntata per nome a un modello su questo PC e una che non ripiega mai restano a rotta unica (comportamento di prima)."
+      ],
+      "decisions": [
+        "Da decidere con l'utente: il ripiego su errore dal modello locale caricato verso provider cloud è nuovo (prima solo se nulla era caricato) e fa uscire il testo dal PC per le funzioni con consenso; il consenso per funzione resta la regola. Da provare nel browser vero e sul telefono (trascinamento e frecce)."
+      ],
+      "risks": [
+        "Non verificata a vista nella pagina vera (solo test e controllo DOM esistente); l'app in uso gira ancora da master."
+      ],
+      "branch": true
     }
   ]
 }
