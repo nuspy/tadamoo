@@ -44,8 +44,19 @@ class _InferenceSettingsScreenState extends State<InferenceSettingsScreen> {
           _loading = false;
           _problem = e.description;
         }),
-      ))
-      ..loadRequest(Uri.parse(url));
+      ));
+    _open(base, url);
+  }
+
+  /// A web view cannot send the key in a header with the page and the files it is made of, and the server asks for the key on every request:
+  /// the key goes in a cookie first, which the server reads for the page and its files and for nothing else (the page's own calls carry it as ever).
+  Future<void> _open(Uri base, String url) async {
+    try {
+      await WebViewCookieManager().setCookie(WebViewCookie(name: 'tadamoo_key', value: widget.settings.key, domain: base.host, path: '/'));
+    } catch (_) {
+      // without the cookie the server refuses the page, and the error shows
+    }
+    await _controller.loadRequest(Uri.parse(url));
   }
 
   @override
