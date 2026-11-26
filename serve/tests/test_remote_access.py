@@ -106,12 +106,14 @@ class Remote(unittest.TestCase):
         self.svc.remote._httpd = None
         self.svc.api_key = ""
 
-    def call(self, method, path, payload=None, key=None, outside=False, away=False):
+    def call(self, method, path, payload=None, key=None, outside=False, away=False, cookie=None):
         """`away`: the request comes from a phone's address, not from this PC (the test's own connection is on this PC)."""
         base = self.phone_base if outside else self.base
         headers = {"Content-Type": "application/json"} if method == "POST" else {}
         if key:
             headers["Authorization"] = "Bearer " + key
+        if cookie:
+            headers["Cookie"] = cookie
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         try:
             with mock.patch.object(handler.settings, "is_loopback", (lambda address: False) if away else handler.settings.is_loopback):
@@ -140,6 +142,15 @@ class Remote(unittest.TestCase):
             self.assertEqual(self.call("GET", path, key="bsk_wrong", outside=True)[0], 401, path)
         code, hello = self.call("GET", "/api/remote/hello", key=self.key, outside=True)
         self.assertEqual((code, hello["device"]), (200, "Phone"))
+
+    def test_a_web_view_that_cannot_send_a_header_reads_the_page_with_the_key_in_a_cookie_and_nothing_else(self):
+        cookie = "tadamoo_key=" + self.key
+        for path in ("/", "/web/i18n.js"):
+            self.assertEqual(self.call("GET", path, cookie=cookie, outside=True)[0], 200, path)
+            self.assertEqual(self.call("GET", path, cookie="tadamoo_key=bsk_wrong", outside=True)[0], 401, path)
+        for path in ("/api/agent/sessions", "/api/settings", "/metrics", "/api/remote/hello"):                  # an API call needs the header
+            self.assertEqual(self.call("GET", path, cookie=cookie, outside=True)[0], 401, path)
+        self.assertEqual(self.call("POST", "/api/agent/sessions", {"title": "x"}, cookie=cookie, outside=True)[0], 401)
 
     def test_a_phone_with_a_key_reaches_every_route_a_client_on_this_pc_reaches_with_the_same_credentials(self):
         for path in ("/api/agent/sessions", "/", "/web/i18n.js", "/metrics", "/api/models", "/api/settings", "/api/plans", "/api/knowledge"):

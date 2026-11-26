@@ -569,9 +569,25 @@ def make_handler(svc: Service, remote: bool = False):
             remote = getattr(svc, "remote", None)
             return self._via_key and remote is not None and remote.listening
 
+        def _page_file(self) -> bool:
+            """A GET of the page or one of its own files (the code the page is made of): the one request a web view cannot send a header with."""
+            path = request_path(self.path)
+            return self.command == "GET" and (path == "" or path.startswith(("/web/", "/fonts/")))
+
+        def _cookie_key(self) -> str:
+            """The key a web view carries in its cookie (`tadamoo_key`), read only for the page and its files, never for an API call."""
+            if not self._page_file():
+                return ""
+            try:
+                jar = SimpleCookie(self.headers.get("Cookie", ""))
+            except CookieError:
+                return ""
+            return unquote(jar["tadamoo_key"].value) if "tadamoo_key" in jar else ""
+
         def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
+            given = given or self._cookie_key()
             if given and not self.remote_listener and voice_service.accepts_token(given, self.command, self.path, self.client_address[0]):
                 self._via_voice = True
                 return True
