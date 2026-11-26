@@ -915,6 +915,124 @@ Dopo il caricamento la cache degli esperti restava più piccola di quanto la VRA
 - Resta da vedere nell'uso: una sessione lunga con molte richieste dopo una ricrescita, e il caso di una cessione (prestito) seguita da ricrescita mentre una richiesta è in corso.
 - La VRAM che un altro programma tiene senza prestarla non viene ripresa dal motore: resta sua finché la libera.
 
+### 56. Link ai file consegnati non cliccabili nelle risposte (sessione demonology) (todo)
+
+Alle 10:09 e 10:12 del 26 novembre il modello ha scritto [nome](file:ID:nome) invece di [nome](tadamoo-file:ID): la pagina trasforma in bottone solo tadamoo-file, quindi il resto restava testo. Alle 10:06 e 11:01 il formato era giusto e il bottone c'era.
+
+**Fatto e problemi risolti**
+
+- Causa trovata nei log e nel codice (serve/web/chat.js riga 62 trasforma solo tadamoo-file:ID). Il risultato di publish_output_file (tadamoo/attachment_tools.py finish) mostra solo l'etichetta [file:ID:nome] e non dice come scrivere il link; la regola sta solo nel paragrafo fisso FILES_GUIDANCE (tadamoo/visuals.py) e il modello ha copiato la forma dell'etichetta.
+
+**Decisioni e punti aperti**
+
+- Da decidere con l'utente: (a) mettere nel risultato dello strumento la riga esatta da scrivere, (b) far accettare alla pagina anche file:ID[:nome] come bottone, oppure entrambe.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Se si fa solo (b) il modello continua a scrivere una forma sbagliata e funziona per caso; se si fa solo (a) un errore futuro resta testo.
+
+### 57. Controllo «lavora finché non è fatto»: richiami inutili dopo la consegna (sessione demonology) (todo)
+
+Dopo la consegna del link il controllo di completamento ha rimandato il modello al lavoro tre volte nella sessione, tutte su motivi sbagliati; l'ultima (11:02) ha portato a rileggere il dossier e a riscriverlo intero (write_file di 27,9 KB, annullato prima di partire).
+
+**Fatto e problemi risolti**
+
+- 11:02: la richiesta «Rimandamelo» è sotto 80 caratteri, quindi _request_words (tadamoo/agent_loop.py) le aggiunge la richiesta precedente (il compito lungo); il lettore ha visto «Ricrea…» e ha detto che il modello non aveva ricreato il contenuto.
+- 10:06 e 10:09: il lettore ha letto «0 file writes or edits» perché _work_line conta write_output_file ma non publish_output_file né i file scritti da script o download: ha detto che il file non c'era, mentre era stato consegnato.
+- 10:06: l'elenco dei compiti restava aperto (todo_write non aggiornato) e ha causato il primo richiamo.
+
+**Decisioni e punti aperti**
+
+- Da decidere con l'utente: contare publish_output_file e le scritture da comandi nella riga del lavoro; non agganciare la richiesta precedente quando il messaggio breve chiede una cosa nuova e piccola (reinvio, correzione di un link); ricordare al modello di aggiornare l'elenco dei compiti.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Un controllo più permissivo può lasciar passare lavori davvero incompleti: va provato su richieste vere.
+
+### 58. APK: impostazioni di inferenza (ingranaggio) mostrano l'errore «missing or wrong API key» (todo)
+
+Segnalato dall'utente il 26 novembre. Dal codice (non provato sul telefono): la WebView apre /?key=... sul listener per i telefoni, che chiede la chiave in ogni richiesta (do_GET, serve/handler.py) e la legge solo dalle intestazioni Authorization o x-api-key, mai da ?key=; la WebView non le invia né per la pagina né per app.js e i CSS, quindi la pagina stessa riceve 401.
+
+**Fatto e problemi risolti**
+
+- Causa individuata nel commit 62afb3a0a (19 novembre): presume che la pagina si carichi senza chiave, vero sul PC (loopback) ma non sul listener per i telefoni.
+
+**Decisioni e punti aperti**
+
+- Serve una modifica al server (il solo Dart non basta, le WebView non possono mettere intestazioni sui file della pagina). Da decidere con l'utente: (a) il listener per i telefoni serve senza chiave solo la pagina e i file statici (/, /web/*, /fonts/*), le API restano protette; (b) la pagina e i file accettano ?key= una volta e un cookie. È una regola di sicurezza del listener per i telefoni: decide l'utente.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- (a) allenta la regola «ogni richiesta al listener per i telefoni ha una chiave» per il solo codice statico della pagina.
+
+### 59. Finestra di contesto bloccata a 32768 per tutta una richiesta lunga: compattazioni continue e richiami ridondanti (todo)
+
+Sessione demonology del 26 novembre (08:52-10:06): il budget della conversazione era 25395 (32768 di riserva) invece di ~131k, perché alle 08:52 il motore locale non era ancora caricato: la chiamata tecnica delle 08:52:53 è andata a Z.AI e la prima chiamata locale è delle 08:59:02. Il budget si rilegge dal server solo all'inizio di ogni richiesta (session.py, refresh_budget), quindi è rimasto a 32k per 73 minuti e si è aggiornato solo alle 11:01.
+
+**Fatto e problemi risolti**
+
+- 7 compattazioni in 62 minuti a 26-31k token; dopo ogni compattazione il contesto restava al 72-85%; 3 riassunti su 7 interrotti due volte e sostituiti da estrazione meccanica.
+- Effetto: 164 risultati su 184 mascherati, 47 letture su 69 rileggono risultati mascherati, 19 rileggono il dossier, 38 comandi su 59 elencano cartelle.
+- La scheda di missione (_mission_note, agent_loop.py) ricorda solo richiesta, compiti aperti e file scritti con strumenti di scrittura: non i file scaricati o creati da comandi, quindi dopo ogni compattazione il modello ricostruisce cosa è già su disco.
+- I due controlli «verifica finale» e «lavora fino in fondo» NON sono la causa della fase di redazione: prima delle 10:06 non sono mai scattati.
+- Censimento (26 novembre): il budget della conversazione (mascheramento a 80%, piegatura in compaction.py, avviso «context at 84%» in course.py, scheda di missione) viene solo da context.budget_tokens (stack.py). Il budget nasce dall'impostazione cfg.context_window (mai passata dall'app, resta vuota) oppure dalla richiesta /v1/status; se la richiesta dà nulla vale FALLBACK_CONTEXT_TOKENS = 32768 (stack.py:67), scritto nel codice. Il 131072 del Loader e del monitor arriva all'harness solo da quella richiesta.
+- Altri valori 32768 scritti nel codice: session.py:975 (window_tokens(), usata per quanto di un allegato entra nel messaggio) e il parametro di default in attachments.py:438. La chat semplice (serve/chatctx.py) legge invece direttamente engine.max_context.
+- La sessione tecnica (side-context=32000 nella configurazione del motore) è un'altra finestra, voluta: serve ai riassunti della compaction e alle chiamate di supporto; 3 riassunti su 7 si sono interrotti per il limite di lunghezza (finish_reason length) due volte e sono passati all'estrazione.
+- Dopo una richiesta a vuoto il budget non viene più riletto fino alla richiesta successiva (session.py:1898); l'esito nullo è silenzioso (stack.py refresh_budget).
+- Rotta cloud (26 novembre, segnalazione dell'utente: la sessione «Demonology QW 4» girava su un provider cloud): LlmClient.context_window (tadamoo/llm/client.py:224) vale l'attributo context_window del provider dell'assegnazione, altrimenti chiede al motore LOCALE (non al cloud): motore non caricato = nulla = 32768. Gli attributi oggi: Z.AI vuoto, Qwen 4 Max 132044, Qwen 4 Flash 131072. Il profilo segue l'assegnazione della funzione (@primary), non la rotta davvero usata dopo il ripiego automatico «nessun modello caricato» verso un altro provider (chat_completion). Nel registro d'uso del 26 la sola chiamata executor cloud è delle 09:00:52 su Z.AI glm-5.3 (prompt 34727); non ci sono chiamate «qwen»: la rotta della sessione non è dimostrata dai dati.
+- Finestra di Qwen 4 Max (dubbio dell'utente, 26 novembre): la pagina ufficiale Alibaba Cloud Model Studio per qwen4-max-preview indica 1M di contesto e 393216 token di uscita (da una ricerca in rete, pagina non aperta). Negli attributi del provider c'è 132044 (Qwen 4 Max) e 131072 (Flash): troppo bassi, il budget della conversazione sarebbe 8 volte più piccolo del vero. La preview risulta finita il 25 novembre alle 24:00 (UTC+8) e il modello potrebbe non essere più disponibile: da verificare.
+- Valori fissi nella compaction (verificati 26 novembre): la chiamata di riassunto ha max_tokens = answer_tokens 1500 (side_uses.py, regolabile 200-4000), blocchi da 10000 token, lettura massima 96000 caratteri e riassunto fino a 8000 caratteri (compaction.py) senza legame con la finestra o con max_output del provider; su una rotta esterna la finestra tecnica è al massimo EXTERNAL_WINDOW = 30000 (side_uses.py:31, llm/client.py:219), sul motore locale è side-context=32000 della configurazione. Un riassunto che arriva a 8000 caratteri non sta in 1500 token: 3 riassunti su 7 si sono interrotti per lunghezza due volte e sono passati all'estrazione meccanica.
+- PROVA su branch (26 novembre, richiesta dell'utente): fix/context-window-route (worktree D:/Projects/basalt-wt-ctx, commit 0f921f9c1, NON unito a master): context_window segue la rotta effettiva (ripiego compreso), il budget si rilegge ogni 30 s durante la richiesta, il limite del riassunto passa a 3000 token; test del branch verdi (tests llm e compaction, 139). Resta: tetto del peso fisso in compaction.py:416, suite completa, prova su sessione reale (in coda per quando l'utente è al PC), valori dei provider (Qwen 4 Max 1000000 e 393216; GLM-5.3 1000000 e 131072, da verificare).
+- PROVE DAL VIVO (26 novembre, motore Basalt locale IQ4_XS, RTX 5090 a 600 W, server avviato dal worktree live con le correzioni): contesto 131072, sessione tecnica 32000, il harness legge 131072 (budget 109772); la sessione tecnica non fa uscire la cache della conversazione (11642 token su 11649 dopo 3 chiamate); prompt fisso contato dal server: sistema 1990 + 50 strumenti 9126 = 11116 token, i 34727 della prima chiamata reale hanno circa 23600 token di blocchi a runtime. Riassunto della compaction (stesso testo da 110k token): sessione tecnica, limite 1500: 1 troncato su 14 (poi estrazione), 3000: 0 su 14, riassunti fino a 2253 token; slot principale, limiti 131072/100000/80000/60000/40000: 0 troncati su 30, 11,7-13,8 s mediana, riassunti 712-2035 token (4 su 30 oltre 1500). Un limite grande non cambia qualità né tempi (il modello si ferma da solo a ~1000 token) ma nella sessione tecnica da 32000 token è impossibile: digest.part_chars toglie 2,5 caratteri di lettura per ogni token di limite e con 131072 spezza il testo in 72 chiamate. Script in tests/live/ del branch test/live-2026-11-26.
+
+**Decisioni e punti aperti**
+
+- Da decidere con l'utente: rileggere la finestra dal server anche durante la richiesta mentre il budget è quello di riserva; non compattare presto sul valore di riserva; far registrare alla scheda di missione anche i file creati da comandi; rifare i riassunti interrotti invece di passare all'estrazione.
+- Per i provider cloud: impostare context_window negli attributi (Settings > Providers) è il rimedio immediato; da decidere se il budget deve seguire la rotta effettivamente usata (anche dopo il ripiego) e se un provider senza finestra dichiarata debba chiederla, non prendere quella del motore locale.
+- L'utente decide i valori negli attributi dei provider (Qwen 4 Max: 1000000?); non toccati da me.
+- L'utente chiede: finestra e token in uscita del provider (già nel record: context_window e max_output) usati dall'harness per budget, soglie e limiti di riassunto, anche quando si ripiega su un altro provider; e nessuna funzione di compaction con numeri fissi non informati.
+- Limite di uscita del riassunto: 3000 (branch) copre il massimo visto (2253); 4000 è il massimo oggi consentito dalle impostazioni. Per usare 40k-131k serve riassumere sullo slot principale o una sessione tecnica più grande (VRAM): decisione dell'utente.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Rileggere la finestra durante la richiesta cambia la soglia di compattazione a metà esecuzione: va provato con una richiesta lunga vera.
+
+### 60. Ordine dei provider trascinabile e ripiego a catena nell'ordine della lista (todo)
+
+Richiesta dell'utente (26 novembre): nella pagina Models > Providers i provider si possono trascinare; l'ordine è quello in cui si provano quando la rotta scelta non risponde (primo, poi secondo, poi terzo). Fatto sul branch feat/provider-order (worktree D:/Projects/basalt-wt-order, commit 155aa54e9, NON unito a master).
+
+**Fatto e problemi risolti**
+
+- Registro: reorder(ids) e failover_chain(funzione) in tadamoo/llm/store.py; il client prova la catena (rotta scelta, modello caricato, poi i provider nell'ordine della lista) e un errore non seguito da testo scritto manda alla rotta successiva, con le stesse regole (consenso, tetto); l'errore vero resta quello sollevato. POST /api/llm/providers/order; pagina con posizione, frecce su/giù (tocco e tastiera, 44 px) e trascinamento col mouse; test e docs/harness.md aggiornati; 139 test verdi.
+- Una funzione puntata per nome a un modello su questo PC e una che non ripiega mai restano a rotta unica (comportamento di prima).
+
+**Decisioni e punti aperti**
+
+- Da decidere con l'utente: il ripiego su errore dal modello locale caricato verso provider cloud è nuovo (prima solo se nulla era caricato) e fa uscire il testo dal PC per le funzioni con consenso; il consenso per funzione resta la regola. Da provare nel browser vero e sul telefono (trascinamento e frecce).
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Non verificata a vista nella pagina vera (solo test e controllo DOM esistente); l'app in uso gira ancora da master.
+
+### 61. Risposte lunghe a parti: soglia dal limite misurato (22k token?) contro il comportamento reale del modello (chiude a 1,5-3k) (todo)
+
+Verifica chiesta dall'utente (26 novembre): non esiste un limite fisso di 4000 token. Soglia 3000 token se il modello non è misurato, altrimenti 60% di length.limit_tokens; parti da ~2000 parole (~3000 token) con tetto ~7000 token (2000 x 1,6 x 2,2); il «4k» viene dal consiglio di Gemini Neon (non misurato) e dalle misure nostre: first_stop 1560 token (IQ4_XS) e 3192 (IQ3_S); studio: chiesto 10000 parole il modello chiude mediamente a 5045, 6000 a 3285, 3000 a 2073, sempre finish=stop.
+
+**Fatto e problemi risolti**
+
+- Il comportamento è del modello (chiude il turno da solo), non un limite di finestra o di uscita: non contraddice 1M di contesto e 131k di uscita, che sono tetti e non scelte del modello.
+- Dal record misurato del motore locale (IQ4_XS): limit_tokens = max(reliable 30000, observed_max 37092) = 37092 -> soglia = 60% = 22255 token (circa 14800 parole in italiano). Il reliable_tokens somma 19-34 pezzi continuati da ~1k token e observed_max conta il ragionamento: sono molto più della risposta in un turno (first_stop 1560-3192; studio ~5000 parole). Se confermato dal server vivo, una relazione da 5000 parole (~7500 token) NON verrebbe divisa in parti.
+- MISURA DAL VIVO (26 novembre, motore locale IQ4_XS, RTX 5090 a 600 W, 40 prove dirette sul server, richiesta in italiano di una relazione con introduzione, sezioni e conclusione, 5 campioni per cella, token della risposta contati sul solo testo con il tokenizer del server, ragionamento a parte): tutte finite con stop, nessuna con length. Parole scritte / chieste (mediana), ragionamento acceso: 1000 -> 1,06; 2000 -> 1,19; 4000 -> 1,17; 8000 -> 0,75 (5528-11109 parole, risposta 9017-15450 token). Ragionamento spento: 1,14; 1,06; 0,97; 0,81. Quindi fino a 4000 parole il modello scrive quanto chiesto in un solo turno; a 8000 ne scrive il 75-81%; il punto di rottura sta fra 4000 e 8000 parole (circa 6000-12000 token), non a 3000 né a 4000 token. La soglia di 3000 token (modello non misurato) divide troppo presto; quella da misura (22255 token, circa 14800 parole) troppo tardi. Mancano: 6000, 10000, 12000, 16000 parole e la via del harness (temperatura 0).
+
+**Decisioni e punti aperti**
+
+- Da verificare sul server vivo (GET /v1/status, length.limit_tokens) e da decidere con l'utente: basare la soglia su first_stop_tokens e sul rapporto chiesto/scritto misurato, non su reliable_tokens e observed_max (ragionamento compreso); e non applicare la misura del motore locale a una conversazione su un provider cloud.
+- Soglia per le parti: da fissare su una misura più fine (6000-16000 parole, più campioni, via harness) e basata sul rapporto scritto/chiesto, non su reliable_tokens né observed_max.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Soglia troppo bassa = parti inutili e più chiamate; troppo alta = il turno chiude a metà del testo.
+
 ## Dopo il riavvio di TaDaMoo e prove tue
 
 ### 34. Dopo il riavvio di TaDaMoo (lo fai tu) (in attesa)
