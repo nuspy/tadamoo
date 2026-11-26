@@ -178,3 +178,16 @@ def test_the_council_of_the_old_shape_is_moved_when_the_page_first_asks_for_it(a
     reg.save(data)
     view = call("GET", "/api/llm")[1]["council"]["settings"]
     assert [r["id"] for r in view["roles"]] == ["lawyer", "accountant", "skeptic"] and view["roles"][1]["route"] == here and view["rounds"] == 2
+
+
+def test_the_providers_page_sets_the_order_the_providers_are_tried_in(api):
+    call, reg = api
+    ids = [call("POST", "/api/llm/providers", {"type": "openai", "name": n, "api_key": "k" * 12, "model": "m"})[1]["provider"]["id"] for n in ("A", "B", "C")]
+    assert [p["id"] for p in call("GET", "/api/llm")[1]["providers"]] == ids
+    code, body = call("POST", "/api/llm/providers/order", {"ids": [ids[2], ids[0], ids[1]]})
+    assert code == 200 and body["order"] == [ids[2], ids[0], ids[1]]
+    assert [p["id"] for p in call("GET", "/api/llm")[1]["providers"]] == [ids[2], ids[0], ids[1]]
+    for bad in ({"ids": ids[:2]}, {"ids": ids + ids}, {"ids": "abc"}, {}):
+        code, body = call("POST", "/api/llm/providers/order", bad)
+        assert code == 400 and body["error"]["code"] == "bad_order"
+    assert [p["id"] for p in call("GET", "/api/llm")[1]["providers"]] == [ids[2], ids[0], ids[1]]

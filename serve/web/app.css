@@ -1089,6 +1089,11 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 .pv-badge { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--fg-2); }
 .pv-meta { margin: 0; overflow-wrap: anywhere; }
 .pv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.pv-order { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
+.pv-order .btn { min-width: 44px; min-height: 44px; padding: 0; }
+.pv-pos { min-width: 1.6em; text-align: center; font-variant-numeric: tabular-nums; color: var(--dim); }
+.pv-card[draggable="true"] { cursor: grab; }
+.pv-dragging { opacity: .5; }
 .pv-actions .btn { min-height: var(--btn-h); }
 .pv-form { display: grid; gap: 10px; padding: 8px 0; }
 .pv-field { display: flex; flex-direction: column; gap: 4px; }

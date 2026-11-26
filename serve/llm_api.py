@@ -263,6 +263,14 @@ class LlmApi:
         self.registry.remove(pid)
         return {"removed": pid}
 
+    def order_providers(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Sets the order of the providers: the order they are tried in when the chosen route does not answer."""
+        try:
+            self.registry.reorder(body.get("ids"))
+        except ValueError as exc:
+            raise LlmError(str(exc), "bad_order") from None
+        return {"order": [p["id"] for p in self.registry.load().get("providers", [])]}
+
     def setup_technical(self, body: Dict[str, Any]) -> Dict[str, Any]:
         """Point the technical session at a second small model served by LM Studio, vLLM or llama-server, in one step: the provider is made (or
         updated, it keeps its id) and the function `technical` is assigned to it. All of it is kept in the registry, so it survives a restart.

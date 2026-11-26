@@ -1055,13 +1055,17 @@ carried away. Whoever holds this server's key spends the chosen provider's quota
   their parameters, imports), `technical` (quick jobs, merge summary of branches, diagram repair). A function with no choice of its own follows the Primary model.
 
 Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
-`/assign`, `/consent`, `/import`, `/primary`, `/models`, `/try`. Changes are accepted only from this PC.
+`/providers/order`, `/assign`, `/consent`, `/import`, `/primary`, `/models`, `/try`. Changes are accepted only from this PC.
 
 **Primary model and fall-back.** The per-function choice *From Local Engine* means whatever the local engine (Basalt, Strata,
 llama.cpp, LM Studio, vLLM) has loaded. *Primary model* makes a function follow the one setting *Main model* (a provider, or the
 local engine), read again at every call, so changing it applies at once and no function has to be edited; the saved choice stays
 `@primary`. A function on the local engine with nothing loaded there does not fail: it goes to the Primary model if that is a
 provider, else to the first configured provider, each only if the function's usual rules allow it (consent, chat or tools, cap).
+The order of the list on the Providers page is the order the providers are tried in (drag a card, or use its arrows; `POST /api/llm/providers/order`
+with every id once): a call goes to the chosen route, then the loaded model, then the providers in that order, and an error of one (not a
+refusal, and only while nothing was written) sends it to the next, each with the same rules; the last error is the one raised. A function
+pointed at a model on this PC by name, and a function that never falls back, have no other route.
 The page shows a notice, the log has one line (`llm: <function> fell back to <provider>`), and with no usable provider the error
 says so. `GET /api/llm` gives each function's `now` (what it resolves to), `GET /api/llm/answering` feeds the top bar (the
 Chat's model as `Provider: model`). In the provider form, *Load* lists the models with the address and key typed in the form (or
