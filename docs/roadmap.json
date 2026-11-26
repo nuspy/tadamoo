@@ -1221,7 +1221,11 @@
         "7 compattazioni in 62 minuti a 26-31k token; dopo ogni compattazione il contesto restava al 72-85%; 3 riassunti su 7 interrotti due volte e sostituiti da estrazione meccanica.",
         "Effetto: 164 risultati su 184 mascherati, 47 letture su 69 rileggono risultati mascherati, 19 rileggono il dossier, 38 comandi su 59 elencano cartelle.",
         "La scheda di missione (_mission_note, agent_loop.py) ricorda solo richiesta, compiti aperti e file scritti con strumenti di scrittura: non i file scaricati o creati da comandi, quindi dopo ogni compattazione il modello ricostruisce cosa è già su disco.",
-        "I due controlli «verifica finale» e «lavora fino in fondo» NON sono la causa della fase di redazione: prima delle 10:06 non sono mai scattati."
+        "I due controlli «verifica finale» e «lavora fino in fondo» NON sono la causa della fase di redazione: prima delle 10:06 non sono mai scattati.",
+        "Censimento (26 novembre): il budget della conversazione (mascheramento a 80%, piegatura in compaction.py, avviso «context at 84%» in course.py, scheda di missione) viene solo da context.budget_tokens (stack.py). Il budget nasce dall'impostazione cfg.context_window (mai passata dall'app, resta vuota) oppure dalla richiesta /v1/status; se la richiesta dà nulla vale FALLBACK_CONTEXT_TOKENS = 32768 (stack.py:67), scritto nel codice. Il 131072 del Loader e del monitor arriva all'harness solo da quella richiesta.",
+        "Altri valori 32768 scritti nel codice: session.py:975 (window_tokens(), usata per quanto di un allegato entra nel messaggio) e il parametro di default in attachments.py:438. La chat semplice (serve/chatctx.py) legge invece direttamente engine.max_context.",
+        "La sessione tecnica (side-context=32000 nella configurazione del motore) è un'altra finestra, voluta: serve ai riassunti della compaction e alle chiamate di supporto; 3 riassunti su 7 si sono interrotti per il limite di lunghezza (finish_reason length) due volte e sono passati all'estrazione.",
+        "Dopo una richiesta a vuoto il budget non viene più riletto fino alla richiesta successiva (session.py:1898); l'esito nullo è silenzioso (stack.py refresh_budget)."
       ],
       "decisions": [
         "Da decidere con l'utente: rileggere la finestra dal server anche durante la richiesta mentre il budget è quello di riserva; non compattare presto sul valore di riserva; far registrare alla scheda di missione anche i file creati da comandi; rifare i riassunti interrotti invece di passare all'estrazione."
