@@ -148,15 +148,15 @@ Il server parla entrambe le API anche verso l'esterno, così gli editor e gli st
 
 ## Installazione
 
-**Release attuale: 2.2, *victory-lap*.**
+**Release attuale: 2.3, *victory-lap*.**
 
 | Cosa | Dove | Per |
 |---|---|---|
-| **Windows**, completo | [windows-v2.2](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.2) | app, motore, server e Python su un solo PC |
-| **Windows**, solo GUI | [windows-gui-only-v2.2](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.2) | una finestra su un server che gira altrove |
-| **Linux**, completo | [linux-complete-v2.2](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.2) | harness, installer e motore Basalt-Plus |
-| **Linux**, server | [server-linux-v2.2](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.2) | harness e installer |
-| **Android** | [android-v2.2](https://github.com/nuspy/tadamoo/releases/tag/android-v2.2) | l'app per il telefono |
+| **Windows**, completo | [windows-v2.3](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.3) | app, motore, server e Python su un solo PC |
+| **Windows**, solo GUI | [windows-gui-only-v2.3](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.3) | una finestra su un server che gira altrove |
+| **Linux**, completo | [linux-complete-v2.3](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.3) | harness, installer e motore Basalt-Plus |
+| **Linux**, server | [server-linux-v2.3](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.3) | harness e installer |
+| **Android** | [android-v2.3](https://github.com/nuspy/tadamoo/releases/tag/android-v2.3) | l'app per il telefono |
 | **Mac** | da compilare da questo repository | la finestra su un server (predisposto in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third_party/` e stanno dentro i pacchetti Windows e Linux.
@@ -164,7 +164,7 @@ agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third
 Su Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v2.2.tar.gz && cd tadamoo-2.2
+tar xzf TaDaMoo-linux-complete-v2.3.tar.gz && cd tadamoo-2.3
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
