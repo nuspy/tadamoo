@@ -222,8 +222,13 @@ class RoutedClient:
         return int(ask()) if callable(ask) else 0
 
     def context_window(self, *a: Any, **k: Any) -> Any:
-        """The window the agent plans by: the one the person gave the assigned cloud route, else the loaded model's own."""
-        return self.profile().context_window or self.local.context_window(*a, **k)
+        """The window the agent plans by, for the route a call of this function takes now (a fallback when no model is loaded included): the one
+        the person gave that provider, None when the record has none (the loaded model's window is not a provider's); the loaded model's own
+        when the call goes to it."""
+        pid, _ = self.registry.resolve_route(self.function, local_loaded=not self._nothing_loaded())
+        if pid is None:
+            return self.local.context_window(*a, **k)
+        return self.profile(pid).context_window
 
     def profile(self, pid: Optional[str] = None) -> RouteProfile:
         """What the route this function is pointed at (or the provider `pid`) can do. The loaded model has the plain profile."""

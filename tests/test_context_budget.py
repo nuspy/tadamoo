@@ -153,3 +153,19 @@ def test_each_request_of_a_session_asks_the_server_again(tmp_path):
             break
         time.sleep(0.05)
     assert built.agent.context.budget_tokens == 109772
+
+
+def test_the_budget_is_asked_again_while_a_request_runs_but_not_at_every_step(tmp_path, monkeypatch):
+    client = Model(error=unreachable())
+    built = build(tmp_path, client)
+    agent, asked, clock = built.agent, client.asked, [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    agent._prepare_context()                                             # the first step: asked, still no answer
+    assert client.asked == asked + 1 and agent.context.budget_tokens == context_budget(FALLBACK_CONTEXT_TOKENS, 4096)
+    client.error, client.window = None, 131072                           # the model loaded meanwhile
+    clock[0] += 5
+    agent._prepare_context()                                             # a step soon after: not asked
+    assert client.asked == asked + 1 and agent.context.budget_tokens == context_budget(FALLBACK_CONTEXT_TOKENS, 4096)
+    clock[0] += 30
+    agent._prepare_context()
+    assert client.asked == asked + 2 and agent.context.budget_tokens == context_budget(131072, ANSWER_RESERVE_TOKENS)

@@ -56,7 +56,7 @@ USES: Tuple[Use, ...] = (
     Use("router", params=(Param("timeout_s", 30, 5, 600, False),), prompt="tadamoo.router:JUDGE_PROMPT"),
     Use("optimize", needs_session=True, params=(Param("timeout_s", 8, 2, 120, False),), prompt="tadamoo.optimize:SYSTEM_PROMPT"),
     Use("suggestions", params=(Param("max_tokens", 480, 100, 2000), Param("timeout_s", 12, 3, 120, False), Param("turns", 4, 0, 20)), prompt="tadamoo.suggestions:SYSTEM"),
-    Use("compaction", params=(Param("answer_tokens", 1500, 200, 4000), Param("chunk_tokens", 10000, 2000, 24000)),
+    Use("compaction", params=(Param("answer_tokens", 3000, 200, 4000), Param("chunk_tokens", 10000, 2000, 24000)),
         prompt="tadamoo.compaction:SUMMARY_PROMPT"),
     Use("chat_summary", params=(Param("answer_tokens", 1536, 200, 6000), Param("chunk_tokens", 10000, 2000, 24000)),
         prompt="serve.chatctx:SUMMARY_PROMPT", editable=True),
