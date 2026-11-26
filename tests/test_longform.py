@@ -223,23 +223,23 @@ def test_the_size_a_person_chose_decides_whether_anything_is_declared():
     ("Write a report of 10,000 words on rivers", ("write", 10000)),
     ("Scrivi un racconto di 10.000 parole", ("write", 10000)),
     ("write an essay of 20 pages", ("write", 9000)),
-    ("write 5k words about it", ("write", 5000)),
-    ("Scrivimi il capitolo 3 del libro", ("write", 2500)),
+    ("write 8k words about it", ("write", 8000)),
+    ("Scrivimi il capitolo 3 del libro", None),
     ("write a 500 word summary", None),
     ("Write a poem", None),
     ("what is a chapter in a book", None),
-    ("Traduci in inglese: " + "parola " * 2500, ("translate", 2503)),
+    ("Traduci in inglese: " + "parola " * 7000, ("translate", 7003)),
     ("Translate this: short text", None),
-    ("riscrivi questo " + "testo " * 2000, ("rewrite", 2002)),
-    ("Analizza questo documento: " + "testo " * 4000, ("write", 2001)),
-    ("Scrivi un testo di 2100 parole sui fiumi d'Europa", ("write", 2100)),                  # Italian: 1.5 tokens a word, 3150 tokens
-    ("Write a text of 2100 words about the rivers of Europe", None),                           # English: 1.35 tokens a word, 2835 tokens
-    ("Write a text of 2300 words about the rivers of Europe", ("write", 2300)),
-    ("Scrivi un testo di 1900 parole sui fiumi d'Europa", None),
-    ("Write a chapter about the rivers of Europe", ("write", 2500)),
-    ("Translate this into Italian: " + "the " * 2100, None),
-    ("Translate this into Italian: " + "the " * 2300, ("translate", 2304)),
-])
+    ("riscrivi questo " + "testo " * 7000, ("rewrite", 7002)),
+    ("Analizza questo documento: " + "testo " * 14000, ("write", 7001)),
+    ("Scrivi un testo di 6500 parole sui fiumi d'Europa", ("write", 6500)),                  # Italian: 1.6 tokens a word, 10400 tokens
+    ("Write a text of 6500 words about the rivers of Europe", None),                           # English: 1.35 tokens a word, 8775 tokens
+    ("Write a text of 7500 words about the rivers of Europe", ("write", 7500)),
+    ("Scrivi un testo di 6000 parole sui fiumi d'Europa", None),
+    ("Write a chapter about the rivers of Europe", None),
+    ("Translate this into Italian: " + "the " * 6500, None),
+    ("Translate this into Italian: " + "the " * 7500, ("translate", 7504)),
+], ids=lambda v: str(v)[:40])
 def test_detect_long_request(text, expected):
     found = lf.detect_long_request(text)
     assert (found and (found["mode"], found["words"])) == expected
@@ -248,12 +248,12 @@ def test_detect_long_request(text, expected):
 
 
 def test_words_and_tokens_are_converted_in_one_place_by_language():
-    assert lf.LONG_MIN_TOKENS == 3000
-    assert lf.tokens_for_words(2000, "it") == 3000 and lf.tokens_for_words(2000, "en") == 2700 and lf.words_for_tokens(3000, "it") == 2000
-    assert lf.tokens_for_words(1000, "") == lf.tokens_for_words(1000, "it") and lf.tokens_for_words(1000, "xx") == 1500
+    assert lf.LONG_MIN_TOKENS == 10000
+    assert lf.tokens_for_words(2000, "it") == 3200 and lf.tokens_for_words(2000, "en") == 2700 and lf.words_for_tokens(3200, "it") == 2000
+    assert lf.tokens_for_words(1000, "") == lf.tokens_for_words(1000, "it") and lf.tokens_for_words(1000, "xx") == 1600
     assert lf.request_language("Write a text of words about the rivers of Europe") == "en"
     assert lf.request_language("Scrivi un testo di mille parole sui fiumi che attraversano l'Europa") == "it"
-    assert lf.detect_long_request("Write a text of 2300 words about the rivers of Europe")["tokens"] == 3105
+    assert lf.detect_long_request("Write a text of 7500 words about the rivers of Europe")["tokens"] == 10125
     assert lf.parse_hint("Write about rivers\n\n[long answer: mode=write]")["words"] == 2000
 
 
