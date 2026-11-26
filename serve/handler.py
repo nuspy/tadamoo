@@ -4096,6 +4096,8 @@ def make_handler(svc: Service, remote: bool = False):
                 api = self._llm()
                 if parts == ["providers"]:
                     return self._json(200, {"provider": api.add_provider(req)})
+                if parts == ["providers", "order"]:
+                    return self._json(200, api.order_providers(req))
                 if len(parts) == 2 and parts[0] == "providers":
                     return self._json(200, {"provider": api.update_provider(parts[1], req)})
                 if len(parts) == 3 and parts[0] == "providers" and parts[2] == "remove":

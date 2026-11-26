@@ -174,3 +174,19 @@ def test_a_swap_reaches_the_callers_even_when_nothing_was_assigned(reg):
     data = reg.load()
     assert (data.get("assignments") or {}).get("executor") == cloud["id"] and reg.fallback_chain("executor")[0] == cloud["id"]
     assert reg.endpoint_for("executor", carica=False) is not None
+
+
+def test_the_providers_are_put_in_the_order_given_and_only_exactly_as_they_are(reg):
+    a = reg.add({"type": "openai_compat", "name": "A", "base_url": "https://a.example/v1", "api_key": "k" * 12, "model": "m"})["id"]
+    b = reg.add({"type": "openai_compat", "name": "B", "base_url": "https://b.example/v1", "api_key": "k" * 12, "model": "m"})["id"]
+    c = reg.add({"type": "openai_compat", "name": "C", "base_url": "https://c.example/v1", "api_key": "k" * 12, "model": "m"})["id"]
+    assert [p["id"] for p in reg.load()["providers"]] == [a, b, c]
+    reg.reorder([c, a, b])
+    assert [p["id"] for p in reg.load()["providers"]] == [c, a, b]
+    for bad in ([a, b], [a, b, c, c], [a, b, "nope"], "abc", [a, b, 3], None):
+        with pytest.raises(ValueError):
+            reg.reorder(bad)
+    assert [p["id"] for p in reg.load()["providers"]] == [c, a, b]               # a refused order changes nothing
+    assert reg.failover_chain("executor") == [None, c, a, b]                     # the loaded model, then the providers in the list's order
+    reg.assign_checked("eval", a)
+    assert reg.failover_chain("eval")[:2] == [a, None] and reg.failover_chain("eval")[2:] == [c, b]
