@@ -192,6 +192,15 @@ class Record(unittest.TestCase):
         fresh.attach()
         self.assertEqual(fresh.limit_tokens(), 8200)
 
+    def test_a_limit_written_by_hand_is_the_limit_and_use_does_not_raise_it(self):
+        lengths = lengthprobe.Lengths(lambda: self.facts)
+        lengths.set({**self.record(30_000), "bounded": True, "observed_max_tokens": 37_092, "manual_limit_tokens": 15_000})
+        self.assertEqual(lengths.limit_tokens(), 15_000)
+        self.assertFalse(lengths.note({"finish": "stop", "completion_tokens": 21_000}))
+        self.assertEqual((lengths.limit_tokens(), lengths.record["observed_max_tokens"]), (15_000, 37_092))
+        lengths.set({**self.record(30_000), "bounded": True, "observed_max_tokens": 37_092, "manual_limit_tokens": 0})
+        self.assertEqual(lengths.limit_tokens(), 37_092)                 # no number by hand: the measured one
+
 
 class FirstLoad(unittest.TestCase):
     """The supervisor measures once, keeps the result, and does not repeat it at the next load."""

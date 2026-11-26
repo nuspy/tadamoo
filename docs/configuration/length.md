@@ -38,6 +38,7 @@ One JSON file for each model, in the user data folder, `lengths/<hash of the mod
 | `natural_tokens`, `natural_words` | the most written when the model would not go on |
 | `reached_cap`, `bounded` | a text went to the cap, clean; the cap or a loop bounded the number |
 | `observed_max_tokens` | raised by use (below) |
+| `manual_limit_tokens` | a number written by hand: it is the limit (`limit_tokens`) and use does not raise it; absent or 0, the measured one counts |
 | `complete`, `stopped_by`, `measured_at` | whether it finished, why it stopped, when |
 
 ## Use

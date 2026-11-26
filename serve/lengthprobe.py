@@ -219,6 +219,9 @@ class Lengths:
         r = self.record
         if not r:
             return 0
+        manual = int(r.get("manual_limit_tokens") or 0)
+        if manual > 0:                                      # a number written by hand in the record is the limit: nothing raises it
+            return manual
         measured = r.get("reliable_tokens") or 0 if r.get("bounded") else 0
         return int(max(measured, r.get("observed_max_tokens") or 0))
 
@@ -231,7 +234,7 @@ class Lengths:
         limit. True when the limit rose."""
         r = self.record
         tokens = int(done.get("completion_tokens") or 0)
-        if r is None or done.get("finish") != "stop" or done.get("repeated") or done.get("answer_capped") or tokens <= self.limit_tokens():
+        if r is None or int(r.get("manual_limit_tokens") or 0) > 0 or done.get("finish") != "stop" or done.get("repeated") or done.get("answer_capped")                 or tokens <= self.limit_tokens():
             return False
         with self.lock:
             r["observed_max_tokens"] = tokens
