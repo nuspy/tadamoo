@@ -186,16 +186,16 @@ def protect(text: str) -> Tuple[str, Protected]:
 
 # -- when a request needs parts -------------------------------------------------------------------------------------------
 
-LONG_MIN_TOKENS = 3000              # a text asked for above this is not written reliably in one turn, for a model whose length is not known
+LONG_MIN_TOKENS = 10000             # a text asked for above this is written in parts, for a model whose length is not known
 ANSWER_SHARE = 0.6                  # of the tokens a model writes well in one reply, thinking included, the share the answer may take
 LONG_MIN_FLOOR = 500                # the least threshold a measured length gives
 
 
 def long_min_tokens(limit: int = 0) -> int:
-    """The answer tokens above which a text is written in parts: the model's measured reliable reply (serve/lengthprobe.py) less what its
-    thinking takes, else the general threshold."""
-    return max(LONG_MIN_FLOOR, int(limit * ANSWER_SHARE)) if limit and limit > 0 else LONG_MIN_TOKENS
-TOKENS_PER_WORD_BY_LANGUAGE = {"en": 1.35, "it": 1.5}   # a language not listed (or not recognised) counts like Italian: a long request is not missed
+    """The answer tokens above which a text is written in parts: the general threshold, lowered for a model whose measured reliable reply
+    (serve/lengthprobe.py), less what its thinking takes, is shorter."""
+    return min(LONG_MIN_TOKENS, max(LONG_MIN_FLOOR, int(limit * ANSWER_SHARE))) if limit and limit > 0 else LONG_MIN_TOKENS
+TOKENS_PER_WORD_BY_LANGUAGE = {"en": 1.35, "it": 1.6}   # a language not listed (or not recognised) counts like Italian: a long request is not missed
 WORDS_ASKED_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:[.,' ]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b)?\s*(?:-\s*)?(?:words?|parole|palabras|mots|wörter|palavras)\b", re.I)
 PAGES_ASKED_RE = re.compile(r"(?<![\w.])(\d+)\s*(?:pages?|pagine|páginas|paginas|seiten)\b", re.I)
 WORDS_PER_PAGE = 450
@@ -205,7 +205,7 @@ KIND_RE = re.compile(r"\b(?:report|relazione|rapporto|saggio|essay|ebook|libro|b
 TRANSLATE_RE = re.compile(r"\b(?:translate|traduci|traduzione|traducir|traduire|übersetze)\b", re.I)
 REWRITE_RE = re.compile(r"\b(?:rewrite|riscrivi|riscrittura|riformula|reescribe|réécris|umschreiben)\b", re.I)
 ANALYSE_RE = re.compile(r"\b(?:analy[sz]e|analysis|analizza|analisi|riassumi|summari[sz]e)\b", re.I)
-CHAPTER_WORDS = 2500                # a chapter asked for without a length (over LONG_MIN_TOKENS in every language)
+CHAPTER_WORDS = 2500                # a chapter asked for without a length
 
 
 def tokens_per_word(language: str = "") -> float:
@@ -259,7 +259,7 @@ def parse_hint(text: str) -> Optional[Dict[str, Any]]:
     body = text[:m.start()].rstrip()
     mode = fields.get("mode") if fields.get("mode") in MODES else "write"
     size = fields.get("size") if fields.get("size") in SIZES else "fixed"
-    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), words_for_tokens(LONG_MIN_TOKENS, request_language(body)))
+    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), SEGMENT_WORDS)
     return {"mode": mode, "size": size, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
 
 

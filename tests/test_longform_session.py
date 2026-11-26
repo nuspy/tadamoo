@@ -96,6 +96,18 @@ ASK = "Scrivi un report di 10.000 parole sui fiumi d'Europa"
 ASK_EN = "Write a report of 6000 words about the rivers of Europe"
 
 
+ASK_EN_BIG = "Write a report of 9000 words about the rivers of Europe"
+REAL_THRESHOLD = ("test_a_measured_length_moves_the_threshold_of_a_long_text", "test_a_model_known_to_write_short_replies_gets_a_report_in_parts_earlier",
+                  "test_without_a_measure_the_general_threshold_still_applies")
+
+
+@pytest.fixture(autouse=True)
+def flow_threshold(request, monkeypatch):
+    """These tests drive the flow on short requests: the general threshold is lowered for them, and left as it is for the tests of the threshold."""
+    if request.node.name not in REAL_THRESHOLD:
+        monkeypatch.setattr(lf, "LONG_MIN_TOKENS", 3000)
+
+
 def accept(session, ev, q, option=0, after=0):
     answer = qs.ANSWER_HEADER + "\n1. " + q["text"][:60] + " -> " + q["options"][option]["label"] + " (your recommended option)\n" + qs.GO_ON
     session.send("m2", answer)
@@ -439,27 +451,31 @@ class Measured(Model):
 
 def test_a_measured_length_moves_the_threshold_of_a_long_text():
     assert lf.long_min_tokens(0) == lf.LONG_MIN_TOKENS
-    assert lf.long_min_tokens(20000) == 12000 and lf.long_min_tokens(100) == lf.LONG_MIN_FLOOR
-    text = "Write a report of 6000 words about the rivers of Europe"
+    assert lf.long_min_tokens(20000) == lf.LONG_MIN_TOKENS and lf.long_min_tokens(10000) == 6000 and lf.long_min_tokens(100) == lf.LONG_MIN_FLOOR
+    text = "Write a report of 9000 words about the rivers of Europe"
     assert lf.detect_long_request(text) is not None
-    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(40000)) is None            # this model writes that in one go
-    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(6000)) is not None
+    assert lf.detect_long_request("Write a report of 6000 words about the rivers of Europe") is None                # under the general threshold
+    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(40000)) is not None          # a stronger model is not given more than the general number
+    assert lf.detect_long_request("Write a report of 6000 words about the rivers of Europe", min_tokens=lf.long_min_tokens(6000)) is not None   # a weaker one gets parts earlier
 
 
-def test_a_model_known_to_write_long_replies_is_left_to_answer_a_report_in_one_go(tmp_path):
-    model = Measured(say("Eccolo."))
-    model.limit = 40000
-    session, ev, built = session_with(tmp_path, model, unattended=True)
-    session.send("m1", ASK_EN)
-    done = ev.wait("done")
-    assert done["final"] == "Eccolo." and model.calls == [] and ev.progress() == []
-
-
-def test_without_a_measure_the_general_threshold_still_applies(tmp_path):
+def test_a_model_known_to_write_short_replies_gets_a_report_in_parts_earlier(tmp_path):
     model = Measured()
+    model.limit = 5000
     session, ev, built = session_with(tmp_path, model, unattended=True)
     session.send("m1", ASK_EN)
     assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 3
+
+
+def test_without_a_measure_the_general_threshold_still_applies(tmp_path):
+    model = Measured(say("Eccolo."))
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", ASK_EN)                                       # 6000 words: under the general threshold, the model answers
+    assert ev.wait("done")["final"] == "Eccolo." and model.calls == []
+    model = Measured(estimate=9000)
+    session, ev, built = session_with(tmp_path / "big", model, unattended=True)
+    session.send("m1", ASK_EN_BIG)                                   # 9000 words: over it, in four parts
+    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 4
 
 
 def test_a_thinking_that_used_the_whole_output_is_rescued_by_writing_the_text_in_parts(tmp_path):

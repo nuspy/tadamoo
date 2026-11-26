@@ -53,10 +53,11 @@ brief holds the outline, the tone and what the earlier texts said. Where the mod
 
 ## Where the threshold comes from, and the rescue
 
-A text asked for above a number of answer tokens is written in parts. The number was fixed (3,000). When the server has measured the model
-([length](configuration/length.md)), the number follows it: 60 % of the tokens the model is known to write well in one reply, thinking
-included (`long_min_tokens`, at least 500), so a model that writes 40,000 tokens well answers a 6,000-word report in one go and a weaker one
-gets parts earlier. The harness asks `GET /v1/status` (`length.limit_tokens`) at most once a minute; with no measure the old number applies.
+A text asked for above a number of answer tokens is written in parts. The number is 10,000 (about 6,000 words in Italian). When the server has
+measured the model ([length](configuration/length.md)) the number can only go down: it is the lower of 10,000 and 60 % of the tokens the model is
+known to write well in one reply, thinking included (`long_min_tokens`, at least 500), so a weaker model gets parts earlier and a stronger one is
+not given more than 10,000 in one turn. The harness asks `GET /v1/status` (`length.limit_tokens`) at most once a minute; with no measure the
+general number applies.
 
 When the thinking uses the whole output and no answer comes (`empty`), on a request with no tool work, the harness hands the request to this
 engine: the estimate decides whether the text is long, and if so it is written in parts, where the thinking cannot take its room. The thinking
@@ -79,11 +80,11 @@ Two ways to start it, both with the same engine:
    text then goes through the same flow as in the Agent (below; the page's length field is a declared length, so no estimate is asked, and
    a plan given as `outline` is followed as it is); in the Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
    no card, and for a new text no length estimate (the person chose it).
-2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 3000 tokens (about
-   2000 words; "10,000 words", "10.000 parole", "20 pages", "5k words") with a writing verb or a document kind, a chapter, a translation or
-   rewrite of a text over 3000 tokens, an analysis of a very large text. Words become tokens in one place (`tokens_for_words`): 1.35 tokens a
-   word for English and 1.5 for Italian and any language not recognised, by the language of the request, so 2100 words ask for parts in
-   Italian (3150 tokens) and not in English (2835). A chapter with no length counts as 2500 words. Where the person is, a card offers "About
+2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 10,000 tokens (about
+   6,000 words; "10,000 words", "10.000 parole", "40 pages", "7k words") with a writing verb or a document kind, a translation or
+   rewrite of a text over 10,000 tokens, an analysis of a very large text. Words become tokens in one place (`tokens_for_words`): 1.35 tokens a
+   word for English and 1.6 for Italian and any language not recognised, by the language of the request, so 6,500 words ask for parts in
+   Italian (10,400 tokens) and not in English (8,775). A chapter with no length counts as 2500 words. Where the person is, a card offers "About
    10,000 words (13,500 tokens): write it in 5 parts?" (the first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
    noted as an assumption. Once taken, **the harness writes the text itself**: the model is not asked to call anything. There is no tool for it
    (`plan_long_answer` was removed, so the stable tool list lost one entry once: a conversation saved before that has a different cached
@@ -103,7 +104,7 @@ conversation's own session, with the earlier text turns of the conversation ahea
 
 1. **Estimate.** The question alone, the form `{words, reason}`. The words are clamped to 50..200000 and bounded: within 0.8 to 1.25 times
    a length the request states, else within a quarter to four times the rule-based words. A reply that cannot be read falls back to the
-   rule-based words (`source: rule`). At or under the threshold (3000 tokens) the harness stops and the model answers as usual
+   rule-based words (`source: rule`). At or under the threshold (10,000 tokens) the harness stops and the model answers as usual
    (`estimate` event with `long: false`).
 2. **Plan.** The question, the words and the number of parts (about one per 2000 words); the form is `{title, chunks: [{id, heading, goal,
    target_words, key_points, instruction}]}`. Caps are enforced in code: the count must allow parts of 700 to 2500 words (one more try
