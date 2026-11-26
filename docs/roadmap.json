@@ -1191,6 +1191,45 @@
         "Un controllo più permissivo può lasciar passare lavori davvero incompleti: va provato su richieste vere."
       ],
       "branch": false
+    },
+    {
+      "id": "rm58",
+      "num": 58,
+      "group": "todo",
+      "title": "APK: impostazioni di inferenza (ingranaggio) mostrano l'errore «missing or wrong API key»",
+      "summary": "Segnalato dall'utente il 26 novembre. Dal codice (non provato sul telefono): la WebView apre /?key=... sul listener per i telefoni, che chiede la chiave in ogni richiesta (do_GET, serve/handler.py) e la legge solo dalle intestazioni Authorization o x-api-key, mai da ?key=; la WebView non le invia né per la pagina né per app.js e i CSS, quindi la pagina stessa riceve 401.",
+      "status": "todo",
+      "solved": [
+        "Causa individuata nel commit 62afb3a0a (19 novembre): presume che la pagina si carichi senza chiave, vero sul PC (loopback) ma non sul listener per i telefoni."
+      ],
+      "decisions": [
+        "Serve una modifica al server (il solo Dart non basta, le WebView non possono mettere intestazioni sui file della pagina). Da decidere con l'utente: (a) il listener per i telefoni serve senza chiave solo la pagina e i file statici (/, /web/*, /fonts/*), le API restano protette; (b) la pagina e i file accettano ?key= una volta e un cookie. È una regola di sicurezza del listener per i telefoni: decide l'utente."
+      ],
+      "risks": [
+        "(a) allenta la regola «ogni richiesta al listener per i telefoni ha una chiave» per il solo codice statico della pagina."
+      ],
+      "branch": false
+    },
+    {
+      "id": "rm59",
+      "num": 59,
+      "group": "todo",
+      "title": "Finestra di contesto bloccata a 32768 per tutta una richiesta lunga: compattazioni continue e richiami ridondanti",
+      "summary": "Sessione demonology del 26 novembre (08:52-10:06): il budget della conversazione era 25395 (32768 di riserva) invece di ~131k, perché alle 08:52 il motore locale non era ancora caricato: la chiamata tecnica delle 08:52:53 è andata a Z.AI e la prima chiamata locale è delle 08:59:02. Il budget si rilegge dal server solo all'inizio di ogni richiesta (session.py, refresh_budget), quindi è rimasto a 32k per 73 minuti e si è aggiornato solo alle 11:01.",
+      "status": "todo",
+      "solved": [
+        "7 compattazioni in 62 minuti a 26-31k token; dopo ogni compattazione il contesto restava al 72-85%; 3 riassunti su 7 interrotti due volte e sostituiti da estrazione meccanica.",
+        "Effetto: 164 risultati su 184 mascherati, 47 letture su 69 rileggono risultati mascherati, 19 rileggono il dossier, 38 comandi su 59 elencano cartelle.",
+        "La scheda di missione (_mission_note, agent_loop.py) ricorda solo richiesta, compiti aperti e file scritti con strumenti di scrittura: non i file scaricati o creati da comandi, quindi dopo ogni compattazione il modello ricostruisce cosa è già su disco.",
+        "I due controlli «verifica finale» e «lavora fino in fondo» NON sono la causa della fase di redazione: prima delle 10:06 non sono mai scattati."
+      ],
+      "decisions": [
+        "Da decidere con l'utente: rileggere la finestra dal server anche durante la richiesta mentre il budget è quello di riserva; non compattare presto sul valore di riserva; far registrare alla scheda di missione anche i file creati da comandi; rifare i riassunti interrotti invece di passare all'estrazione."
+      ],
+      "risks": [
+        "Rileggere la finestra durante la richiesta cambia la soglia di compattazione a metà esecuzione: va provato con una richiesta lunga vera."
+      ],
+      "branch": false
     }
   ]
 }
