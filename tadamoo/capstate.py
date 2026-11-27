@@ -22,8 +22,18 @@ def _word(value: Any, key: str = "") -> str:
     return str(value)
 
 
-def long_answer(message: Any) -> str:
-    """Whether the person's latest message carries the Long answer control line (serve/longform.py `parse_hint`), in words."""
+def _long_words(agent: Any) -> int:
+    """About how many words a text must have to be written in parts, for the route the agent's client calls now (0: not known)."""
+    try:
+        from tadamoo import longlimit
+        return longlimit.min_words(agent.client, int(getattr(agent, "words_per_token", 0) or 0))
+    except Exception:
+        return 0
+
+
+def long_answer(message: Any, over_words: int = 0) -> str:
+    """Whether the person's latest message carries the Long answer control line (serve/longform.py `parse_hint`), in words; `over_words` is the length
+    above which a text is written in parts for the route the conversation runs on."""
     if not isinstance(message, str) or not message:
         return "off"
     from serve import longform
@@ -31,7 +41,7 @@ def long_answer(message: Any) -> str:
     if hint is None:
         return "off"
     words = hint["fields"].get("words", "")
-    return f"on ({hint['mode']}{', about ' + words + ' words' if hint['mode'] == 'write' and words.isdigit() else ''}): write each text over about 1500 words with write_long"
+    return f"on ({hint['mode']}{', about ' + words + ' words' if hint['mode'] == 'write' and words.isdigit() else ''}): write each text over {'about ' + str(over_words) + ' words' if over_words else 'the length of one reply'} with write_long"
 
 
 def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
@@ -60,7 +70,7 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "steps": steps if steps > 0 else "unlimited",
         "max_tokens": getattr(agent, "max_tokens", None) or "the server's own",
         "orchestration": bool(tools is not None and tools.get("session_spawn") is not None),
-        "long_answer": long_answer(getattr(agent, "incoming", "")),
+        "long_answer": long_answer(getattr(agent, "incoming", ""), _long_words(agent)),
         "compaction": folding,
         "reader": getattr(agent, "reader", "") or "this PC",
         "sampling": sampling,

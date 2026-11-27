@@ -93,7 +93,8 @@ def fields(settings: Dict[str, Any]) -> Dict[str, Any]:
     stops = stops_of(settings)
     if stops:
         sampling["stop"] = stops
-    return {"effort": settings.get("effort") or "", "context_policy": policy, "context_threshold": threshold,
+    percent = _number(settings.get("words_per_token"))
+    return {"effort": settings.get("effort") or "", "context_policy": policy, "words_per_token": int(percent) if percent is not None and 10 <= percent <= 200 else 0, "context_threshold": threshold,
             "compaction": policy == "compact", "compaction_threshold": min(FOLD_LIMITS[1], max(FOLD_LIMITS[0], threshold)),
             "max_turns": int(steps) if steps is not None and (steps == -1 or steps >= 1) else -1,
             "end_turn_bias": min(0.0, bias) if bias is not None else 0.0,

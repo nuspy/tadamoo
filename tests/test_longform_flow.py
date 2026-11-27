@@ -8,6 +8,10 @@ import pytest
 from serve import longflow as lfw
 from serve import longform as lf
 
+CAP = lf.capacity(15000, 60)            # what one reply holds; a part is that long and a text of three parts is the test's size
+PART = CAP.words
+WORDS = 3 * PART
+
 
 # -- a model that plays the four kinds of call --------------------------------------------------------------------------
 
@@ -30,7 +34,7 @@ class Script:
     """Answers by kind. `estimate` is the words to say (or raw text), `plan` a function (words) -> raw text, `review` a function
     (user text, call no) -> a dict with `fixes`, `passage` a function (kind, user text) -> text."""
 
-    def __init__(self, estimate=6000, plan=None, review=None, passage=None, plan_chunks=3):
+    def __init__(self, estimate=WORDS, plan=None, review=None, passage=None, plan_chunks=3):
         self.estimate, self.plan, self.review, self.passage, self.plan_chunks = estimate, plan, review, passage, plan_chunks
         self.calls = []
 
@@ -59,7 +63,7 @@ class Script:
             return self.plan(len(self.of("plan")), last)
         n = self.plan_chunks
         return json.dumps({"title": "Rivers", "chunks": [
-            {"id": 90 + i, "heading": f"Chapter {i + 1}", "goal": f"goal {i + 1}", "target_words": 2000, "key_points": ["a", "b"],
+            {"id": 90 + i, "heading": f"Chapter {i + 1}", "goal": f"goal {i + 1}", "target_words": PART, "key_points": ["a", "b"],
              "instruction": f"INSTR-{i + 1}: write chapter {i + 1} of the report"} for i in range(n)]})
 
     def _part(self, messages, last):
@@ -81,8 +85,9 @@ class Script:
         return "A new passage that adds the missing point. " + filler("new", 40) + "."
 
 
-def flow(model, task="Write a report of about 6000 words about rivers", words=6000, **kw):
-    spec = lf.Spec(mode="write", task=task, target_words=words, language="en")
+def flow(model, task=f"Write a report of about {WORDS} words about rivers", words=WORDS, **kw):
+    spec = lf.Spec(mode="write", task=task, target_words=words, language="en", part_max=CAP.words, words_percent=CAP.percent)
+    kw.setdefault("cap", CAP)
     return lfw.LongFlow(model, spec, clock=iter(range(10 ** 6)).__next__, **kw)
 
 
@@ -135,7 +140,7 @@ def test_an_unreadable_estimate_falls_back_to_the_rule_words():
     model = Script(estimate="not json")
     events, done = run(flow(model))
     est_ev = next(e for e in events if e["event"] == "estimate")
-    assert est_ev["source"] == "rule" and est_ev["words"] == 6000 and est_ev["long"]
+    assert est_ev["source"] == "rule" and est_ev["words"] == WORDS and est_ev["long"]
 
 
 def test_a_length_chosen_by_hand_is_not_asked_of_the_model():
@@ -147,48 +152,50 @@ def test_a_length_chosen_by_hand_is_not_asked_of_the_model():
 # -- the plan -----------------------------------------------------------------------------------------------------------
 
 def plan_json(n, **row):
-    return json.dumps({"title": "T", "chunks": [{"id": 7, "heading": f"H{i}", "goal": f"G{i}", "target_words": 2000, "key_points": [],
+    return json.dumps({"title": "T", "chunks": [{"id": 7, "heading": f"H{i}", "goal": f"G{i}", "target_words": PART, "key_points": [],
                                                  "instruction": f"do {i}", **row} for i in range(n)]})
 
 
 def test_parts_are_counted_within_what_a_part_holds():
-    assert lfw.chunk_bounds(10000) == (4, 14) and lfw.chunk_bounds(2300) == (1, 3) and lfw.chunk_bounds(100000) == (40, 60)
-    assert lfw.parse_plan(plan_json(3), 6000) is not None
-    assert lfw.parse_plan(plan_json(2), 6000) is None                  # parts of 3000 words are over the cap
-    assert lfw.parse_plan(plan_json(9), 6000) is None                  # parts of 666 words are under the floor
-    assert lfw.parse_plan('{"title": "T", "chunks": []}', 6000) is None
-    assert lfw.parse_plan("nothing", 6000) is None
+    floor = lf.part_floor(PART)
+    assert lfw.chunk_bounds(4 * PART, PART) == (4, 4 * PART // floor) and lfw.chunk_bounds(PART // 4 * 3, PART) == (1, 3)
+    assert lfw.chunk_bounds(100000, PART) == (-(-100000 // PART), lf.max_segments(PART))
+    assert lfw.parse_plan(plan_json(3), WORDS, PART) is not None
+    assert lfw.parse_plan(plan_json(2), WORDS, PART) is None           # parts of one and a half times what a reply holds
+    assert lfw.parse_plan(plan_json(WORDS // floor + 1), WORDS, PART) is None       # parts under the least a part is planned at
+    assert lfw.parse_plan('{"title": "T", "chunks": []}', WORDS, PART) is None
+    assert lfw.parse_plan("nothing", WORDS, PART) is None
 
 
 def test_the_plan_is_numbered_scaled_and_capped_in_code():
     rows = [{"id": 5, "heading": "A" * 300, "goal": "g" * 900, "target_words": 100, "key_points": [f"p{i}" for i in range(20)], "instruction": "x" * 4000},
-            {"id": 5, "heading": "B", "goal": "g", "target_words": 9000, "key_points": [], "instruction": ""},
+            {"id": 5, "heading": "B", "goal": "g", "target_words": 3 * PART, "key_points": [], "instruction": ""},
             {"id": 5, "heading": "C", "goal": "", "target_words": 0, "key_points": [], "instruction": "do C"}]
-    title, parts = lfw.parse_plan(json.dumps({"title": "t" * 400, "chunks": rows}), 6000)
+    title, parts = lfw.parse_plan(json.dumps({"title": "t" * 400, "chunks": rows}), WORDS, PART)
     assert len(title) == lfw.TITLE_CHARS and [p.index for p in parts] == [0, 1, 2] and [r[0] for p in parts for r in p.rows] == [1, 2, 3]
     assert len(parts[0].heading) == lfw.HEADING_CHARS and len(parts[0].goal) == lfw.GOAL_CHARS and len(parts[0].instruction) == lfw.INSTRUCTION_CHARS
     assert len(parts[0].points) == lfw.POINTS_MAX
     assert parts[1].instruction == "g"                                  # no instruction: the goal stands for it
-    assert all(lf.CHUNK_WORDS[0] <= p.words <= lf.CHUNK_WORDS[1] for p in parts)
-    assert parts[0].words == lf.CHUNK_WORDS[0] and parts[1].words == lf.CHUNK_WORDS[1]
-    empty = json.dumps({"title": "", "chunks": [{"heading": "a", "goal": "", "target_words": 2000, "key_points": [], "instruction": ""}] * 3})
-    assert lfw.parse_plan(empty, 6000) is None
+    assert all(lf.part_floor(PART) <= p.words <= PART for p in parts)
+    assert parts[0].words == lf.part_floor(PART) and parts[1].words > parts[0].words
+    empty = json.dumps({"title": "", "chunks": [{"heading": "a", "goal": "", "target_words": PART, "key_points": [], "instruction": ""}] * 3})
+    assert lfw.parse_plan(empty, WORDS, PART) is None
 
 
 def test_the_plan_call_carries_the_form_and_the_side_fields_and_the_parts_get_their_own_task():
     model = Script()
     events, done = run(flow(model))
     plan_call = model.of("plan")[0]
-    assert plan_call["format"] == "answer_plan" and plan_call["temperature"] == 0.0 and "exactly 3 parts of about 2000 words" in plan_call["messages"][-1]["content"]
+    assert plan_call["format"] == "answer_plan" and plan_call["temperature"] == 0.0 and f"exactly 3 parts of about {PART} words" in plan_call["messages"][-1]["content"]
     ev = next(e for e in events if e["event"] == "plan")
-    assert ev["fallback"] is False and [s["heading"] for s in ev["segments"]] == ["Chapter 1", "Chapter 2", "Chapter 3"] and ev["target_words"] == 6000
+    assert ev["fallback"] is False and [s["heading"] for s in ev["segments"]] == ["Chapter 1", "Chapter 2", "Chapter 3"] and ev["target_words"] == WORDS
     parts = model.of("part")
     assert len(parts) == 3
     for k, call in enumerate(parts, 1):
         asked = call["messages"][-1]["content"]
         assert f"Your task for this part:\nINSTR-{k}: write chapter {k} of the report" in asked and "Goal:" not in asked
         assert ("The text so far ends with" in asked) == (k > 1)       # the harness adds where the previous part ended
-        assert "1. Chapter 1: goal 1 (about 2000 words)" in call["messages"][0]["content"]
+        assert f"1. Chapter 1: goal 1 (about {PART} words)" in call["messages"][0]["content"]
     assert "closing paragraph of chapter 1" in parts[1]["messages"][-1]["content"].lower() or "zq13z" in parts[1]["messages"][-1]["content"]
     assert done["segments"] == 3 and done["finish"] == "stop"
 
@@ -197,7 +204,7 @@ def test_a_bad_part_count_is_asked_again_once_then_the_text_is_planned_evenly():
     model = Script(plan=lambda n, last: plan_json(2))
     events, done = run(flow(model))
     assert len(model.of("plan")) == 2 and "needs between 2 and 8 parts" not in model.of("plan")[1]["messages"][-1]["content"]
-    assert "It needs between 3 and 8 parts" in model.of("plan")[1]["messages"][-1]["content"]
+    assert f"It needs between 3 and {lfw.chunk_bounds(WORDS, PART)[1]} parts" in model.of("plan")[1]["messages"][-1]["content"]
     ev = next(e for e in events if e["event"] == "plan")
     assert ev["fallback"] is True and len(ev["segments"]) == 3
     assert all("Your task for this part" not in c["messages"][-1]["content"] for c in model.of("part"))
@@ -312,7 +319,7 @@ def test_fixes_are_read_with_their_limits():
     assert len(good) == lfw.FIXES_PER_CALL and [g.op for g in good[:2]] == ["replace", "delete"]
     assert [b["reason"] for b in bad[:3]] == ["invalid_op", "invalid_chunk", "invalid_instruction"] and bad[-1]["reason"] == "limit"
     assert lfw.parse_fixes("no", [1]) is None and lfw.parse_fixes('{"x": 1}', [1]) is None
-    assert lfw.pieces([2000, 900, 100, 2500, 2500]) == [[0, 1, 2], [3], [4]]
+    assert lfw.pieces([PART * 2 // 3, PART * 3 // 10, PART // 30, PART * 5 // 6, PART * 5 // 6], PART) == [[0, 1, 2], [3], [4]]
 
 
 # -- the check ---------------------------------------------------------------------------------------------------------
@@ -340,7 +347,7 @@ def test_a_replace_changes_only_its_passage_and_keeps_the_protected_content():
     assert "Rewritten paragraph of chapter 2 holds `code2` and [a link](https://example.com/2)" in text
     assert "Middle paragraph of chapter 2" not in text
     assert "```python\nresult = compute_value(first, second)\n```" in text                         # the code block next to it is untouched
-    assert part_text(1, 2000) in text and part_text(3, 2000) in text       # the other parts are what was written
+    assert part_text(1, PART) in text and part_text(3, PART) in text       # the other parts are what was written
     call = model.of("fix")[0]["messages"][-1]["content"]
     assert "⟦IC1⟧" in call and "`code2`" not in call and "example.com" not in call.split("What to change")[0].split("passage to write again")[1]
     assert "zq11z" not in call and "zq31z" not in call                        # the other parts were not sent
@@ -356,7 +363,7 @@ def test_an_insert_goes_after_the_passage_and_a_delete_takes_it_out():
     events, done = run(f)
     first, third = f.parts[0], f.parts[2]
     assert done["applied"] == 2 and first.index("A new passage that adds") > first.index("Closing paragraph of chapter 1")
-    assert first.count("\n\n") == part_text(1, 2000).count("\n\n") + 1
+    assert first.count("\n\n") == part_text(1, PART).count("\n\n") + 1
     assert "Opening paragraph of chapter 3" not in third and third.startswith("Middle paragraph of chapter 3")
     assert "The text just before it" in model.of("fix")[0]["messages"][-1]["content"]
 
@@ -372,7 +379,7 @@ def test_a_fix_whose_quote_is_missing_or_twice_or_in_protected_content_is_report
     assert ("replace", "not_found") in reasons and ("replace", "ambiguous") in reasons and ("replace", "protected") in reasons
     assert ("replace", "too_short") in reasons
     assert done["applied"] == 1                                              # only the located delete
-    assert f.parts[1] == part_text(2, 2000) and "Opening paragraph of chapter 1" not in f.parts[0]
+    assert f.parts[1] == part_text(2, PART) and "Opening paragraph of chapter 1" not in f.parts[0]
     assert model.of("fix") == []
     assert [e["status"] for e in events if e["event"] == "fix"].count("unlocated") == 4
     assert any(w["code"] == "fix_not_applied" for w in done["warnings"])
@@ -385,7 +392,7 @@ def test_a_passage_that_loses_a_marker_or_breaks_the_length_is_rejected_and_repo
     events, done = run(f)
     assert done["applied"] == 0 and len(lost.of("fix")) == 2                    # asked again once with the reason
     assert "markers_missing" in lost.of("fix")[1]["messages"][-1]["content"]
-    assert done["unapplied"][0]["reason"] == "rejected_markers_missing" and f.parts[1] == part_text(2, 2000)
+    assert done["unapplied"][0]["reason"] == "rejected_markers_missing" and f.parts[1] == part_text(2, PART)
     short = Script(review=reviewing([fix("replace", 1, "Opening paragraph of chapter 1 sets the scene for what")]), passage=lambda kind, last: "Too short to be a passage.")
     _, done2 = run(flow(short))
     assert done2["unapplied"][0]["reason"] == "rejected_length"
@@ -397,7 +404,7 @@ def test_a_passage_that_loses_a_marker_or_breaks_the_length_is_rejected_and_repo
                                     fix("delete", 1, "Closing paragraph of chapter 1 wraps up the argument")]))
     f4 = flow(gone)
     _, done4 = run(f4)
-    assert f4.parts[0] != "" and any(u["reason"] == "rejected_length" for u in done4["unapplied"]) and lf.count_words(f4.parts[0]) >= 0.5 * 2000
+    assert f4.parts[0] != "" and any(u["reason"] == "rejected_length" for u in done4["unapplied"]) and lf.count_words(f4.parts[0]) >= 0.5 * PART
 
 
 def test_there_are_at_most_two_rounds_and_none_when_the_verifier_has_nothing_to_say():
@@ -425,7 +432,7 @@ def test_an_unreadable_review_is_reported_and_the_text_is_kept():
     f = flow(model)
     events, done = run(f)
     assert any(w["code"] == "review_failed" for w in done["warnings"]) and done["segments"] == 3 and done["finish"] == "stop"
-    assert f.text() == "\n\n".join(part_text(k, 2000) for k in (1, 2, 3))
+    assert f.text() == "\n\n".join(part_text(k, PART) for k in (1, 2, 3))
 
 
 def test_the_review_sees_the_plan_and_the_text_in_pieces_that_fit():
@@ -471,3 +478,14 @@ def test_a_text_that_did_not_come_out_whole_is_not_checked():
     f.cancel.set()
     events, done = run(f)
     assert model.of("review") == [] and done["stopped"] == "cancelled"
+
+
+def test_an_exact_length_narrows_the_band_the_estimate_is_kept_in():
+    assert est('{"words": 20000, "reason": "x"}', asked=30000, exact=True)["words"] == 29100
+    assert est('{"words": 20000, "reason": "x"}', asked=30000)["words"] == 24000
+    assert est('{"words": 90000, "reason": "x"}', asked=30000, exact=True)["words"] == 30900
+
+
+def test_the_plan_prompt_gives_the_part_size_it_was_asked_for():
+    messages = lfw.plan_messages("Write about rivers", 3 * PART, 3, part_words=PART)
+    assert f"target_words ({lf.part_floor(PART)} to {PART})" in messages[0]["content"]

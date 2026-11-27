@@ -45,6 +45,7 @@ class LlmApi:
         cap = int(prov.get("daily_token_cap") or 0)
         return {**public, "daily_token_cap": cap, "profile": prov.get("profile") or "",
                 "context_window": int(prov.get("context_window") or 0), "max_output": int(prov.get("max_output") or 0),
+                "reply_length": int(prov.get("reply_length") or 0),
                 "this_server": bool(TYPES.get(prov.get("type") or "", {}).get("this_server")), "used_today": self.ledger.used(prov["id"]),
                 "is_local": is_local(prov, self.registry.local_hosts), "runs_here": runs_here(prov, self.registry.local_hosts),
                 "agent_only": TYPES.get(prov.get("type") or "", {}).get("api") == "cli",
@@ -212,8 +213,9 @@ class LlmApi:
             self.registry.set_cap(prov["id"], self._cap(body["daily_token_cap"]))
         if body.get("profile") and TYPES[body["type"]].get("this_server"):
             self.registry.set_profile(prov["id"], str(body["profile"]))
-        if body.get("context_window") or body.get("max_output"):
-            self.registry.set_limits(prov["id"], self._tokens(body.get("context_window"), "context_window"), self._tokens(body.get("max_output"), "max_output"))
+        if body.get("context_window") or body.get("max_output") or body.get("reply_length"):
+            self.registry.set_limits(prov["id"], self._tokens(body.get("context_window"), "context_window"), self._tokens(body.get("max_output"), "max_output"),
+                                     self._tokens(body.get("reply_length"), "reply_length"))
         return self._public(prov["id"])
 
     @staticmethod
@@ -251,10 +253,11 @@ class LlmApi:
             self.registry.set_cap(pid, self._cap(body["daily_token_cap"]))
         if "profile" in body:
             self.registry.set_profile(pid, str(body["profile"] or ""))
-        if "context_window" in body or "max_output" in body:
+        if "context_window" in body or "max_output" in body or "reply_length" in body:
             prov = self.registry._find(self.registry.load(), pid) or {}
             self.registry.set_limits(pid, self._tokens(body["context_window"], "context_window") if "context_window" in body else int(prov.get("context_window") or 0),
-                                     self._tokens(body["max_output"], "max_output") if "max_output" in body else int(prov.get("max_output") or 0))
+                                     self._tokens(body["max_output"], "max_output") if "max_output" in body else int(prov.get("max_output") or 0),
+                                     self._tokens(body["reply_length"], "reply_length") if "reply_length" in body else int(prov.get("reply_length") or 0))
         return self._public(pid)
 
     def remove_provider(self, pid: str) -> Dict[str, Any]:

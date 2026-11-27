@@ -330,6 +330,15 @@ class BadBody(Exception):
         self.status = status
 
 
+def _whole(value) -> int:
+    """A whole number from a request, 0 when it is absent; ValueError for anything else."""
+    if value in (None, ""):
+        return 0
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+        raise ValueError("a whole number")
+    return int(value)
+
+
 def request_path(target: str) -> str:
     """The route of a request target: no query, no trailing slash, and a doubled /v1 of the two Anthropic paths undone."""
     path = target.split("?")[0].rstrip("/")
@@ -1923,8 +1932,15 @@ def make_handler(svc: Service, remote: bool = False):
                     action = (req or {}).get("action") if isinstance(req, dict) else None
                     if action == "stop":
                         self._json(200, {"status": "stopping" if sup.stop_length() else "idle"})
+                    elif action == "set":
+                        try:
+                            out = svc.lengths.set_manual(_whole(req.get("manual_limit_tokens")))
+                        except (ValueError, AttributeError) as exc:
+                            self._json(409 if not svc.loaded() else 400, {"error": {"type": "invalid_request_error", "message": str(exc) or "load the model first"}})
+                        else:
+                            self._json(200, {"length": out})
                     elif action != "measure":
-                        self._json(400, {"error": {"type": "invalid_request_error", "message": "action: measure or stop"}})
+                        self._json(400, {"error": {"type": "invalid_request_error", "message": "action: measure, stop or set"}})
                     elif not svc.loaded() or svc.loading:
                         self._json(409, {"error": {"type": "invalid_request_error", "code": "not_loaded",
                                                    "message": "load the model first, then measure its length"}})

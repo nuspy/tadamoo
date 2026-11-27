@@ -274,3 +274,17 @@ def test_the_form_test_sends_one_small_request_with_the_form_values_and_saves_no
     listing.fail = 0
     assert api.try_form({"type": "claude", "base_url": listing.url + "/anthropic/v1", "api_key": "sk-ant-123456", "model": "claude-a"})["ok"] is True
     assert listing.seen[-1][1] == "/anthropic/v1/messages" and listing.seen[-1][2]["x-api-key"] == "sk-ant-123456"
+
+
+def test_the_primary_model_and_the_order_survive_a_new_registry_on_the_same_file(tmp_path):
+    """The choice is written to the file at once, so a later start of the server (or any other session) reads the same Primary and order."""
+    cred = FileCredentials(tmp_path / "c.json")
+    reg = SecureRegistry(tmp_path / "p.json", credentials=cred)
+    ids = [reg.add({"type": "openai_compat", "name": n, "base_url": "http://127.0.0.1:9/v1", "api_key": "k" * 12, "model": "m"})["id"] for n in ("A", "B", "C")]
+    reg.set_primary(ids[1], default_for_new=True)
+    reg.reorder([ids[2], ids[0], ids[1]])
+    again = SecureRegistry(tmp_path / "p.json", credentials=cred)
+    assert again.primary() == ids[1] and again.default_primary() is True
+    assert [p["id"] for p in again.load()["providers"]] == [ids[2], ids[0], ids[1]]
+    again.reorder([ids[0], ids[1], ids[2]])
+    assert again.primary() == ids[1]                                        # a new order does not move the Primary

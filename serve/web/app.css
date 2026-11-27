@@ -517,6 +517,13 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 .csrow.wrap { flex-wrap: wrap; }
 .csgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px 14px; clear: both; }
 .csnum { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.csinfo-row { display: flex; align-items: center; gap: 8px; }
+.csinfo { min-width: 44px; min-height: 44px; border-radius: 50%; border: 1px solid var(--line-soft); background: var(--bg); color: var(--fg); font: 600 16px/1 var(--font-sans); cursor: pointer; }
+.csinfo[aria-expanded="true"] { background: var(--accent, var(--fg)); color: var(--bg); }
+.csinfo-pop { border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 14px; background: var(--bg); max-width: 100%; }
+.csinfo-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; }
+.csinfo-pop dt { font-weight: 600; font-variant-numeric: tabular-nums; }
+.csinfo-pop dd { margin: 0; }
 .csform .help { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
 .csform [aria-invalid="true"] { border-color: var(--err); }
 .radio { display: flex; gap: 10px; align-items: flex-start; min-height: 44px; padding: 6px 0; cursor: pointer; clear: both; }

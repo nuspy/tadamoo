@@ -36,6 +36,11 @@ class Model(Script):
             return "Il fiume corre verso il mare e la gente che vive sulle sue rive ha costruito città da molto tempo. " + filler("t", 40) + "."
         return super()._part(messages, last)
 
+    limit = 15000                                           # the reply length set for the model: a part holds 60% of it
+
+    def length_limit(self, timeout=3.0):
+        return self.limit
+
     def context_window(self):
         return None
 
@@ -93,19 +98,7 @@ def session_with(tmp_path, client, unattended=False):
 
 
 ASK = "Scrivi un report di 10.000 parole sui fiumi d'Europa"
-ASK_EN = "Write a report of 6000 words about the rivers of Europe"
-
-
-ASK_EN_BIG = "Write a report of 9000 words about the rivers of Europe"
-REAL_THRESHOLD = ("test_a_measured_length_moves_the_threshold_of_a_long_text", "test_a_model_known_to_write_short_replies_gets_a_report_in_parts_earlier",
-                  "test_without_a_measure_the_general_threshold_still_applies")
-
-
-@pytest.fixture(autouse=True)
-def flow_threshold(request, monkeypatch):
-    """These tests drive the flow on short requests: the general threshold is lowered for them, and left as it is for the tests of the threshold."""
-    if request.node.name not in REAL_THRESHOLD:
-        monkeypatch.setattr(lf, "LONG_MIN_TOKENS", 3000)
+ASK_EN = "Write a report of 12000 words about the rivers of Europe"
 
 
 def accept(session, ev, q, option=0, after=0):
@@ -139,31 +132,31 @@ def test_the_agent_is_never_asked_for_the_text_by_a_tool_call(tmp_path):
 # -- the card, then the harness writes ----------------------------------------------------------------------------------
 
 def test_where_the_person_is_a_card_offers_the_parts_and_the_answer_starts_the_harness(tmp_path):
-    model = Model(estimate=10000, plan_chunks=5)
+    model = Model(estimate=10000, plan_chunks=2)
     session, ev, built = session_with(tmp_path, model)
     session.send("m1", ASK)
     q = ev.wait("ask")["questions"][0]
-    assert q["kind"] == "single" and "10.000" in q["text"] and "5 parti" in q["text"] and "token" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
+    assert q["kind"] == "single" and "10.000" in q["text"] and "2 parti" in q["text"] and "token" in q["text"] and q["options"][0]["recommended"] and not q["allow_other"]
     assert ev.wait("done")["stop_reason"] == al.ASKED and model.calls == []            # nothing was asked of the model yet
     n = len(ev.items)
     done = accept(session, ev, q, after=n)
     text = built.agent.messages[-1]["content"]
-    assert done["stop_reason"] == al.FINAL and done["final"] == text and text.count("Opening paragraph of chapter") == 5
-    assert ev.shown().count("Opening paragraph of chapter") == 5
+    assert done["stop_reason"] == al.FINAL and done["final"] == text and text.count("Opening paragraph of chapter") == 2
+    assert ev.shown().count("Opening paragraph of chapter") == 2
     kinds = [p["event"] for p in ev.progress()]
-    assert kinds[0] == "estimate" and "plan" in kinds and kinds.count("segment_done") == 5 and kinds[-1] == "done" and "review" in kinds
+    assert kinds[0] == "estimate" and "plan" in kinds and kinds.count("segment_done") == 2 and kinds[-1] == "done" and "review" in kinds
     asked = [c["kind"] for c in model.calls]
-    assert asked[:2] == ["estimate", "plan"] and asked.count("part") == 5 and asked.count("review") >= 5
+    assert asked[:2] == ["estimate", "plan"] and asked.count("part") == 2 and asked.count("review") >= 2
     assert model.agent_calls == [] and built.agent.turns[-1].assistant_content == text
 
 
 SHORT_ASKS = [
-    ("Scrivi un racconto di 8000 parole", "it"),
-    ("Scrivi 10000 parole sulla storia di Roma", "it"),
-    ("Scrivimi un libro di 20 pagine sul mare", "it"),
+    ("Scrivi un racconto di 12000 parole", "it"),
+    ("Scrivi 15000 parole sulla storia di Roma", "it"),
+    ("Scrivimi un libro di 40 pagine sul mare", "it"),
     ("Scrivi un report di 10.000 parole sui fiumi d'Europa", "it"),
-    ("Write 8000 words on the history of Rome", "en"),
-    ("Write a story of 5000 words", "en"),
+    ("Write 12000 words on the history of Rome", "en"),
+    ("Write a story of 20000 words", "en"),
 ]
 
 
@@ -182,7 +175,7 @@ def test_the_card_of_a_short_request_is_in_the_language_of_the_request(tmp_path,
 
 def test_a_request_whose_language_cannot_be_told_gets_the_english_card(tmp_path):
     session, ev, built = session_with(tmp_path, Model())
-    session.send("m1", "Write 8000 words")
+    session.send("m1", "Write 12000 words")
     q = ev.wait("ask")["questions"][0]
     assert "Write it in" in q["text"]
     ev.wait("done")
@@ -236,7 +229,7 @@ def test_ordinary_requests_are_left_alone(tmp_path):
 def test_an_estimate_under_the_threshold_gives_the_request_back_to_the_model(tmp_path):
     model = Model(say("Eccola."), estimate=900)
     session, ev, built = session_with(tmp_path, model, unattended=True)
-    session.send("m1", "Write a chapter about the rivers of Europe")
+    session.send("m1", "Write about the rivers of Europe" + chr(10) * 2 + "[long answer: mode=write; language=English]")      # no length: the model is asked for one
     done = ev.wait("done")
     assert done["final"] == "Eccola." and [c["kind"] for c in model.calls] == ["estimate"]
     assert [p["event"] for p in ev.progress()] == ["estimate"] and ev.progress()[0]["long"] is False
@@ -297,7 +290,7 @@ def test_stopping_during_the_text_keeps_what_was_written(tmp_path):
 def test_a_length_chosen_by_hand_skips_the_estimate_and_the_card(tmp_path):
     model = Model()
     session, ev, built = session_with(tmp_path, model)
-    session.send("m1", "Write about the rivers of Europe, with care\n\n[long answer: mode=write; words=6000; language=English]")
+    session.send("m1", "Write about the rivers of Europe, with care\n\n[long answer: mode=write; words=27000; language=English]")
     done = ev.wait("done")
     assert "ask" not in ev.kinds() and done["stop_reason"] == al.FINAL and model.of("estimate") == []
     assert [p["source"] for p in ev.progress() if p["event"] == "estimate"] == ["asked"]
@@ -318,7 +311,7 @@ def test_a_translation_by_hand_goes_part_by_part_from_the_message(tmp_path):
 
 
 def test_a_detected_translation_takes_the_language_and_the_source_from_the_request(tmp_path):
-    body = ("The river runs to the sea and the people on its banks have lived there for a very long time, building towns and villages. " * 130).strip()
+    body = ("The river runs to the sea and the people on its banks have lived there for a very long time, building towns and villages. " * 450).strip()
     model = Model()
     session, ev, built = session_with(tmp_path, model, unattended=True)
     session.send("m1", "Translate this text into Italian\n\n" + body)
@@ -340,9 +333,9 @@ def test_a_translation_that_names_no_language_is_left_to_the_model(tmp_path):
 # -- write_long: a long text inside a turn that does other things -----------------------------------------------------
 
 def test_write_long_writes_a_text_in_parts_into_a_file_and_says_where(tmp_path):
-    model = Model(estimate=6000, plan_chunks=3)
+    model = Model(estimate=12000, plan_chunks=3)
     session, ev, built = session_with(tmp_path, model)
-    out = built.agent.tools.execute("write_long", {"brief": "Chapter 2 of the book on rivers", "words": 6000, "path": "book/02.md"})
+    out = built.agent.tools.execute("write_long", {"brief": "Chapter 2 of the book on rivers", "words": 12000, "path": "book/02.md"})
     text = (tmp_path / "ws" / "book" / "02.md").read_text(encoding="utf-8")
     assert text.count("Opening paragraph of chapter") == 3
     assert "book/02.md" in str(out) and "3 parts" in str(out)
@@ -352,16 +345,16 @@ def test_write_long_writes_a_text_in_parts_into_a_file_and_says_where(tmp_path):
 
 
 def test_write_long_refuses_to_replace_a_file_and_keeps_the_text_out_of_the_way(tmp_path):
-    model = Model(estimate=6000, plan_chunks=3)
+    model = Model(estimate=12000, plan_chunks=3)
     session, ev, built = session_with(tmp_path, model)
     (tmp_path / "ws" / "a.md").write_text("mine", encoding="utf-8")
-    out = str(built.agent.tools.execute("write_long", {"brief": "Something long", "words": 6000, "path": "a.md"}))
+    out = str(built.agent.tools.execute("write_long", {"brief": "Something long", "words": 12000, "path": "a.md"}))
     assert "not saved" in out and (tmp_path / "ws" / "a.md").read_text(encoding="utf-8") == "mine"
 
 
 def test_write_long_without_a_path_saves_under_the_artifacts_folder_and_a_short_text_is_left_to_the_model(tmp_path):
-    session, ev, built = session_with(tmp_path, Model(estimate=6000, plan_chunks=3))
-    out = str(built.agent.tools.execute("write_long", {"brief": "The rivers of Europe", "words": 6000}))
+    session, ev, built = session_with(tmp_path, Model(estimate=12000, plan_chunks=3))
+    out = str(built.agent.tools.execute("write_long", {"brief": "The rivers of Europe", "words": 12000}))
     assert ".tadamoo/artifacts/long_the-rivers-of-europe_" in out
     session, ev, built = session_with(tmp_path / "b", Model(estimate=300, plan_chunks=1))
     assert "write it yourself" in str(built.agent.tools.execute("write_long", {"brief": "A short note"}))
@@ -443,43 +436,41 @@ def empty(finish="length"):
 
 
 class Measured(Model):
-    limit = 0
-
-    def length_limit(self, timeout=3.0):
-        return self.limit
+    limit = 0                                               # nothing set and nothing measured: the general number
 
 
-def test_a_measured_length_moves_the_threshold_of_a_long_text():
-    assert lf.long_min_tokens(0) == lf.LONG_MIN_TOKENS
-    assert lf.long_min_tokens(20000) == lf.LONG_MIN_TOKENS and lf.long_min_tokens(10000) == 6000 and lf.long_min_tokens(100) == lf.LONG_MIN_FLOOR
-    text = "Write a report of 9000 words about the rivers of Europe"
-    assert lf.detect_long_request(text) is not None
-    assert lf.detect_long_request("Write a report of 6000 words about the rivers of Europe") is None                # under the general threshold
-    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(40000)) is not None          # a stronger model is not given more than the general number
-    assert lf.detect_long_request("Write a report of 6000 words about the rivers of Europe", min_tokens=lf.long_min_tokens(6000)) is not None   # a weaker one gets parts earlier
+def test_the_capacity_is_the_reply_length_set_or_measured_times_the_words_a_token_makes_and_the_general_one_without_either():
+    assert lf.capacity() == lf.Capacity(lf.GENERAL_REPLY_TOKENS, lf.WORDS_PER_TOKEN_PERCENT)
+    assert lf.capacity(15000).words == 9000 and lf.capacity(40000).words == 24000 and lf.capacity(15000, 50).words == 7500
+    long_text = "Write a report of 12000 words about the rivers of Europe"
+    assert lf.detect_long_request(long_text, cap=lf.capacity(15000)) is not None
+    assert lf.detect_long_request(long_text, cap=lf.capacity(40000)) is None                                 # a model that writes 40,000 tokens well answers it in one go
+    assert lf.detect_long_request("Write a report of 8000 words about the rivers of Europe", cap=lf.capacity(15000)) is None
+    assert lf.detect_long_request("Write a report of 10000 words about the rivers of Europe", cap=lf.capacity(15000)) is not None
+    assert lf.chunk_count(30000, 0, lf.capacity(15000).words) == 4                                           # a part holds what a reply holds
 
 
 def test_a_model_known_to_write_short_replies_gets_a_report_in_parts_earlier(tmp_path):
-    model = Measured()
-    model.limit = 5000
+    model = Measured(estimate=5000, plan_chunks=2)
+    model.limit = 6000                                       # a reply of 3,600 words: a 5000-word report is over it
     session, ev, built = session_with(tmp_path, model, unattended=True)
-    session.send("m1", ASK_EN)
-    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 3
+    session.send("m1", "Write a report of 5000 words about the rivers of Europe")
+    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 2
 
 
 def test_without_a_measure_the_general_threshold_still_applies(tmp_path):
     model = Measured(say("Eccolo."))
     session, ev, built = session_with(tmp_path, model, unattended=True)
-    session.send("m1", ASK_EN)                                       # 6000 words: under the general threshold, the model answers
+    session.send("m1", "Write a report of 5000 words about the rivers of Europe")                    # 6,750 tokens: under the general number, the model answers
     assert ev.wait("done")["final"] == "Eccolo." and model.calls == []
-    model = Measured(estimate=9000)
+    model = Measured(estimate=12000, plan_chunks=2)
     session, ev, built = session_with(tmp_path / "big", model, unattended=True)
-    session.send("m1", ASK_EN_BIG)                                   # 9000 words: over it, in four parts
-    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 4
+    session.send("m1", ASK_EN)                                                                       # 16,200 tokens: over it, in two parts
+    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 2
 
 
 def test_a_thinking_that_used_the_whole_output_is_rescued_by_writing_the_text_in_parts(tmp_path):
-    model = Measured(empty(), empty())
+    model = Measured(empty(), empty(), estimate=12000)
     session, ev, built = session_with(tmp_path, model, unattended=True)
     session.send("m1", "Explain how rivers shape the valleys they cross")
     done = ev.wait("done")
@@ -506,7 +497,7 @@ def test_with_the_switch_off_the_thinking_is_left_as_it_is_and_the_answer_stays_
 
 
 def test_the_switch_off_does_not_stop_the_parts_for_a_long_text(tmp_path):
-    model = Measured(empty())
+    model = Measured(empty(), estimate=12000)
     session, ev, built = session_with(tmp_path, model, unattended=True)
     built.agent.empty_retry = False
     session.send("m1", "Explain how rivers shape the valleys they cross")
@@ -522,3 +513,21 @@ def test_where_the_parts_cannot_be_made_an_empty_answer_goes_straight_to_the_low
     session.send("m1", "Explain how rivers shape the valleys they cross")
     done = ev.wait("done")
     assert done["final"] == "Fatto." and model.calls == [] and len(model.agent_calls) == 2
+
+
+def test_the_words_a_token_makes_is_the_conversations_and_changes_what_is_long(tmp_path):
+    from tadamoo.session import _valid_settings
+    ask = "Write a report of 8000 words about the rivers of Europe"
+    model = Measured(say("Eccolo."))
+    model.limit = 15000                                      # at 60 percent a reply holds 9000 words: 8000 is not long
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", ask)
+    assert ev.wait("done")["final"] == "Eccolo." and model.calls == []
+    model = Measured(estimate=8000, plan_chunks=2)
+    model.limit = 15000
+    session, ev, built = session_with(tmp_path / "other", model, unattended=True)
+    session.set_words_per_token(45)                         # a language that makes fewer words a token: a reply holds 6750, 8000 is long
+    session.send("m1", ask)
+    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 2
+    assert _valid_settings({"words_per_token": 65}) and _valid_settings({"words_per_token": 0})
+    assert not _valid_settings({"words_per_token": 9}) and not _valid_settings({"words_per_token": "65"}) and not _valid_settings({"words_per_token": True})

@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from serve import lengthprobe  # noqa: E402
 from serve.engine.mock import MockEngine  # noqa: E402
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
@@ -51,6 +52,8 @@ class Rig:
         order = [*[body(k) for k in (1, 2, 3)], *SCRIPTS.values()]
         self.names = ["part1", "part2", "part3", *SCRIPTS]
         self.service = Service(MockEngine(TOKENS, order, max_context=65536, route=self.route), TOKENS, ChatTemplate.from_file(ROOT / "serve/chat_template.jinja"))
+        self.service.lengths = lengthprobe.Lengths(lambda: {"meta_hash": "rig"})                      # the reply length set by hand for this model
+        self.service.lengths.set({"model": {"meta_hash": "rig"}, "manual_limit_tokens": 5040})                     # with 25 words a hundred tokens (the scripted tokenizer makes a token a byte): a reply of 1260 words
 
     def route(self, ids) -> int:
         text = TOKENS.decode(ids)
@@ -83,7 +86,7 @@ class ChatLongFlow(unittest.TestCase):
 
     def post(self, long_answer, stream=True):
         req = urllib.request.Request(self.base + "/v1/chat/completions", headers={"Content-Type": "application/json"}, data=json.dumps(
-            {"messages": [{"role": "user", "content": "Write about rivers"}], "long_answer": long_answer, "stream": stream}).encode())
+            {"messages": [{"role": "user", "content": "Write about rivers"}], "long_answer": long_answer, "words_per_token": 25, "stream": stream}).encode())
         with contextlib.redirect_stdout(io.StringIO()), urllib.request.urlopen(req, timeout=60) as r:
             raw = r.read().decode()
         if not stream:
@@ -96,7 +99,7 @@ class ChatLongFlow(unittest.TestCase):
     def test_a_length_the_request_declares_is_not_estimated_but_planned_written_and_checked(self):
         chunks, events, text = self.post({"mode": "write", "target_words": 3600})
         self.assertNotIn("estimate", self.rig.calls)
-        self.assertEqual(self.rig.calls, ["plan", "part", "part", "part", "check"])
+        self.assertEqual(self.rig.calls, ["plan", "part", "part", "part", "check", "check", "check"])      # a piece of the check is no longer than a part
         kinds = [e["event"] for e in events]
         self.assertEqual(kinds[:2], ["estimate", "plan"])
         self.assertEqual(events[0]["source"], "asked")
@@ -125,7 +128,7 @@ class ChatLongFlow(unittest.TestCase):
     def test_a_plan_given_in_the_request_is_followed_and_nothing_is_asked_of_the_model_about_it(self):
         outline = [{"heading": f"S{k}", "goal": f"goal {k}", "target_words": 1200, "key_points": ["a"]} for k in (1, 2, 3)]
         _chunks, events, _text = self.post({"mode": "write", "outline": outline, "segment_words": 1200})
-        self.assertEqual(self.rig.calls, ["part", "part", "part", "check"])
+        self.assertEqual(self.rig.calls, ["part", "part", "part", "check", "check", "check"])
         self.assertEqual([e["event"] for e in events if e["event"] in ("estimate", "plan")], ["plan"])
 
     def test_a_correction_replaces_the_text_shown_and_the_plain_answer_has_the_corrected_whole(self):

@@ -1,7 +1,7 @@
 """The proactive long-answer flow (docs/longform.md): the harness decides, not the model.
 
 1. A short call estimates how many words the answer needs; an estimate over the threshold goes on.
-2. A short call plans the text in parts of about 2000 words and hands each part its own task (`instruction`).
+2. A short call plans the text in parts of at most what one reply holds and hands each part its own task (`instruction`).
 3. The parts are written one at a time by `LongAnswer` (protected content, per-part checks, cut continuation), each with its own task.
 4. A short call checks the assembled text in pieces and lists fixes, each placed by a quote (`anchor`). Plain code finds the quote;
    a fix whose quote is not found, or is found twice, is reported and never guessed. The passage is written again by a focused call,
@@ -25,13 +25,11 @@ from serve.longform import Segment
 log = logging.getLogger("tadamoo.longflow")
 
 ESTIMATE_RANGE = lf.TARGET_WORDS_RANGE
-ASKED_BAND = (0.8, 1.25)            # a length the person stated bounds the estimate to this share of it
 HINT_BAND = (0.25, 4.0)             # without one, the estimate stays within this share of the rule-based words
 ESTIMATE_TOKENS = 200
 PLAN_ATTEMPTS = 2
 HEADING_CHARS, GOAL_CHARS, POINT_CHARS, POINTS_MAX, INSTRUCTION_CHARS, TITLE_CHARS = 120, 400, 200, 8, 1500, 160
 ROUNDS = 2                          # verification rounds at most
-PIECE_WORDS = 3000                  # the text a verification call sees at once
 VERIFY_TOKENS = 1500
 FIXES_PER_CALL, FIXES_PER_ROUND = 6, 10
 ANCHOR_MIN_WORDS = 4
@@ -69,7 +67,7 @@ ESTIMATE_PROMPT = ("You estimate the length of an answer. Do not answer the requ
 PLAN_PROMPT = (
     "You plan a long text that will be written in separate parts, each by a writer who sees only the plan, the end of the previous part and "
     "the task you give for that part. Do not write the text. Fill the form. The parts follow each other without overlap and together do "
-    "the whole request. For each part: id (1, 2, ...), heading, goal (what the part achieves), target_words (700 to 2500), key_points, and "
+    "the whole request. For each part: id (1, 2, ...), heading, goal (what the part achieves), target_words ({floor} to {cap}), key_points, and "
     "instruction = the exact task for the writer of that part: what to write, the points to cover, what the previous part already said and "
     "must not be repeated, what the next part takes over. Write free text in the language of the request.")
 VERIFY_PROMPT = (
@@ -121,7 +119,7 @@ def estimate_messages(request: str) -> List[Dict[str, Any]]:
     return [{"role": "system", "content": ESTIMATE_PROMPT}, {"role": "user", "content": "Request:\n" + request[:4000]}]
 
 
-def parse_estimate(content: str, *, asked: int = 0, hint: int = 0) -> Optional[Dict[str, Any]]:
+def parse_estimate(content: str, *, asked: int = 0, hint: int = 0, exact: bool = False) -> Optional[Dict[str, Any]]:
     """{words, model_words, bounded, reason} from an estimate reply, or None when it holds no usable number. The words are clamped to the
     range of a text; a length the person stated, or else the rule-based words, bound the estimate (a model that answers 200 for a book
     is not believed)."""
@@ -132,7 +130,8 @@ def parse_estimate(content: str, *, asked: int = 0, hint: int = 0) -> Optional[D
     raw = int(value)
     low, high = ESTIMATE_RANGE
     if asked:
-        low, high = max(low, int(asked * ASKED_BAND[0])), min(high, int(math.ceil(asked * ASKED_BAND[1])))
+        band = lf.length_band(asked, exact)
+        low, high = max(low, band[0]), min(high, band[1])
     elif hint:
         low, high = max(low, int(hint * HINT_BAND[0])), min(high, int(hint * HINT_BAND[1]))
     words = min(max(raw, low), max(low, high))
@@ -141,28 +140,31 @@ def parse_estimate(content: str, *, asked: int = 0, hint: int = 0) -> Optional[D
 
 # -- the plan -------------------------------------------------------------------------------------------------------------
 
-def chunk_bounds(words: int) -> Tuple[int, int]:
-    """The fewest and the most parts a text of `words` words may be planned in (parts of 700 to 2500 words)."""
-    low = max(1, math.ceil(words / lf.CHUNK_MAX))
-    return low, min(lf.MAX_SEGMENTS, max(low, words // lf.CHUNK_WORDS[0]))
+def chunk_bounds(words: int, part_max: int = 0) -> Tuple[int, int]:
+    """The fewest and the most parts a text of `words` words may be planned in (parts of a quarter of `part_max` up to `part_max` words)."""
+    cap = part_max or lf.capacity().words
+    low = max(1, math.ceil(words / cap))
+    return low, min(lf.max_segments(cap), max(low, words // lf.part_floor(cap)))
 
 
-def plan_messages(request: str, words: int, parts: int, language: str = "", style: str = "") -> List[Dict[str, Any]]:
+def plan_messages(request: str, words: int, parts: int, language: str = "", style: str = "", part_words: int = 0) -> List[Dict[str, Any]]:
     lines = ["Request:\n" + request[:6000], f"\nPlan this text of about {words} words as exactly {parts} parts of about {round(words / parts)} words each."]
     if language:
         lines.append(f"Language of the text: {lf.LANGUAGES.get(language, language)}.")
     if style:
         lines.append(f"Style: {style}")
-    return [{"role": "system", "content": PLAN_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
+    cap = part_words or lf.capacity().words
+    return [{"role": "system", "content": PLAN_PROMPT.format(floor=lf.part_floor(cap), cap=cap)}, {"role": "user", "content": "\n".join(lines)}]
 
 
-def parse_plan(content: str, words: int) -> Optional[Tuple[str, List[Segment]]]:
+def parse_plan(content: str, words: int, part_max: int = 0) -> Optional[Tuple[str, List[Segment]]]:
     """(title, parts) from a plan reply, or None when it cannot be used. Caps are applied here: the number of parts is kept to what
-    parts of 700 to 2500 words allow, the words of the parts are scaled to the total and each kept within 700 to 2500, every text field
-    is cut to its limit, and the parts are numbered in the order they come (the model's own ids are not trusted)."""
+    parts of a quarter of `part_max` up to `part_max` words allow, the words of the parts are scaled to the total and each kept within those, every
+    text field is cut to its limit, and the parts are numbered in the order they come (the model's own ids are not trusted)."""
     obj = json_object(content)
     rows = obj.get("chunks") if obj else None
-    low, high = chunk_bounds(words)
+    cap = part_max or lf.capacity().words
+    low, high = chunk_bounds(words, cap)
     if not isinstance(rows, list) or not low <= len(rows) <= high or not all(isinstance(r, dict) for r in rows):
         return None
     known = [r.get("target_words") for r in rows]
@@ -177,7 +179,7 @@ def parse_plan(content: str, words: int) -> Optional[Tuple[str, List[Segment]]]:
         size = w * words / total if total and w else words / len(rows)
         points = row.get("key_points") if isinstance(row.get("key_points"), list) else []
         parts.append(Segment(i, heading=heading, goal=goal, points=[_line(p, POINT_CHARS) for p in points[:POINTS_MAX] if _line(p, POINT_CHARS)],
-                             words=int(round(min(max(size, lf.CHUNK_WORDS[0]), lf.CHUNK_WORDS[1]))), rows=[(i + 1, heading, True)],
+                             words=int(round(min(max(size, lf.part_floor(cap)), cap))), rows=[(i + 1, heading, True)],
                              instruction=instruction))
     return _line(obj.get("title"), TITLE_CHARS), parts
 
@@ -299,7 +301,7 @@ def parse_fixes(content: str, parts: List[int]) -> Optional[Tuple[List[Fix], Lis
     return good, bad
 
 
-def pieces(sizes: List[int], limit: int = PIECE_WORDS) -> List[List[int]]:
+def pieces(sizes: List[int], limit: int) -> List[List[int]]:
     """Consecutive parts grouped so that each group has at most `limit` words (a part over it stands alone)."""
     out: List[List[int]] = []
     cur: List[int] = []
@@ -322,9 +324,9 @@ class LongFlow(lf.LongAnswer):
     `LongAnswer`, then `review` and `fix` for each round, `revised` (the whole text, when a fix was put in) and `done`, which carries
     `applied`, `rounds` and `unapplied` (every fix that was found and not put in, with the reason)."""
 
-    def __init__(self, client: Any, spec: lf.Spec, *, hint_words: int = 0, stated: bool = False, min_tokens: int = lf.LONG_MIN_TOKENS, **kw: Any) -> None:
+    def __init__(self, client: Any, spec: lf.Spec, *, hint_words: int = 0, stated: bool = False, cap: Optional[lf.Capacity] = None, **kw: Any) -> None:
         super().__init__(client, spec, **kw)
-        self.min_tokens = min_tokens                            # the answer length above which a text goes in parts
+        self.cap = cap or lf.capacity()                         # what one reply of the route holds: a text longer than its words goes in parts
         self.hint_words = hint_words or spec.target_words       # the words the rules found
         self.hinted = bool(hint_words)                          # without them the estimate is bound by nothing but the range of a text
         self.stated = stated                                    # the person chose the length: no estimate is asked
@@ -333,6 +335,8 @@ class LongFlow(lf.LongAnswer):
         self.unapplied: List[Dict[str, Any]] = []
         self.plan_parts: List[Segment] = []
         self._language = lf.language_code(spec.language) or lf.request_language(spec.task)
+        spec.part_max = spec.part_max or self.cap.words                                    # a part holds what one reply holds
+        spec.words_percent = spec.words_percent or self.cap.percent
 
     # -- short calls
 
@@ -355,12 +359,12 @@ class LongFlow(lf.LongAnswer):
             source = "asked"
         else:
             reply = yield from self._short(estimate_messages(spec.task), ESTIMATE_TOKENS, ESTIMATE_FORMAT)
-            found = parse_estimate(reply or "", asked=asked, hint=self.hint_words if self.hinted else 0)
+            found = parse_estimate(reply or "", asked=asked, hint=self.hint_words if self.hinted else 0, exact=spec.exact)
             source = "model"
             if found is None:
                 found, source = {"words": self.hint_words, "reason": "", "bounded": False}, "rule"
         words = max(ESTIMATE_RANGE[0], min(ESTIMATE_RANGE[1], int(found["words"])))
-        long = lf.tokens_for_words(words, self._language) > self.min_tokens
+        long = words > self.cap.words
         yield {"event": "estimate", "words": words, "source": source, "reason": found["reason"], "bounded": found["bounded"], "long": long}
         if not long:
             raise NotLong(words)
@@ -373,15 +377,15 @@ class LongFlow(lf.LongAnswer):
             self.plan_parts = plan
             return plan, fallback
         words = yield from self._estimate()
-        low, high = chunk_bounds(words)
-        parts = lf.chunk_count(words)
-        messages = plan_messages(spec.task, words, parts, self._language, spec.style)
+        low, high = chunk_bounds(words, self.spec.part_cap())
+        parts = lf.chunk_count(words, 0, self.spec.part_cap())
+        messages = plan_messages(spec.task, words, parts, self._language, spec.style, spec.part_cap())
         found: Optional[Tuple[str, List[Segment]]] = None
         for _ in range(PLAN_ATTEMPTS):
             reply = yield from self._short(messages, min(12000, max(1500, 450 * parts + 300)), PLAN_FORMAT)
             if reply is None:
                 break
-            found = parse_plan(reply, words)
+            found = parse_plan(reply, words, self.spec.part_cap())
             if found:
                 break
             messages = [*messages, {"role": "assistant", "content": reply},
@@ -393,8 +397,8 @@ class LongFlow(lf.LongAnswer):
         else:
             spec.target_words = words
             plan, fallback = lf.even_outline(spec, parts), True
-        if len(plan) > spec.max_segments:
-            raise lf.LongformError(f"the plan needs {len(plan)} parts, over the limit of {spec.max_segments}; raise max_segments")
+        if len(plan) > spec.segments_cap():
+            raise lf.LongformError(f"the plan needs {len(plan)} parts, over the limit of {spec.segments_cap()}; raise max_segments")
         total = sum(s.words for s in plan)
         spec.target_words = total
         spec.outline = [{"heading": s.heading, "goal": s.goal, "target_words": s.words, "key_points": s.points} for s in plan] if not fallback else []
@@ -462,7 +466,7 @@ class LongFlow(lf.LongAnswer):
         bad: List[Dict[str, Any]] = []
         plan_lines = "\n".join(f"{s.index + 1}. {s.heading + ': ' if s.heading else ''}{s.goal}".rstrip()
                                + (" (" + "; ".join(s.points[:4]) + ")" if s.points else "") for s in self.plan_parts)
-        for group in pieces([lf.count_words(p) for p in self.parts]):
+        for group in pieces([lf.count_words(p) for p in self.parts], self.spec.part_cap()):
             body = "\n\n".join(f"=== part {i + 1} ===\n{self.parts[i]}" for i in group)
             user = (f"Request:\n{self.spec.task[:3000]}\n\nPlan ({len(self.plan_parts)} parts):\n{plan_lines}\n\n"
                     f"Text of part{'s' if len(group) > 1 else ''} {group[0] + 1}{'-' + str(group[-1] + 1) if len(group) > 1 else ''}:\n{body}")
@@ -502,7 +506,7 @@ class LongFlow(lf.LongAnswer):
                 new_text = text[:place.start] + written + text[place.end:]
             else:
                 new_text = text[:place.end] + "\n\n" + written + text[place.end:]
-            if lf.count_words(new_text) < CHUNK_FLOOR * seg.words or lf.count_words(new_text) > 1.6 * lf.CHUNK_MAX:
+            if lf.count_words(new_text) < CHUNK_FLOOR * seg.words or lf.count_words(new_text) > 1.6 * self.spec.part_cap():
                 return "rejected_length"
         self.parts[i] = new_text
         self.applied += 1
@@ -535,7 +539,7 @@ class LongFlow(lf.LongAnswer):
                          f"\nAbout {ask} words.")
         user = "\n".join(lines)
         marks = lf.marks_in(masked) if replace else []
-        cap = max(256, int(high * lf.TOKENS_PER_WORD) + 64)
+        cap = max(256, self.spec.tokens_for(high) + 64)
         feedback = ""
         for attempt in range(2):
             raw, finish, _conts = yield from self._complete([{"role": "system", "content": FIX_RULES},

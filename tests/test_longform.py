@@ -192,7 +192,7 @@ def test_language_detection_and_names():
 
 def test_spec_defaults_and_errors():
     spec = lf.Spec.from_request(True, "Write about rivers")
-    assert (spec.mode, spec.task, spec.target_words, spec.retries, spec.protect) == ("write", "Write about rivers", 2000, 1, True)
+    assert (spec.mode, spec.task, spec.target_words, spec.retries, spec.protect) == ("write", "Write about rivers", lf.capacity().words, 1, True)         # no length: what one reply holds
     spec = lf.Spec.from_request({"mode": "translate", "target_language": "Italian"}, "Hello world")
     assert (spec.mode, spec.language, spec.source) == ("translate", "it", "Hello world")
     for bad, why in [({"mode": "poem"}, "mode"), ({"mode": "translate"}, "target_language"), ({"target_words": 5}, "target_words"),
@@ -233,11 +233,12 @@ def test_the_size_a_person_chose_decides_whether_anything_is_declared():
     ("riscrivi questo " + "testo " * 7000, ("rewrite", 7002)),
     ("Analizza questo documento: " + "testo " * 14000, ("write", 7001)),
     ("Scrivi un testo di 6500 parole sui fiumi d'Europa", ("write", 6500)),                  # Italian: 1.6 tokens a word, 10400 tokens
-    ("Write a text of 6500 words about the rivers of Europe", None),                           # English: 1.35 tokens a word, 8775 tokens
+    ("Write a text of 5900 words about the rivers of Europe", None),                           # a reply of the general capacity holds 6000 words
+    ("Write a text of 6100 words about the rivers of Europe", ("write", 6100)),
     ("Write a text of 7500 words about the rivers of Europe", ("write", 7500)),
     ("Scrivi un testo di 6000 parole sui fiumi d'Europa", None),
     ("Write a chapter about the rivers of Europe", None),
-    ("Translate this into Italian: " + "the " * 6500, None),
+    ("Translate this into Italian: " + "the " * 5900, None),
     ("Translate this into Italian: " + "the " * 7500, ("translate", 7504)),
 ], ids=lambda v: str(v)[:40])
 def test_detect_long_request(text, expected):
@@ -248,33 +249,38 @@ def test_detect_long_request(text, expected):
 
 
 def test_words_and_tokens_are_converted_in_one_place_by_language():
-    assert lf.LONG_MIN_TOKENS == 10000
-    assert lf.tokens_for_words(2000, "it") == 3200 and lf.tokens_for_words(2000, "en") == 2700 and lf.words_for_tokens(3200, "it") == 2000
-    assert lf.tokens_for_words(1000, "") == lf.tokens_for_words(1000, "it") and lf.tokens_for_words(1000, "xx") == 1600
+    assert lf.GENERAL_REPLY_TOKENS == 10000 and lf.WORDS_PER_TOKEN_PERCENT == 60
+    assert lf.capacity().words == 6000 and lf.capacity(15000).words == 9000 and lf.capacity(15000, 50).words == 7500
+    assert lf.capacity(0, 0) == lf.Capacity() and lf.capacity(-5, -5) == lf.Capacity()          # nothing set, nothing measured: the general numbers
+    cap = lf.capacity(15000)
+    assert cap.tokens_for(9000) == 15000 and cap.tokens_for(600) == 1000                         # the one place words and tokens are converted
     assert lf.request_language("Write a text of words about the rivers of Europe") == "en"
     assert lf.request_language("Scrivi un testo di mille parole sui fiumi che attraversano l'Europa") == "it"
-    assert lf.detect_long_request("Write a text of 7500 words about the rivers of Europe")["tokens"] == 10125
-    assert lf.parse_hint("Write about rivers\n\n[long answer: mode=write]")["words"] == 2000
+    assert lf.detect_long_request("Write a text of 9500 words about the rivers of Europe", cap=cap)["tokens"] == 15833
+    assert lf.parse_hint("Write about rivers\n\n[long answer: mode=write]")["words"] == lf.capacity().words        # a hint with no words: what a reply holds
 
 
 # -- the plan ---------------------------------------------------------------------------------------------------------
 
-def test_chunk_count_keeps_parts_within_what_is_reliable():
-    assert lf.SEGMENT_WORDS == 2000 and lf.CHUNK_WORDS == (700, 2500) and lf.CHUNK_MAX == 2500 and lf.SEGMENT_WORDS_RANGE[1] == 2500
-    assert lf.chunk_count(10000) == 5 and lf.chunk_count(10000, 1500) == 7 and lf.chunk_count(300) == 1
-    assert lf.chunk_count(10000, 100) == 14                      # parts are never smaller than 700 words
-    assert lf.chunk_count(40000, 3000) == 16                     # nor above 2500
+def test_chunk_count_keeps_parts_within_what_a_reply_holds():
+    cap = lf.capacity(15000)
+    assert cap.words == 9000 and lf.part_floor(cap.words) == 2250
+    assert lf.chunk_count(30000, 0, cap.words) == 4                                              # a story of 30,000 words
+    assert lf.chunk_count(10000, 0, 2000) == 5 and lf.chunk_count(10000, 1500, 2500) == 7 and lf.chunk_count(300, 0, 2000) == 1
+    assert lf.chunk_count(10000, 100, 2500) == 16                # parts are never smaller than a quarter of what a part holds
+    assert lf.chunk_count(40000, 3000, 2500) == 16               # nor above what a part holds
     for words in (2000, 5000, 12345, 90000):
         for size in (700, 1000, 2000, 2500, 3000):
-            assert words / lf.chunk_count(words, size) <= lf.CHUNK_MAX
+            assert words / lf.chunk_count(words, size, 2500) <= 2500
 
 
 def test_a_plan_made_by_the_model_follows_the_same_part_size():
-    segs = lf.chunks_from_outline(outline(*[1000] * 10), 10000)
+    segs = lf.chunks_from_outline(outline(*[1000] * 10), 10000, 0, 2000)
     assert len(segs) == 5 and all(s.words == 2000 for s in segs)
-    assert lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 9000}, "").segment_words == 2000
+    cap = lf.capacity(15000)
+    assert lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 20000}, "", cap).segment() == 9000       # a part holds what a reply holds
     with pytest.raises(lf.LongformError, match="segment_words"):
-        lf.Spec.from_request({"mode": "write", "task": "t", "segment_words": 2600}, "")
+        lf.Spec.from_request({"mode": "write", "task": "t", "segment_words": 9100}, "", cap)
 
 
 def outline(*sizes):
@@ -307,24 +313,28 @@ def test_outline_parse_and_fallbacks():
 
 # -- the run: write ---------------------------------------------------------------------------------------------------
 
+CAP = lf.capacity(1700, 60)             # a small reply, so the scripted parts of a run stay short
+PART = CAP.words
+
+
 def spec_for(**kw):
-    base = {"mode": "write", "task": "Write about rivers", "target_words": 3000, "segment_words": 1000, "outline": outline(1000, 1000, 1000)}
+    base = {"mode": "write", "task": "Write about rivers", "target_words": 3 * PART, "segment_words": PART, "outline": outline(PART, PART, PART)}
     base.update(kw)
-    return lf.Spec.from_request(base, "")
+    return lf.Spec.from_request(base, "", CAP)
 
 
 def test_planned_text_is_written_part_by_part_with_the_plan_in_every_call():
     model = Model()
-    la, events, done = run(model, spec_for(segment_words=1000))
+    la, events, done = run(model, spec_for(segment_words=PART))
     assert [e["event"] for e in events if e["event"] != "delta"][:2] == ["plan", "segment_start"]
     assert done["finish"] == "stop" and done["segments"] == 3 and done["of"] == 3 and done["stopped"] == ""
     assert len(model.calls) == 3                                           # no planning call: the model's plan was given
     for k, call in enumerate(model.calls, 1):
         system = call["messages"][0]
-        assert system["role"] == "system" and "1. S1: goal 1 (about 1000 words)" in system["content"] and "3. S3" in system["content"]
+        assert system["role"] == "system" and f"1. S1: goal 1 (about {PART} words)" in system["content"] and "3. S3" in system["content"]
         last = call["messages"][-1]["content"]
-        assert f"Part {k} of 3." in last and f"goal {k}" in last and "Length: about 1000 words" in last
-        assert call["extra"]["reasoning_effort"] == "none" and call["max_tokens"] >= 1000
+        assert f"Part {k} of 3." in last and f"goal {k}" in last and f"Length: about {PART} words" in last
+        assert call["extra"]["reasoning_effort"] == "none" and call["max_tokens"] >= PART
     assert "Begin the text." in model.calls[0]["messages"][-1]["content"]
     assert "Do not conclude." in model.calls[1]["messages"][-1]["content"]
     assert "close the text properly" in model.calls[2]["messages"][-1]["content"]
@@ -337,7 +347,7 @@ def test_planned_text_is_written_part_by_part_with_the_plan_in_every_call():
 
 def test_rolling_layout_carries_one_line_per_part_and_the_end_of_the_text():
     model = Model()
-    la, events, done = run(model, spec_for(segment_words=1000, context_tokens=2000))
+    la, events, done = run(model, spec_for(segment_words=PART, context_tokens=2000))
     last = model.calls[2]["messages"]
     assert [m["role"] for m in last] == ["system", "user"]
     body = last[-1]["content"]
@@ -347,12 +357,12 @@ def test_rolling_layout_carries_one_line_per_part_and_the_end_of_the_text():
 
 
 def test_the_model_plans_when_no_outline_is_given():
-    outline_reply = json.dumps({"title": "Rivers", "sections": [{"heading": h, "goal": "g", "target_words": 1000, "key_points": []} for h in "ABC"]})
+    outline_reply = json.dumps({"title": "Rivers", "sections": [{"heading": h, "goal": "g", "target_words": PART, "key_points": []} for h in "ABC"]})
 
     def script(n, messages):
         return (outline_reply, "stop") if n == 1 else (Model.reply(messages), "stop")
     model = Model(script)
-    spec = lf.Spec.from_request({"mode": "write", "task": "rivers", "target_words": 3000, "segment_words": 1000}, "")
+    spec = lf.Spec.from_request({"mode": "write", "task": "rivers", "target_words": 3 * PART, "segment_words": PART}, "", CAP)
     la, events, done = run(model, spec)
     assert done["segments"] == 3 and len(model.calls) == 4
     assert "Title: Rivers" in model.calls[1]["messages"][0]["content"]
@@ -363,7 +373,7 @@ def test_the_model_plans_when_no_outline_is_given():
 def test_a_plan_that_cannot_be_read_falls_back_to_even_parts_and_says_so():
     def script(n, messages):
         return ("I cannot do JSON", "stop") if n <= 2 else (Model.reply(messages), "stop")
-    la, events, done = run(Model(script), lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 2000, "segment_words": 1000}, ""))
+    la, events, done = run(Model(script), lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 2 * PART, "segment_words": PART}, "", CAP))
     assert [e for e in events if e["event"] == "plan"][0]["fallback"] is True and done["segments"] == 2
 
 
@@ -375,7 +385,7 @@ def test_a_cut_part_is_continued_and_a_part_that_stays_cut_is_reported():
             assert messages[-2] == {"role": "assistant", "content": "First half of the text "} and "Continue exactly" in messages[-1]["content"]
             return ("and the second half of the text, whole and finished properly.", "stop")
         return ("Cut again ", "length")
-    la, events, done = run(Model(script), spec_for(outline=outline(1000, 1000), target_words=2000, retries=0))
+    la, events, done = run(Model(script), spec_for(outline=outline(PART, PART), target_words=2 * PART, retries=0))
     assert la.parts[0] == "First half of the text and the second half of the text, whole and finished properly."
     assert done["finish"] == "length"                                      # never delivered as complete
     assert [w["code"] for w in done["warnings"]].count("truncated") == 1 and "truncated" in {w["code"] for w in done["warnings"]}
@@ -389,7 +399,7 @@ def test_a_part_cut_inside_a_word_goes_on_from_the_word_before_it():
             return ("The international rel", "length")
         sent.append(messages[-2]["content"])
         return ("relations of states are old, and the rules that hold them together are older still, as every student of the subject learns.", "stop")
-    la, events, done = run(Model(script), spec_for(outline=outline(1000), target_words=1000, retries=0))
+    la, events, done = run(Model(script), spec_for(outline=outline(PART), target_words=PART, retries=0))
     assert sent == ["The international "]
     assert la.parts[0].startswith("The international relations of states are old") and "relrelations" not in la.parts[0]
 
@@ -401,14 +411,14 @@ def test_a_short_part_is_asked_again_once_with_the_reason():
         assert "Correction" in messages[-1]["content"] and "too_short" in messages[-1]["content"]
         return (Model.reply(messages), "stop")
     model = Model(script)
-    la, events, done = run(model, spec_for(outline=outline(1000), target_words=1000))
+    la, events, done = run(model, spec_for(outline=outline(PART), target_words=PART))
     assert len(model.calls) == 2 and done["warnings"] == [] and done["segments"] == 1
     assert [e for e in events if e["event"] == "segment_done"][0]["retries"] == 1
 
 
 def test_a_text_that_keeps_coming_short_stops_visibly():
     model = Model(lambda n, m: ("Short part that is far too small to count.", "stop"))
-    la, events, done = run(model, spec_for(retries=0, outline=outline(*[1000] * 5), target_words=5000))
+    la, events, done = run(model, spec_for(retries=0, outline=outline(*[PART] * 5), target_words=5 * PART))
     assert done["stopped"] == "short_segments" and done["finish"] == "length" and done["segments"] == 2 and done["of"] == 5
     assert "stopped_short" in {w["code"] for w in done["warnings"]}
 
@@ -417,7 +427,7 @@ def test_a_repeated_part_is_not_kept_silently():
     body = "This paragraph is long enough to count as a real paragraph of the first part of the text, and it says something. "
     def script(n, messages):
         return (body * 3 + "w " * 800, "stop")
-    la, events, done = run(Model(script), spec_for(retries=0, outline=outline(1000, 1000), target_words=2000))
+    la, events, done = run(Model(script), spec_for(retries=0, outline=outline(PART, PART), target_words=2 * PART))
     assert "duplicate" in {w["code"] for w in done["warnings"]}
 
 
@@ -452,7 +462,7 @@ def test_a_model_error_is_raised_after_the_delivered_parts():
 def test_system_and_earlier_turns_ride_ahead_of_the_parts():
     model = Model()
     prior = [{"role": "user", "content": "context question"}, {"role": "assistant", "content": "context answer"}]
-    run(model, spec_for(outline=outline(1000), target_words=1000), prior=prior, system="Be terse.")
+    run(model, spec_for(outline=outline(PART), target_words=PART), prior=prior, system="Be terse.")
     msgs = model.calls[0]["messages"]
     assert msgs[0]["content"].startswith("Be terse.") and msgs[1:3] == prior
 
@@ -508,7 +518,7 @@ def test_a_source_that_needs_too_many_parts_is_refused_up_front():
 
 
 def test_the_control_line_is_read_and_removed():
-    got = lf.parse_hint("Write about rivers\n\n[long answer: mode=write; words=4000; language=Italian]")
+    got = lf.parse_hint("Write about rivers\n\n[long answer: mode=write; words=4000; language=Italian]", lf.capacity(5000))
     assert got["text"] == "Write about rivers" and (got["mode"], got["words"], got["parts"]) == ("write", 4000, 2) and got["fields"]["language"] == "Italian"
     assert lf.parse_hint("Translate\n\n[long answer: mode=bogus]")["mode"] == "write"
     assert lf.parse_hint("a message about [long answer: x] in the middle\nand more") is None
@@ -586,3 +596,24 @@ class TestSeparateTexts:
         assert lf.separate_texts("write 1 chapter") is None
         assert lf.separate_texts("write 99 chapters") is None
         assert lf.separate_texts("write a long report") is None
+
+
+# -- a stated length is an order of magnitude -------------------------------------------------------------------------
+
+def test_a_stated_length_is_approximate_unless_the_request_says_exact():
+    assert lf.length_band(30000) == (24000, 37500) and lf.length_band(30000, True) == (29100, 30900)
+    for exact in ("Scrivi esattamente 30000 parole", "write exactly 500 words", "Scrivi di preciso 700 parole"):
+        assert lf.asks_exactly(exact)
+    assert not lf.asks_exactly("Scrivi un racconto di 30000 parole") and not lf.asks_exactly("")
+    assert lf.Spec.from_request({"mode": "write", "task": "Write exactly 20000 words about rivers"}, "", CAP).exact is True
+    assert lf.Spec.from_request({"mode": "write", "task": "Write 20000 words about rivers"}, "", CAP).exact is False
+    assert lf.Spec.from_request({"mode": "write", "task": "Write about rivers", "exact": True}, "", CAP).exact is True
+
+
+def test_the_most_parts_and_the_continuations_follow_the_part_size():
+    assert lf.max_segments(PART) == -(-lf.TARGET_WORDS_RANGE[1] // PART) and lf.max_segments(2 * PART) < lf.max_segments(PART)
+    assert lf.max_segments(10 ** 9) == 1
+    assert lf.continuations(PART) == PART // lf.part_floor(PART) - 1 and lf.continuations(1) == 1
+    spec = lf.Spec.from_request({"mode": "write", "task": "t", "target_words": 5 * PART}, "", CAP)
+    assert spec.segments_cap() == lf.max_segments(PART)
+    assert lf.Spec.from_request({"mode": "write", "task": "t", "max_segments": 4}, "", CAP).segments_cap() == 4

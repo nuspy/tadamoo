@@ -14,7 +14,7 @@ from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked 
 from serve.api.openai import openai_chunks, openai_collect
 from serve.frontend import openai_to_messages
 from serve.longflow import LongFlow, NotLong
-from serve.longform import SAMPLING_FIELDS, LongAnswer, LongformError, Spec
+from serve.longform import SAMPLING_FIELDS, LongAnswer, LongformError, Spec, capacity
 from serve.prompt import primed
 from serve.service import Service
 from serve.util.text import IM_END
@@ -70,6 +70,12 @@ def text_of(content) -> str:
     return ""
 
 
+def _percent(req: dict) -> int:
+    """The words a token makes, in percent, that the page sends with the request (0: not set: the general one)."""
+    v = req.get("words_per_token")
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 10 <= v <= 200 else 0
+
+
 def long_request(req: dict):
     """(spec, system text, earlier turns) from a request; LongformError (a 400) for one the mode cannot take."""
     if req.get("tools") or req.get("response_format"):
@@ -101,7 +107,11 @@ def long_answer_chunks(svc: Service, req: dict, spec: Spec, system: str, prior: 
     sampling = {k: req[k] for k in SAMPLING_FIELDS if req.get(k) is not None}
     client = ServiceClient(svc, sampling, cancel)
     kw = dict(prior=prior, system=system, cancel=cancel, sampling={})
-    run = LongFlow(client, spec, stated=spec.declared, **kw) if spec.mode == "write" else LongAnswer(client, spec, **kw)
+    lengths = getattr(svc, "lengths", None)
+    cap = capacity(lengths.limit_tokens() if lengths is not None else 0, _percent(req))                  # the loaded model's reply length, the conversation's words a token makes
+    spec.part_max = spec.part_max or cap.words
+    spec.words_percent = spec.words_percent or cap.percent
+    run = LongFlow(client, spec, stated=spec.declared, cap=cap, **kw) if spec.mode == "write" else LongAnswer(client, spec, **kw)
     yield chunk({"role": "assistant", "content": ""})
     events = run.run()
 

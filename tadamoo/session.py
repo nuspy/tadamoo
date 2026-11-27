@@ -1008,6 +1008,10 @@ class Session:
         else:
             self.agent.sampling.pop("end_turn_bias", None)
 
+    def set_words_per_token(self, percent: int) -> None:
+        """The words a token makes in the conversation's language, in percent, from the next long text on; 0 is the general one."""
+        self.agent.words_per_token = percent
+
     def set_temperature(self, value: Optional[float]) -> None:
         """The sampling temperature of every model call from the next on; None leaves it to the model file's own sampling."""
         if value is None:
@@ -1514,8 +1518,9 @@ class Session:
                 return bool(self._long_request) and self._long_run(task)
             if self.ask_only or text.startswith(qs.ANSWER_HEADER) or not callable(getattr(agent.client, "chat_completion", None)):
                 return False
-            asked = lf.parse_hint(text)
-            found = None if asked is not None else lf.detect_long_request(text, min_tokens=self._long_min_tokens(agent))
+            cap = self._long_capacity(agent)
+            asked = lf.parse_hint(text, cap)
+            found = None if asked is not None else lf.detect_long_request(text, cap=cap)
             if asked is None and found is None:
                 return False
             pieces = lf.separate_texts(asked["text"] if asked is not None else text)
@@ -1560,15 +1565,11 @@ class Session:
             return False
 
     @staticmethod
-    def _long_min_tokens(agent: Any) -> int:
-        """The answer length above which a text is written in parts: from what the server measured of this model, else the general threshold."""
-        ask = getattr(agent.client, "length_limit", None)
-        try:
-            return lf.long_min_tokens(int(ask()) if callable(ask) else 0)
-        except Exception:
-            return lf.long_min_tokens(0)
-
-    RESCUE_WORDS = 4000            # a text whose thinking left no room for the answer is taken to be about this long until the estimate says
+    def _long_capacity(agent: Any) -> lf.Capacity:
+        """What one reply of the route the conversation runs on holds: its reply length (written by hand, else measured, else the general one) and
+        the words a token makes. A text longer than its words is written in parts."""
+        from tadamoo import longlimit
+        return longlimit.capacity(agent.client, int(getattr(agent, "words_per_token", 0) or 0))
 
     def _rescue_ok(self, task: Task) -> bool:
         """Whether a text could be written in parts for this request: a plain request, with no tool work and no card, asked of a model that can be called."""
@@ -1583,7 +1584,7 @@ class Session:
         try:
             if agent.stop_reason != al.EMPTY or not self._rescue_ok(task):
                 return False
-            self._long_request = {"mode": "write", "words": self.RESCUE_WORDS, "text": agent.last_user_text, "reason": "rescue", "prior": self._long_prior(agent)}
+            self._long_request = {"mode": "write", "words": (lambda c: c.words + lf.part_floor(c.words))(self._long_capacity(agent)), "text": agent.last_user_text, "reason": "rescue", "prior": self._long_prior(agent)}
             self._audit("long_answer", {"rescue": "empty"})
             return self._long_run(task)
         except Exception as exc:
@@ -1655,8 +1656,11 @@ class Session:
         spec.end_turn_bias = float(bias) if isinstance(bias, (int, float)) and not isinstance(bias, bool) else None
         kw: Dict[str, Any] = {"prior": prior, "cancel": agent.cancel,
                               "sampling": {k: agent.sampling[k] for k in lf.SAMPLING_FIELDS if agent.sampling.get(k) is not None}}
+        cap = self._long_capacity(agent)
+        spec.part_max = spec.part_max or cap.words                  # a part holds what one reply of the route holds
+        spec.words_percent = spec.words_percent or cap.percent
         if spec.mode == "write":
-            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=words, stated=stated, min_tokens=self._long_min_tokens(agent), **kw)
+            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=words, stated=stated, cap=cap, **kw)
         else:
             run = lf.LongAnswer(client, spec, **kw)
         done: Dict[str, Any] = {}
@@ -1685,19 +1689,27 @@ class Session:
     LONG_TOOL_ROOT = ".tadamoo/artifacts"
     LONG_TOOL_WORDS = lf.TARGET_WORDS_RANGE
 
+    def _long_words_text(self) -> str:
+        """The words above which a text is written in parts, for the route the conversation runs on, as the tool's description says it."""
+        from tadamoo import longlimit
+        try:
+            return f"{longlimit.min_words(self.agent.client, self.agent.words_per_token)} words"
+        except Exception:
+            return "the length of one reply"
+
     def _register_long_tool(self) -> None:
         """`write_long`: a text of the length the long answer is for, written in parts by the harness and saved to a file; the model works with
         the file. Always in the list, so the tools of a conversation do not change when the control is switched."""
         self.agent.tools.register(
             "write_long",
-            "Writes one long text (over about 1500 words) in checked parts and saves it to a file: use it for each such text instead of writing it "
+            "Writes one long text (over about " + self._long_words_text() + ") in checked parts and saves it to a file: use it for each such text instead of writing it "
             "yourself in one go, once per separate text (each chapter, article or document). Put what the writer needs in `brief` (topic, outline, "
             "tone, what the earlier texts said): it sees nothing else. Gives back where the text was saved and how long it is. Optional: `words` "
             "(target length), `path` (a file in the working folder; default under .tadamoo/artifacts/), `language`, `style`; `mode` translate or "
             "rewrite with `source_path` (the file to work from).",
             {"type": "object", "properties": {
                 "brief": {"type": "string", "description": "what to write, or for translate/rewrite what to do"},
-                "words": {"type": "integer", "description": "target length in words; 0 lets the harness estimate it"},
+                "words": {"type": "integer", "description": "target length in words, an order of magnitude unless the person asked for it exactly; 0 lets the harness estimate it"},
                 "path": {"type": "string", "description": "where to save it, relative to the working folder"},
                 "mode": {"type": "string", "enum": list(lf.MODES)}, "source_path": {"type": "string"},
                 "language": {"type": "string"}, "style": {"type": "string"}}, "required": ["brief"]},
@@ -2051,7 +2063,10 @@ def _valid_settings(cmd: Dict[str, Any]) -> bool:
     """A "settings" command: any of the steps one answer may take (-1 for no limit, or 1 and more), the end-of-turn bias (-20 to 0), the
     temperature (0 to 5, or null) and the most a reply may write (1 and more, or null)."""
     steps, bias, temp, room = cmd.get("max_turns"), cmd.get("end_turn_bias"), cmd.get("temperature"), cmd.get("max_tokens")
-    if not any(k in cmd for k in ("max_turns", "end_turn_bias", "temperature", "max_tokens", "sampling", "fold")):
+    if not any(k in cmd for k in ("max_turns", "end_turn_bias", "temperature", "max_tokens", "words_per_token", "sampling", "fold")):
+        return False
+    share = cmd.get("words_per_token")
+    if "words_per_token" in cmd and (not isinstance(share, int) or isinstance(share, bool) or not (share == 0 or 10 <= share <= 200)):
         return False
     if "sampling" in cmd and not isinstance(cmd["sampling"], dict):
         return False
@@ -2348,6 +2363,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if "max_tokens" in cmd:
                     session.set_max_tokens(cmd["max_tokens"])
                     changed["max_tokens"] = cmd["max_tokens"]
+                if "words_per_token" in cmd:
+                    session.set_words_per_token(cmd["words_per_token"])
+                    changed["words_per_token"] = cmd["words_per_token"]
                 if "sampling" in cmd:
                     session.set_sampling(cmd["sampling"])
                     changed["sampling"] = cmd["sampling"]

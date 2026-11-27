@@ -166,7 +166,7 @@ def run_text(arm: Arm, task: Dict[str, Any], rep: int, ctx: Context) -> CaseTria
     ratios: List[float] = []
     if arm.settings["how"] == "single":
         reply = client.chat_completion(messages=[{"role": "user", "content": task["prompt"]}], temperature=ctx.temperature, timeout=3600.0,
-                                       max_tokens=lf.tokens_for_words(task["words"] * 1.6, task["language"]), extra={"reasoning_effort": "none", **sampling})
+                                       max_tokens=lf.capacity().tokens_for(task["words"] * 1.6), extra={"reasoning_effort": "none", **sampling})
         choice = reply["choices"][0]
         text = (choice["message"].get("content") or "").strip()
         parts = [text]

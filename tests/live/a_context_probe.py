@@ -51,7 +51,7 @@ def cmd_status() -> None:
     reserve = max(stack.AgentConfig.max_output_tokens, min(stack.ANSWER_RESERVE_TOKENS, (window or 0) // 4))
     record("a_status", {"test": "harness", "window": window, "budget": stack.context_budget(window, reserve) if window else None,
                         "route": list(c.registry.resolve_route("executor", True)), "failover": c.registry.failover_chain("executor"),
-                        "long_min_tokens": __import__("serve.longform", fromlist=["x"]).long_min_tokens(int((st.get("length") or {}).get("limit_tokens") or 0))})
+                        "reply_words": __import__("serve.longform", fromlist=["x"]).capacity(int((st.get("length") or {}).get("limit_tokens") or 0), int((st.get("length") or {}).get("words_per_token") or 0)).words})
 
 
 def doc_text(chars: int) -> str:

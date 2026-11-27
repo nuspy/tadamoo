@@ -269,15 +269,15 @@ class SecureRegistry(Registry):
             self.save(data)
             return prov
 
-    def set_limits(self, pid: str, context_window: int = 0, max_output: int = 0) -> Dict[str, Any]:
-        """The context window and the most output of a provider's model, in tokens (0: not stated). The agent plans its context by the first
-        and the client keeps a reply inside the second (see tadamoo/llm/profile.py)."""
+    def set_limits(self, pid: str, context_window: int = 0, max_output: int = 0, reply_length: int = 0) -> Dict[str, Any]:
+        """The context window, the most output and the length of a reply of a provider's model, in tokens (0: not stated). The agent plans its
+        context by the first, the client keeps a reply inside the second and a text goes in parts of what the third gives (see tadamoo/llm/profile.py)."""
         with self._lock:
             data = self.load()
             prov = self._find(data, pid)
             if prov is None:
                 raise KeyError(pid)
-            for key, value in (("context_window", context_window), ("max_output", max_output)):
+            for key, value in (("context_window", context_window), ("max_output", max_output), ("reply_length", reply_length)):
                 if int(value) > 0:
                     prov[key] = int(value)
                 else:

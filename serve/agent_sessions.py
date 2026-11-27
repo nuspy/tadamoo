@@ -1075,7 +1075,7 @@ class SessionManager:
         copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "inference": settings, "context_policy": context_policy, "compaction": context_policy == "compact",
                "compaction_threshold": min(inference.FOLD_LIMITS[1], max(inference.FOLD_LIMITS[0], float(context_threshold))),
-               "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona, "council": council is True,
+               "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "words_per_token": base["words_per_token"], "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona, "council": council is True,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
                "budget_day_tokens": budget_day_tokens, "channel": channel,
                **({"temperature": base["temperature"]} if base["temperature"] is not None else {}),
@@ -1217,6 +1217,8 @@ class SessionManager:
             cmd += ["--context-threshold", str(rec["context_threshold"])]
         if rec.get("end_turn_bias"):
             cmd += ["--end-turn-bias", str(rec["end_turn_bias"])]
+        if rec.get("words_per_token"):
+            cmd += ["--words-per-token", str(rec["words_per_token"])]
         if rec.get("temperature") is not None:
             cmd += ["--temperature", str(rec["temperature"])]
         if rec.get("max_tokens"):
@@ -2387,12 +2389,12 @@ class SessionManager:
             changes = {"inference": settings, "effort": f["effort"], "context_policy": f["context_policy"], "context_threshold": f["context_threshold"],
                        "compaction": f["compaction"], "compaction_threshold": f["compaction_threshold"], "max_turns": f["max_turns"],
                        "end_turn_bias": f["end_turn_bias"], "temperature": f["temperature"], "max_tokens": f["max_tokens"], "sampling": f["sampling"],
-                       "context_patterns": patterns}
+                       "words_per_token": f["words_per_token"], "context_patterns": patterns}
             effort_changed = self._effort_now.pop(sid, rec.get("effort", "")) != f["effort"]
             now = {"max_turns": f["max_turns"], "end_turn_bias": f["end_turn_bias"], "temperature": f["temperature"], "max_tokens": f["max_tokens"],
-                   "sampling": f["sampling"], "fold": {"on": f["compaction"], "threshold": f["compaction_threshold"], "mask": f["context_threshold"]}}
+                   "words_per_token": f["words_per_token"], "sampling": f["sampling"], "fold": {"on": f["compaction"], "threshold": f["compaction_threshold"], "mask": f["context_threshold"]}}
             was = {"max_turns": rec.get("max_turns", UNLIMITED_STEPS), "end_turn_bias": rec.get("end_turn_bias", 0.0), "temperature": rec.get("temperature"),
-                   "max_tokens": rec.get("max_tokens"), "sampling": rec.get("sampling") or {},
+                   "max_tokens": rec.get("max_tokens"), "words_per_token": rec.get("words_per_token", 0), "sampling": rec.get("sampling") or {},
                    "fold": {"on": rec.get("compaction", True), "threshold": rec.get("compaction_threshold"), "mask": rec.get("context_threshold")}}
             live = {k: v for k, v in now.items() if v != was[k]}
             self._set(rec, **changes)

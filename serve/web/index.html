@@ -823,6 +823,11 @@
             <div class="csnum"><label for="cs-max_answer_tokens" data-t="cs.max_answer_tokens">Max answer tokens</label>
               <input id="cs-max_answer_tokens" type="number" inputmode="numeric" min="-1" step="256" aria-describedby="cs-max_answer_tokens-h">
               <p class="help" id="cs-max_answer_tokens-h" data-t="cs.max_answer_tokens.help"></p></div>
+            <div class="csnum"><label for="cs-words_per_token" data-t="cs.words_per_token">Words per token (%)</label>
+              <div class="csinfo-row"><input id="cs-words_per_token" type="number" inputmode="numeric" min="10" max="200" step="5" placeholder="60" aria-describedby="cs-words_per_token-h">
+                <button type="button" class="csinfo" id="cs-wpt-info" aria-expanded="false" aria-controls="cs-wpt-table" data-t-aria="cs.words_per_token.info">i</button></div>
+              <p class="help" id="cs-words_per_token-h" data-t="cs.words_per_token.help"></p>
+              <div class="csinfo-pop" id="cs-wpt-table" role="note" hidden></div></div>
             <div class="csnum"><label for="cs-auto_continue" data-t="cs.auto_continue">Automatic continuations</label>
               <input id="cs-auto_continue" type="number" inputmode="numeric" min="0" max="20" step="1" placeholder="4" aria-describedby="cs-auto_continue-h">
               <p class="help" id="cs-auto_continue-h" data-t="cs.auto_continue.help"></p></div>
