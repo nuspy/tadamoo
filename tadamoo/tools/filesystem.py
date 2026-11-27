@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tupl
 from tadamoo import editing, syntax_check
 from tadamoo.editing import indent_block
 from tadamoo.environment import similar_names
+from tadamoo.tools import pieces
 
 MAX_RECORDED_TEXT = 200_000        # larger files keep their diff but not the full before/after text
 MAX_LISTED = 500
@@ -29,6 +30,7 @@ MAX_WATCHED_BYTES = 30_000_000     # the text kept in memory to compare against
 MAX_SHELL_CHANGES = 50             # recorded for one command; a command that writes more is a build, not an edit
 FINGERPRINT_BYTES = 4_000_000      # a file up to this size is told apart by a hash of its bytes, a larger one by its modified time and size
 BLOCK_LINES = 2000                 # most lines of one block read around an anchor line
+PIECE_BYTES = 60_000_000           # the largest file read, mapped or edited by blocks
 MIN_SHRINK_CHECK = 200             # a file shorter than this (characters) may be rewritten to anything
 # text a model leaves in a whole-file write where it means "the rest is as before"
 PLACEHOLDER = re.compile(
@@ -79,6 +81,8 @@ class WorkspaceSandbox:
         self._stamps: Dict[str, Dict[str, Any]] = {}
         self._last_read: Dict[str, Tuple[Any, Any, int]] = {}
         self._edit_failures: Dict[str, int] = {}
+        # an earlier message of the conversation as text: "last" or a number (1 is the last): the text, or None when there is none
+        self.message_text: Optional[Callable[[Any], Optional[str]]] = None
 
     def resolve_safe(self, rel_path: str | Path, tool: str = "file_tool") -> Path:
         """Resolves path. Inside self.root it always passes; outside it the permission level decides (`outside_workspace`), and without
@@ -258,7 +262,8 @@ class WorkspaceSandbox:
     # -- reading -----------------------------------------------------------------------------------
 
     def read_file(self, path: str, offset: int = 1, limit: int = 0, max_chars: int = READ_CHARS, numbered: bool = False,
-                  anchor_line: int = 0, max_levels: int = 1, include_siblings: bool = False) -> Any:
+                  anchor_line: int = 0, max_levels: int = 1, include_siblings: bool = False, outline: bool = False, section: str = "",
+                  words: Any = None) -> Any:
         """The text of a file, whole or lines `offset` to `offset + limit - 1` (1-based; limit 0 means to the end). When the answer
         is not the whole file, a last line says which lines it holds, how many the file has, and where to go on. With `anchor_line`, the
         block around that line by indentation instead (see `_read_block`). The same read made again of an unchanged file answers
@@ -273,6 +278,8 @@ class WorkspaceSandbox:
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         edited = self._editor_text(safe_path)
         rel, key = self._rel(safe_path), self._fingerprint(safe_path, edited)
+        if outline or section or words is not None:
+            return self._read_piece(path, safe_path, rel, key, outline, section, words, numbered, max_chars)
         signature = (offset, limit, max_chars, bool(numbered), anchor_line, max_levels, bool(include_siblings))
         before = self._last_read.get(rel)
         repeats = before[2] + 1 if before and before[0] == signature and before[1] == key else 1
@@ -291,6 +298,83 @@ class WorkspaceSandbox:
             text, first, last, total, exact = self._read_slice(safe_path, path, edited, offset, limit, max_chars, numbered)
         self._note_read(rel, key, first, last, total, exact)
         return text
+
+    def _piece_text(self, path: str, safe_path: Path) -> str:
+        """The text of a file for work by blocks, with LF endings."""
+        if safe_path.stat().st_size > PIECE_BYTES:
+            raise ValueError(f"'{path}' is too large to map or edit by blocks; read a range with offset and limit")
+        text = self._read(safe_path)
+        if "\x00" in text[:8000]:
+            raise ValueError(f"'{path}' is a binary file")
+        return editing.to_lf(text)
+
+    def _read_piece(self, path: str, safe_path: Path, rel: str, key: Tuple[Any, ...], outline: bool, section: str, words: Any, numbered: bool,
+                    max_chars: int) -> str:
+        """`read_file` by the file's own units: its map (`outline`), a section by its title, or a range of words as the whole lines that hold it."""
+        text = self._piece_text(path, safe_path)
+        lines, ver = pieces.lines_of(text), pieces.version(text)
+        sections = pieces.sections_of(lines)
+        try:
+            if section:
+                found = pieces.find_section(sections, section)
+                first, last, label = found.first, found.last, f"section '{found.title}'"
+            elif words is not None:
+                if not isinstance(words, (list, tuple)) or len(words) != 2 or any(isinstance(x, bool) or not isinstance(x, int) for x in words):
+                    raise pieces.PieceError("words is two whole numbers: [from, to], counted from 0.")
+                first, last, begin, total = pieces.block_for_words(lines, words[0], words[1])
+                label = f"words {begin}-{begin + sum(pieces.count_words(x) for x in lines[first - 1:last])} of {total}"
+            else:
+                return pieces.render_map(lines, sections, ver)
+        except pieces.PieceError as exc:
+            raise ValueError(str(exc)) from None
+        shown, size = [], 0
+        for n in range(first, last + 1):
+            line = (f"{n:>6}\t" if numbered else "") + lines[n - 1]
+            if size + len(line) + 1 > max_chars and shown:
+                break
+            shown.append(line)
+            size += len(line) + 1
+        end = first + len(shown) - 1
+        note = f"{label}: lines {first}-{end} of {len(lines)}; {sum(pieces.count_words(x) for x in lines[first - 1:end])} words; version {ver}"
+        if end < last:
+            note += f"; one answer holds at most {max_chars} characters, read_file with offset={end + 1} shows the next lines"
+        self._note_read(rel, key, first, end, len(lines), True)
+        return "\n".join(shown) + "\n[" + note + "]"
+
+    def _source_text(self, source: Any) -> str:
+        """The text a `source` names: an earlier message of the conversation (`message`: "last", or a number, 1 being the last) or a file (`file`),
+        whole or the part `section`, `lines` or `words` picks. It is copied here, never typed again by the model."""
+        if not isinstance(source, dict) or ("message" in source) == ("file" in source):
+            raise ValueError('source is an object with one of message ("last", or 1 for the last, 2 for the one before) or file (a path), '
+                             'and optionally section, lines [first, last] or words [from, to] to take a part of it.')
+        if "file" in source:
+            src = self.resolve_safe(source["file"], "read_file")
+            if not src.is_file():
+                raise FileNotFoundError(f"File not found: {source['file']}.{self._where(str(source['file']), src)}")
+            text = self._piece_text(str(source["file"]), src)
+        else:
+            found = self.message_text(source["message"]) if self.message_text is not None else None
+            if found is None:
+                raise ValueError(f"There is no message of yours called {source.get('message')!r} to take text from (it may have been folded away: "
+                                 "the folded originals are a file under .tadamoo/artifacts, which a file source can read). Use 'last' or a number.")
+            text = editing.to_lf(found)
+        if not any(source.get(k) not in (None, "") for k in ("section", "lines", "words")):
+            return text
+        lines = pieces.lines_of(text)
+        try:
+            if source.get("section"):
+                found_s = pieces.find_section(pieces.sections_of(lines), source["section"])
+                first, last = found_s.first, found_s.last
+            elif source.get("lines") is not None:
+                first, last = pieces.unit(lines, [], source["lines"], None)
+            else:
+                span = source["words"]
+                if not isinstance(span, (list, tuple)) or len(span) != 2 or any(isinstance(x, bool) or not isinstance(x, int) for x in span):
+                    raise pieces.PieceError("words is two whole numbers: [from, to], counted from 0.")
+                first, last, _b, _t = pieces.block_for_words(lines, span[0], span[1])
+        except pieces.PieceError as exc:
+            raise ValueError(str(exc)) from None
+        return pieces.text_of(lines[first - 1:last])
 
     def _read_slice(self, safe_path: Path, path: str, edited: Optional[str], offset: int, limit: int, max_chars: int,
                     numbered: bool) -> Tuple[str, int, int, int, bool]:
@@ -424,7 +508,11 @@ class WorkspaceSandbox:
         if self.write_through is None and self._read_text(safe_path) != expected:
             raise OSError(f"{path} was written but reading it back gives different text; another program may be changing it. Read it again before the next edit.")
 
-    def write_file(self, path: str, content: str, overwrite: bool = False, append: bool = False) -> Dict[str, Any]:
+    def write_file(self, path: str, content: Optional[str] = None, overwrite: bool = False, append: bool = False, source: Any = None) -> Dict[str, Any]:
+        if (content is None) == (source is None):
+            raise ValueError("Give the text in `content`, or where to copy it from in `source`, one of them.")
+        if source is not None:
+            content = self._source_text(source)
         safe_path = self.resolve_safe(path, "write_file")
         if safe_path.is_dir():
             raise IsADirectoryError(f"'{path}' is a folder, not a file.{self._where(path, safe_path)}")
@@ -477,13 +565,18 @@ class WorkspaceSandbox:
         return editing.EditError(message, exc.closest, exc.closest_end)
 
     def edit_file(self, path: str, target: Optional[str] = None, replacement: Optional[str] = None, edits: Optional[List[Dict[str, Any]]] = None,
-                  replace_all: bool = False, expected_count: Optional[int] = None) -> Dict[str, Any]:
+                  replace_all: bool = False, expected_count: Optional[int] = None, lines: Any = None, section: str = "", action: str = "",
+                  text: Optional[str] = None, source: Any = None, after: Any = None, version: str = "") -> Dict[str, Any]:
         safe_path = self.resolve_safe(path, "edit_file")
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         blocked = self._owner_block(path, safe_path, append=False)
         if blocked:
             return blocked
+        if lines is not None or section or action:
+            if target is not None or replacement is not None or edits is not None:
+                raise editing.EditError("Send either 'target' and 'replacement', or an 'edits' list, or a block (lines or section with action), not a mix.")
+            return self._edit_piece(path, safe_path, lines, section, action or "replace", text, source, after, version)
         items = self._edit_items(target, replacement, edits, replace_all, expected_count)
         self._guard_git("edit_file", path, safe_path)
         rel = self._rel(safe_path)
@@ -508,6 +601,58 @@ class WorkspaceSandbox:
             result["edits"] = len(items)
         if outcome.notes:
             result["notes"] = outcome.notes
+        if error:
+            result.update(syntax_error=error, warning=f"The file was written but no longer parses: {error}. Fix it with another edit.")
+        return result
+
+    def _edit_piece(self, path: str, safe_path: Path, lines_arg: Any, section: str, action: str, text: Optional[str], source: Any, after: Any,
+                    given: str) -> Dict[str, Any]:
+        """An edit of a block named by its place: lines `first` to `last` (good for the version of the file they were read from) or a section (found
+        by its title in the file as it is now). The text it puts in is typed or copied from a `source`; what it replaces is never typed again."""
+        self._guard_git("edit_file", path, safe_path)
+        rel = self._rel(safe_path)
+        old_content = self._read(safe_path)
+        old_lf = self._piece_text(path, safe_path)
+        current = pieces.version(old_lf)
+        file_lines = pieces.lines_of(old_lf)
+        sections = pieces.sections_of(file_lines)
+        needs_version = lines_arg is not None or (isinstance(after, dict) and after.get("line") is not None)
+        if needs_version and given != current:
+            raise ValueError(f"A line number is good for the version of the file it was read from ({given or 'none was given'}); the file is now version "
+                             f"{current}. The map of it now:\n{pieces.render_map(file_lines, sections, current)}")
+        try:
+            first, last = pieces.unit(file_lines, sections, lines_arg, section)
+            behind = None
+            if action == "move_after":
+                if not isinstance(after, dict) or (after.get("line") is None) == (not after.get("section")):
+                    raise pieces.PieceError('after is {"line": n} (0 for the start) or {"section": title}: the block goes behind it.')
+                behind = int(after["line"]) if after.get("line") is not None else pieces.find_section(sections, after["section"]).last
+                if behind < 0 or behind > len(file_lines):
+                    raise pieces.PieceError(f"after.line is from 0 to {len(file_lines)}.")
+            new: List[str] = []
+            if action in ("replace", "insert_after", "insert_before"):
+                if (text is None) == (source is None):
+                    raise pieces.PieceError("Give the text in `text`, or where to copy it from in `source`, one of them.")
+                new = pieces.block_lines(self._source_text(source) if source is not None else text)
+            elif text is not None or source is not None:
+                raise pieces.PieceError(f"{action} takes no text.")
+            out, now_first, now_last = pieces.apply(file_lines, action, first, last, new, behind)
+        except pieces.PieceError as exc:
+            raise ValueError(str(exc)) from None
+        new_lf = pieces.text_of(out) if old_lf.endswith("\n") or not out else "\n".join(out)
+        new_content = editing.restore_endings(old_content, old_lf, new_lf)
+        if new_content == old_content:
+            return {"status": "success", "file": path, "changed": False, "note": "The file already has this text; nothing was changed.", "version": current}
+        error = self._syntax_problem(path, old_content, new_content)
+        self._write(safe_path, new_content)
+        self._check_written(path, safe_path, new_content)
+        result = self._record(path, "modified", old_content, new_content)
+        self._after_write(rel, safe_path, new_content, whole=False)
+        result.update(action=action, total_lines=len(out), version=pieces.version(new_lf))
+        if now_last >= now_first > 0:
+            result["lines"] = [now_first, now_last]
+        else:
+            result["removed_lines"] = [first, last] if action == "delete" else None
         if error:
             result.update(syntax_error=error, warning=f"The file was written but no longer parses: {error}. Fix it with another edit.")
         return result

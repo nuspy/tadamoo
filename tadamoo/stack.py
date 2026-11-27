@@ -1166,6 +1166,13 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
 
         agent.lessons_for = lambda request: lessons.block_for(request, lessons_store)
         agent.learn = keep_lessons
+    def earlier_reply(which: Any) -> Optional[str]:
+        """What a file tool copies from the conversation: one of the replies the agent wrote as an answer (not a step with a tool call), "last" or by a number."""
+        said = [m["content"] for m in agent.messages if m.get("role") == "assistant" and not m.get("tool_calls")
+                and isinstance(m.get("content"), str) and m["content"].strip()]
+        n = 1 if which == "last" else int(which) if isinstance(which, (int, str)) and not isinstance(which, bool) and str(which).isdigit() else 0
+        return said[-n] if n and n <= len(said) else None
+    sandbox.message_text = earlier_reply
     agent.review = review.make_review(technical if technical is not None else client)
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
     agent.refresh_window = refresh_budget

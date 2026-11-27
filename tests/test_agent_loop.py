@@ -128,7 +128,7 @@ def test_unknown_tool_and_bad_arguments_say_what_to_change(ws):
     msgs = [m["content"] for m in client.sent[-1] if m["role"] == "tool"]
     assert "Unknown tool 'rm_everything'" in msgs[0] and "No tool has a similar name" in msgs[0]
     assert "read_file" not in msgs[0]                                                   # the catalog is not listed, only near matches
-    assert "missing required argument(s): content" in msgs[1]
+    assert "Give the text in `content`, or where to copy it from in `source`" in msgs[1]
     assert "must be of type string" in msgs[2]
     assert "has no argument(s): mode" in msgs[3]
     assert not (ws / "a").exists()
