@@ -82,6 +82,12 @@ same place turns words into tokens (`tokens_for`). A text over those words is wr
 a part is planned at is a quarter of it. The most parts of a text and the continuations of a cut part follow from the part size (`max_segments`,
 `continuations`).
 
+### A long final answer as a file
+
+A final answer of the agent that is at least the least a part is planned at (a quarter of the capacity in words) is also saved as a file the
+person can save, named from its first line, and its link (`[name.md](tadamoo-file:ID)`) is added at its end: shown, and kept in the history.
+An answer that already has such a link, a question card and a side task are left as they are.
+
 ### How exact a length is
 
 A length the person gives is an order of magnitude: a text from 0.8 to 1.25 times it is right, and nothing is added or rewritten to move it
@@ -265,7 +271,7 @@ headings as written (`serve/exportdoc.py`, `serve/exportoffice.py`); the system'
 - Streaming inside a segment: text appears when its segment has passed the checks, a part at a time.
 - `max_answer_tokens` for Agent sessions, a bigger room for the Chat context reserve, and a notice when the server clamps `max_tokens`.
 - Map-reduce summaries of a source larger than the context.
-- The text is never saved to a file by the harness; only the person saves it.
+- A text written in parts by the Chat's own flow is not saved to a file by the harness; the person saves it.
 - The check and the estimate for a translation or rewrite (their source is the plan, and the parts are checked against it).
 - Gathering material with tools before a long text: the parts are written from the request and the conversation, not from files the model reads first.
 - Finding the language or the instruction of a translation or rewrite that the request does not state plainly.

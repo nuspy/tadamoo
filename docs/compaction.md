@@ -21,6 +21,10 @@ the budget. A compaction is not repeated until the conversation has grown by a t
 twentieth is not made (the size it was left at is remembered, so a conversation whose newest steps alone fill the room is not summarised
 over and over). `/compact` skips the threshold and the gain test and works on any conversation that has something in front of its newest steps.
 
+It also runs when an answer is final: if nothing waits and the context is over its threshold, the session folds at once (`AgentLoop.fold_if_due`),
+after the `done` event and while the person reads, so the next request does not wait for it. That fold adds no mission card: the request the
+card would name was just answered.
+
 ## Where the cut falls
 
 Cut points are by tokens, not by message count (`tail_start`): walking back from the newest message until `keep_share` of the budget (a
