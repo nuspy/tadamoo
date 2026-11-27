@@ -69,6 +69,29 @@ indentation instead of a range: the block the line opens, or else the one it is 
 1); comment and decorator lines right above the block and a closing bracket line at its end belong to it; `include_siblings` adds
 the blocks beside the outermost one. At most 2000 lines (`limit` lowers it).
 
+## Pieces of a file
+
+A long text is worked by blocks, without typing again what is already there (`tadamoo/tools/pieces.py`). A block is a run of whole lines; in
+prose a paragraph is a line.
+
+- **The map.** `read_file(path, outline=true)`: the lines and words of the file, its **version** (a short hash of the text) and one row for each
+  Markdown section (`first-last`, words, level and title; a heading inside a code fence is not one). A file with no headings says so. A file
+  with over 200 sections lists its top levels.
+- **Reading a block.** `section` reads the section with that title (the whole title ignoring case, else the start of one, else a part of
+  one; it must fit one section, or the answer lists the candidates). `words=[from, to]` reads the whole lines that hold those words,
+  counted from 0, and says which words and lines it gave. Both end with the version.
+- **Editing a block.** `edit_file` with `lines=[first, last]` or `section`, and `action`: `replace` (the default), `delete`, `insert_after`,
+  `insert_before` or `move_after` (with `after`: `{line: n}`, 0 being the start, or `{section: title}`). The text comes from `text` or from
+  `source`. A section is found by its title in the file as it is, so it never goes stale. **Lines need the version** they were read from: after
+  any change the numbers are not the same, so a call with another version is refused and the answer carries the map of the file now. The answer of a
+  successful edit has the new lines of the changed place, the number of lines and the new version. Line endings are kept; the syntax check
+  and the owner rules of the other edits apply.
+- **Copying a text.** `write_file` and the text of an edit take `source` instead of the text: `{message: "last"}` (a number: 1 the last
+  reply, 2 the one before; replies that call a tool are not counted) or `{file: path}`, with `section`, `lines` or `words` to take a part.
+  The harness copies the text; the model never types it again. The guards of `write_file` hold: a whole-file write over a file with half of
+  its text asks for `overwrite=true`. A reply folded away is not there; the folded originals are a file under `.tadamoo/artifacts`, which a
+  file source reads.
+
 ## search_code and tree
 
 `search_code(pattern, path?, glob?, context?, max_results?)`: a Python regular expression over the workspace's text files, with no

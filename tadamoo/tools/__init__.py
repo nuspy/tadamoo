@@ -50,7 +50,8 @@ def create_standard_tool_registry(
         name="read_file",
         description="Reads a file in the workspace, whole or a range of lines. A long file is read in parts: the answer says which lines it holds, "
                     "how many the file has and the offset to go on with. With anchor_line it returns the block (function, class, section) around "
-                    "that line instead, found by indentation. Line numbers are not part of the file: leave them out of any text you write back.",
+                    "that line instead, found by indentation. outline=true gives the map (sections, lines, words, version); section reads one by its title, words=[from, to] the lines that hold them. "
+                    "Line numbers are not part of the file: leave them out of any text you write back.",
         parameters={
             "type": "object",
             "properties": {
@@ -61,6 +62,9 @@ def create_standard_tool_registry(
                 "anchor_line": {"type": "integer", "description": "Return the block around this line instead of a range"},
                 "max_levels": {"type": "integer", "description": "With anchor_line: how many enclosing blocks to include (default 1)"},
                 "include_siblings": {"type": "boolean", "description": "With anchor_line: also the blocks next to the outermost one (default false)"},
+                "outline": {"type": "boolean", "description": "The map of the file instead of its text"},
+                "section": {"type": "string", "description": "Read the section with this title"},
+                "words": {"type": "array", "items": {"type": "integer"}, "description": "Read the lines that hold words [from, to], from 0"},
             },
             "required": ["path"],
         },
@@ -72,16 +76,20 @@ def create_standard_tool_registry(
         name="write_file",
         description="Writes the whole content of a file in the workspace and records the diff. Give the complete text, not a summary of what stays. "
                     "An existing file must have been read in full since it last changed, or send overwrite=true. With append=true, content is added "
-                    "as new whole lines at the end instead, for a file another conversation may also be writing to.",
+                    "as new whole lines at the end instead, for a file another conversation may also be writing to. A text that already exists is not "
+                    "written again: give `source` instead of `content`.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative path to file"},
                 "content": {"type": "string", "description": "Full file content to write, or the lines to add with append=true"},
+                "source": {"type": "object", "description": "Copy the text from here, never type it: message \"last\" (your last reply) or \"2\", or file (a path); section, lines or words take a part",
+                           "properties": {"message": {"type": "string"}, "file": {"type": "string"}, "section": {"type": "string"},
+                                          "lines": {"type": "array", "items": {"type": "integer"}}, "words": {"type": "array", "items": {"type": "integer"}}}},
                 "overwrite": {"type": "boolean", "description": "Replace an existing file you have not read in full, or with much less text (default false)"},
                 "append": {"type": "boolean", "description": "Add content as new lines at the end instead of replacing the file (default false)"},
             },
-            "required": ["path", "content"],
+            "required": ["path"],
         },
         effect=EffectClass.REVERSIBLE,
         handler=sandbox.write_file,
@@ -91,7 +99,9 @@ def create_standard_tool_registry(
         name="edit_file",
         description="Replaces text in a file and records the diff. Give target and replacement, or edits: a list of {target, replacement} applied "
                     "in order, all or none. The target is copied from the file; if only its whitespace or quote marks differ and one place matches, "
-                    "it is still used. When it cannot be applied the answer shows the closest text with line numbers.",
+                    "it is still used. When it cannot be applied the answer shows the closest text with line numbers. A block can be named by its place "
+                    "instead of quoted: lines (with version) or section, and action replace (default), delete, insert_after, insert_before or "
+                    "move_after (with after); the text is `text` or `source`.",
         parameters={
             "type": "object",
             "properties": {
@@ -114,6 +124,17 @@ def create_standard_tool_registry(
                 },
                 "replace_all": {"type": "boolean", "description": "Replace every exact occurrence of the target (default: it must appear once)"},
                 "expected_count": {"type": "integer", "description": "Replace every exact occurrence of the target, which must be this many"},
+                "lines": {"type": "array", "items": {"type": "integer"}, "description": "The block: first and last line (needs version)"},
+                "section": {"type": "string", "description": "The block: the section with this title"},
+                "action": {"type": "string", "enum": ["replace", "delete", "insert_after", "insert_before", "move_after"],
+                           "description": "What to do with the block (default replace)"},
+                "text": {"type": "string", "description": "The lines to put in, with the blank lines that separate them"},
+                "source": {"type": "object", "description": "Copy the text from here instead of typing it (as in write_file)",
+                           "properties": {"message": {"type": "string"}, "file": {"type": "string"}, "section": {"type": "string"},
+                                          "lines": {"type": "array", "items": {"type": "integer"}}, "words": {"type": "array", "items": {"type": "integer"}}}},
+                "after": {"type": "object", "description": "For move_after: the line (0 is the start) or section it goes behind",
+                          "properties": {"line": {"type": "integer"}, "section": {"type": "string"}}},
+                "version": {"type": "string", "description": "The version the map or a read gave"},
             },
             "required": ["path"],
         },

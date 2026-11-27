@@ -79,6 +79,9 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
            "starting a new conversation because of it. Work as if the context had no end." if compaction else ""),
         f"- Limits: {', '.join(budgets)}. When one runs out you are warned, then given one last report.",
         "- Your tools are the ones in the tool definitions." + (f" Not available here: {'; '.join(absent)}." if absent else ""),
+        "- A text that already exists (your last reply, another file) is never typed again: write_file and edit_file take it as `source`. A long file is worked by blocks: "
+        "`read_file` with outline=true gives its sections with their lines, words and version; a section is read, replaced, deleted, moved or added to by its title "
+        "(`section` and `action` of edit_file), or by lines with the version, without quoting the old text.",
         "- Settings that change during the conversation (how long you think, the permission level, plan mode, the window, whether anybody is there to answer) reach you as a "
         "note that starts with [state], only when they change; `self_status` gives the current values. While [state] says long_answer=on, a text of more than " + (f"about {long_words} words" if long_words else "the number of words [state] names") + " "
         "is written with `write_long` (one call for each separate text, the brief holding all the writer needs), not by you in one go. A length the person gives is an order of magnitude: "
