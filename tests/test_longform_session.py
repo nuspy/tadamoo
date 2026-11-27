@@ -531,3 +531,80 @@ def test_the_words_a_token_makes_is_the_conversations_and_changes_what_is_long(t
     assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 2
     assert _valid_settings({"words_per_token": 65}) and _valid_settings({"words_per_token": 0})
     assert not _valid_settings({"words_per_token": 9}) and not _valid_settings({"words_per_token": "65"}) and not _valid_settings({"words_per_token": True})
+
+
+# -- the end of a final answer -------------------------------------------------------------------------------------------
+
+def session_with_files(tmp_path, client):
+    ws = tmp_path / "ws"
+    ws.mkdir(parents=True, exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, permission_mode="default",
+                                    max_turns=6, attachments_dir=str(tmp_path / "att"), outputs_dir=str(tmp_path / "out"), run_id="s1"), client=client)
+    events = Events()
+    session = Session(built, SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets), events, session_id="s1", sleep=lambda s: None)
+    return session, events, built
+
+
+def test_a_very_long_final_answer_is_also_kept_as_a_file_with_a_link(tmp_path):
+    cap = lf.capacity()
+    text = "# Il fiume\n\n" + " ".join(["parola"] * (lf.part_floor(cap.words) + 100)) + "\n"
+    model = Measured(say(text))
+    session, ev, built = session_with_files(tmp_path, model)
+    session.send("m1", "Parlami dei fiumi")
+    done = ev.wait("done")
+    link = re.search(r"\[(il_fiume\.md)\]\(tadamoo-file:([a-f0-9]+)\)\s*$", done["final"])
+    assert done["stop_reason"] == al.FINAL and link and done["final"].startswith(text.rstrip())
+    assert (tmp_path / "out" / "s1" / link.group(2) / "il_fiume.md").read_text(encoding="utf-8") == text
+    assert any(e.get("event") == "delta" and "tadamoo-file:" in e.get("text", "") for e in ev.items)
+    assert built.agent.messages[-1]["content"].endswith(link.group(0)) and al.answer_text(built.agent.turns).endswith(link.group(0))
+
+
+def test_a_short_answer_or_one_that_already_has_a_link_is_left_as_it_is(tmp_path):
+    session, ev, built = session_with_files(tmp_path, Measured(say("Una risposta breve.")))
+    session.send("m1", "Ciao")
+    assert ev.wait("done")["final"] == "Una risposta breve." and not (tmp_path / "out").exists()
+    text = "[a.md](tadamoo-file:abc123) " + " ".join(["parola"] * (lf.part_floor(lf.capacity().words) + 100))
+    session, ev, built = session_with_files(tmp_path / "b", Measured(say(text)))
+    session.send("m1", "Ciao")
+    assert ev.wait("done")["final"] == text
+
+
+def test_the_older_steps_are_folded_when_the_answer_is_final_and_not_on_the_next_request(tmp_path):
+    session, ev, built = session_with_files(tmp_path, Measured(say("Fatto.")))
+    folds = []
+    built.agent.fold_if_due = lambda: folds.append(len(ev.items)) or True
+    session.send("m1", "Ciao")
+    done = ev.wait("done")
+    time.sleep(0.5)
+    assert folds and folds[0] >= 1 and done["final"] == "Fatto."
+
+
+class FoldContext:
+    budget_tokens, mask_at = 1000, 0.8
+
+    def __init__(self, tokens):
+        self.tokens, self.prepared = tokens, 0
+
+    def estimate_tokens(self, messages):
+        return self.tokens
+
+    def prepare(self, messages):
+        self.prepared += 1
+        return messages
+
+    def take_released(self):
+        return []
+
+    def take_compaction(self):
+        return {"n": 1, "reason": "threshold", "tokens_before": 900, "tokens_after": 300, "replaced": 3, "prefix": {}} if self.prepared else None
+
+
+def test_folding_after_an_answer_happens_only_over_the_threshold_and_adds_no_mission_card(tmp_path):
+    session, ev, built = session_with_files(tmp_path, Measured())
+    agent = built.agent
+    agent.context = FoldContext(500)
+    assert agent.fold_if_due() is False and agent.context.prepared == 0
+    agent.context = FoldContext(900)
+    n = len(agent.messages)
+    assert agent.fold_if_due() is True and agent.context.prepared == 1
+    assert not any("Mission card" in str(m.get("content")) for m in agent.messages[n:])

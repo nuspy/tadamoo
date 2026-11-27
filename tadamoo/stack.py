@@ -917,12 +917,14 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo import voice_tools
         voice_link = voice_tools.register_voice_tools(registry, sandbox=sandbox)
 
+    keep_file: Optional[Callable[[str, bytes], Optional[Dict[str, Any]]]] = None
     if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
         from tadamoo.attachment_tools import register_attachment_tools
         from tadamoo.attachments import AttachmentStore, OutputStore
         from tadamoo.integrations.call_api_client import CallAPICallClient
         attachments = AttachmentStore(Path(cfg.attachments_dir))
         sandbox.attachment_files = lambda att_id: (attachments.named_path(cfg.run_id, att_id), str(attachments.get(cfg.run_id, att_id).get("name") or att_id))
+        keep_file = lambda name, data: OutputStore(Path(cfg.outputs_dir)).save(cfg.run_id, name, data)
         register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id,
                                   lambda p: sandbox.resolve_safe(p, "publish_output_file"),
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
@@ -1185,6 +1187,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         n = 1 if which == "last" else int(which) if isinstance(which, (int, str)) and not isinstance(which, bool) and str(which).isdigit() else 0
         return said[-n] if n and n <= len(said) else None
     sandbox.message_text = earlier_reply
+    agent.offer_file = keep_file
     agent.review = review.make_review(technical if technical is not None else client)
     agent.completion = completion.make_completion(persistence.enabled, technical if technical is not None else client)
     agent.refresh_window = refresh_budget

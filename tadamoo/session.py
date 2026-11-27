@@ -42,6 +42,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import sys
 import threading
 import time
@@ -1959,6 +1960,47 @@ class Session:
     def _more(self) -> bool:
         return bool(self.stack or self.queue or self.urgent or self.inbox or self.skill_queue)
 
+    def _keep_long_answer(self, task: Task, final: str) -> str:
+        """A final answer that is long (at least the least a part is planned at) is also kept as a file with a link to it, so that it does not have to
+        be copied out of the chat. Returns the line added to the answer (shown, kept in the history), or "" when nothing was kept."""
+        agent = task.agent
+        offer = getattr(agent, "offer_file", None)
+        if (offer is None or task.side or self.ask_only or agent.stop_reason != al.FINAL or not final.strip() or "tadamoo-file:" in final
+                or len(final.split()) < lf.part_floor(self._long_capacity(agent).words)):
+            return ""
+        title = next((re.sub(r"^#+\s*", "", ln).strip() for ln in final.splitlines() if ln.strip()), "")
+        slug = re.sub(r"[^a-z0-9]+", "_", unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()).strip("_")[:40] or "answer"
+        try:
+            card = offer(f"{slug}.md", (final.rstrip() + "\n").encode("utf-8"))
+        except Exception as exc:                                              # the answer was given; only the file is missing
+            it.log.warning("long answer: not kept as a file: %s", type(exc).__name__)
+            return ""
+        if not card or not card.get("verified"):
+            return ""
+        add = f"\n\n[{card['name']}](tadamoo-file:{card['id']})"
+        for turn in reversed(agent.turns):
+            if not turn.tool_calls and turn.assistant_content:
+                turn.assistant_content += add
+                break
+        for msg in reversed(agent.messages):
+            if msg.get("role") == "assistant" and not msg.get("tool_calls") and msg.get("content"):
+                msg["content"] += add
+                break
+        self.emit({"event": "delta", "turn": task.turn, "kind": "text", "text": add})
+        self._audit("long_answer_file", {"words": len(final.split()), "name": card["name"]})
+        return add
+
+    def _fold_after_answer(self, task: Task) -> None:
+        """When the answer is final and nothing waits, the older steps are folded now if the context is over its threshold, while the person reads."""
+        agent = task.agent
+        if task.side or agent.stop_reason != al.FINAL or agent.cancel.is_set() or self._more():
+            return
+        try:
+            if agent.fold_if_due():
+                self._save()
+        except Exception as exc:                                              # the next request folds it as it did before
+            it.log.warning("fold after the answer: failed: %s", type(exc).__name__)
+
     def _work(self, task: Optional[Task]) -> None:
         try:
             while task is not None:
@@ -1975,12 +2017,14 @@ class Session:
                     continue
                 agent = task.agent
                 final = al.answer_text(agent.turns)
+                final += self._keep_long_answer(task, final)
                 self._save()
                 self.emit({"event": "done", "turn": task.turn, "stop_reason": agent.stop_reason, "error": agent.error, "final": final,
                            "tokens": agent.total_tokens, "max_turns": agent.max_turns, "cut": agent.cut, "more": self._more() and not agent.cancel.is_set(),
                            "denied": self.permission_denials["total"]})
                 self.tasks.pop(task.turn, None)
                 self._close_registry(task)
+                self._fold_after_answer(task)
                 if not self._more() and not agent.cancel.is_set() and not self._next_steps(task):
                     self._maybe_suggest(task)
                 task = self._next_after(task)

@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from tadamoo import commands
+from tadamoo import commands, side_uses
 from tadamoo.session import Session, SessionStore, parse_args as session_args
 from tadamoo.stack import AgentConfig, agent_settings, build_agent, _summarizer
 from serve import inference
@@ -80,7 +80,7 @@ def test_the_summary_call_is_a_separate_bounded_call_through_the_client_and_keep
     big = "A" * 30000 + "MIDDLE" + "B" * 120000 + "THE-NEWEST-LINE"
     assert write("instructions", big) == "Goal: carry on\nOpen items: none"
     messages, tools, kwargs = client.calls[0]
-    assert tools is None and kwargs["max_tokens"] == 1500 and kwargs["timeout"] > 60 and kwargs["temperature"] == 0.0
+    assert tools is None and kwargs["max_tokens"] == side_uses.param("compaction", "answer_tokens") and kwargs["timeout"] > 60 and kwargs["temperature"] == 0.0
     sent = messages[1]["content"]
     assert len(sent) < 121_000 and sent.endswith("THE-NEWEST-LINE") and "left out" in sent and messages[0]["content"] == "instructions"
     assert _summarizer(None) is None

@@ -304,6 +304,8 @@ class AgentLoop:
         self._card: Optional[Card] = None
         self._retried = False
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; what is not set is the model file's own
+        # keeps a file for the person: (name, bytes) -> the card of the saved file, or None where files are not kept (set by the stack)
+        self.offer_file: Optional[Callable[[str, bytes], Optional[Dict[str, Any]]]] = None
         self.words_per_token = int(words_per_token or 0)    # the words a token makes in the conversation's language, in percent; 0: the general one
         self.max_tokens = max_tokens              # the most one reply may write; None: the server's own limit
         self.gate = gate                          # the project's own checks, run before a turn ends after edits (tadamoo/gate.py)
@@ -1421,7 +1423,23 @@ class AgentLoop:
             self._code_told = True
             self.append({"role": "user", "content": CODE_MASKED_NOTE.format(paths=", ".join(paths)), "note": True})
 
-    def _prepare_context(self) -> None:
+    def fold_if_due(self) -> bool:
+        """After a final answer: folds the older steps now when the context is over its threshold, so the next request does not wait for it. The
+        mission card is not added: the request it names is the one just answered."""
+        ctx = self.context
+        if self.subagent or ctx is None or self.cancel.is_set():
+            return False
+        try:
+            before = ctx.estimate_tokens(self.messages)
+            due = before > ctx.budget_tokens * ctx.mask_at or bool(getattr(ctx, "compaction_due", lambda m: False)(self.messages))
+        except (AttributeError, TypeError):
+            return False
+        if not due:
+            return False
+        self._prepare_context(mission=False)
+        return True
+
+    def _prepare_context(self, mission: bool = True) -> None:
         """Keeps the conversation inside its budget; the compaction hooks hear of it when the context is over its threshold and gets smaller.
         A summary of the older steps (tadamoo/compaction.py) is announced with its report: what was replaced and what the server will read again."""
         ctx = self.context
@@ -1440,7 +1458,7 @@ class AgentLoop:
         self.messages = ctx.prepare(self.messages)
         self._note_released_code(getattr(ctx, "take_released", lambda: [])())
         report = getattr(ctx, "take_compaction", lambda: None)()
-        if report and not self.subagent:
+        if report and mission and not self.subagent:
             self.append({"role": "user", "content": self._mission_note(), "note": True})
         if report and self.on_compaction is not None:
             self.on_compaction()
