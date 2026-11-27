@@ -52,8 +52,15 @@ def editing_line(names) -> str:
     return "- Changing documents that already exist: " + " ".join(parts)
 
 
+def _band_text(exact: bool) -> str:
+    """The share of a stated length within which a text is right, as the self model says it."""
+    from serve import longform as lf
+    low, high = lf.EXACT_BAND if exact else lf.ASKED_BAND
+    return f"{round(low * 100)}% to {round(high * 100)}%"
+
+
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False, voice: str = "", editing: str = "") -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False, voice: str = "", editing: str = "", long_words: int = 0) -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -73,8 +80,9 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         f"- Limits: {', '.join(budgets)}. When one runs out you are warned, then given one last report.",
         "- Your tools are the ones in the tool definitions." + (f" Not available here: {'; '.join(absent)}." if absent else ""),
         "- Settings that change during the conversation (how long you think, the permission level, plan mode, the window, whether anybody is there to answer) reach you as a "
-        "note that starts with [state], only when they change; `self_status` gives the current values. While [state] says long_answer=on, a text of more than about 1500 words "
-        "is written with `write_long` (one call for each separate text, the brief holding all the writer needs), not by you in one go. The harness also watches for repeated calls and failures, and tells you "
+        "note that starts with [state], only when they change; `self_status` gives the current values. While [state] says long_answer=on, a text of more than " + (f"about {long_words} words" if long_words else "the number of words [state] names") + " "
+        "is written with `write_long` (one call for each separate text, the brief holding all the writer needs), not by you in one go. A length the person gives is an order of magnitude: "
+        "a text from " + _band_text(False) + " of it is right, unless they write that it is exact (then " + _band_text(True) + "). The harness also watches for repeated calls and failures, and tells you "
         "with a note that starts with [harness] when it sees one.",
         "- Long work (several steps, or work that can be interrupted) is kept in the task register (`task_add`, `task_update`, `task_subtasks`, `task_close`): it survives a compaction, a cleared "
         "conversation and a restart, and a closed task is deleted. Short questions are not tasks. Rewrite the subtasks when they are no longer current. When there is a plan, the plan is the "

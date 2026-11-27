@@ -48,3 +48,10 @@ The record is read when the model loads. `GET /v1/status` returns it as `length`
 a loop or a cap, and is longer than the number, becomes the new number. The number only rises. It cuts nothing: it is where the
 harness writes a text in checked parts instead of one reply (see [long answers](../longform.md)). A record made by an older method is ignored
 and measured again.
+
+## Which number counts
+
+For a text in parts the harness takes the reply length of the route a call goes to: the number written by hand for the provider (Settings > LLM
+providers, "Reply length") or for the loaded model (Loader, "Reply length set by hand"), else the measured one, else 10,000 tokens. What is written
+by hand wins over a measurement and use does not raise it. The words a token makes are not part of a record: the language decides them, so
+they are set for each conversation in Settings > Inference (60 when empty).

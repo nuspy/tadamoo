@@ -78,6 +78,15 @@ def context_budget(window: int, reserve: int) -> int:
     return max(available_budget(window, 0.1, reserve), MIN_BUDGET_TOKENS)
 
 
+def _long_words(client: Any, words_per_token: int = 0) -> int:
+    """About how many words a text must have to be written in parts for the route `client` calls now (0 when it cannot say)."""
+    try:
+        from tadamoo import longlimit
+        return longlimit.min_words(client, words_per_token)
+    except Exception:
+        return 0
+
+
 def server_context_window(client: Any) -> Optional[int]:
     """The context the server reports for the model it serves, asked through `client`; None when the client cannot ask, the server
     cannot be reached or it gives no number."""
@@ -185,6 +194,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--compaction-threshold", type=float, default=DEFAULT_COMPACTION_THRESHOLD,
                         help=f"the share of the prompt budget at which the older steps are summarised ({MIN_COMPACTION_THRESHOLD} to {MAX_COMPACTION_THRESHOLD}); never before masking starts")
     parser.add_argument("--end-turn-bias", type=float, default=0.0, help="0 or less: how much less ready the model is to end its turn (0 is off)")
+    parser.add_argument("--words-per-token", type=int, default=0, help="the words a token makes in this conversation's language, in percent (10 to 200); 0: the general one")
     parser.add_argument("--temperature", type=float, default=None,
                         help="sampling temperature of every model call; unset: the model file's own sampling applies. A temperature above 0 makes tool calls less repeatable")
     parser.add_argument("--max-tokens", type=int, default=None, help="most tokens one model reply may write; unset: the server's own limit")
@@ -254,7 +264,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         compaction=not args.no_compaction, compaction_threshold=args.compaction_threshold,
-        end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, sampling=json.loads(args.sampling) if args.sampling else {}, instruction_blocks=args.instruction_blocks,
+        end_turn_bias=args.end_turn_bias, words_per_token=args.words_per_token, temperature=args.temperature, max_tokens=args.max_tokens, sampling=json.loads(args.sampling) if args.sampling else {}, instruction_blocks=args.instruction_blocks,
         role=args.role, safe_commands=args.safe_command, project_checks=args.project_check,
         verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
         error_classifier=not args.no_error_classifier,
@@ -362,6 +372,7 @@ class AgentConfig:
     compaction_threshold: float = DEFAULT_COMPACTION_THRESHOLD   # the share of the prompt budget at which that starts
     keep_code: bool = True               # in a session with file or shell tools, code is never masked or summarised (tadamoo/context.py)
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
+    words_per_token: int = 0            # the words a token makes in the conversation's language, in percent; sizes the parts of a long text (0: the general one)
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
     sampling: Dict[str, Any] = field(default_factory=dict)      # the other sampling fields of every model call; what is not there is the model file's own
@@ -1111,7 +1122,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
             lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True, voice=voice_tools.KNOWLEDGE if cfg.voice else "",
-            editing=awareness.editing_line(registry.names())))
+            editing=awareness.editing_line(registry.names()), long_words=_long_words(client, cfg.words_per_token)))
     agent = AgentLoop(
         client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
@@ -1132,6 +1143,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         max_total_tokens=cfg.max_total_tokens,
         max_seconds=cfg.max_seconds,
         cancel=cancel,
+        words_per_token=cfg.words_per_token,
         sampling={**cfg.sampling, **({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {}),
                   **({"reasoning_effort": cfg.reasoning_effort} if cfg.reasoning_effort else {})} or None,
         clock=local_now,

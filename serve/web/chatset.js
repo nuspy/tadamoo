@@ -32,6 +32,7 @@ const chatSettings = (() => {
     { key: "max_turns", id: "cs-max_turns", min: -1, kind: "int", label: "cs.max_turns" },     // for the Agent, not for the model: -1 or empty is no limit
     { key: "max_answer_tokens", id: "cs-max_answer_tokens", min: -1, kind: "int", label: "cs.max_answer_tokens" },
     { key: "auto_continue", id: "cs-auto_continue", min: 0, max: 20, kind: "int", label: "cs.auto_continue" },     // for the Chat's own continuing, not sent to the model
+    { key: "words_per_token", id: "cs-words_per_token", min: 10, max: 200, kind: "int", label: "cs.words_per_token" },     // the language of this conversation decides it: it sizes the parts of a long text
   ];
   const NO_LIMIT = ["reasoning_budget_tokens", "max_tokens", "max_answer_tokens"];
   const AUTO_CONTINUE = 4;
@@ -61,6 +62,25 @@ const chatSettings = (() => {
   }
   applyT($("#chatset"));
   applyT($(".chathead"));
+  /* the "i" beside the words per token: the typical values by language, in steps of 5; it opens by tap or key and closes by the same, by Escape or by a tap elsewhere */
+  const WPT_BANDS = [["75", "cs.wpt.l75"], ["65", "cs.wpt.l65"], ["60", "cs.wpt.l60"], ["55", "cs.wpt.l55"], ["50", "cs.wpt.l50"], ["40", "cs.wpt.l40"], ["35", "cs.wpt.l35"]];
+  const wptBtn = $("#cs-wpt-info"), wptPop = $("#cs-wpt-table");
+  if (wptBtn && wptPop) {
+    const shut = () => { wptPop.hidden = true; wptBtn.setAttribute("aria-expanded", "false"); };
+    wptBtn.addEventListener("click", () => {
+      if (!wptPop.hidden) { shut(); return; }
+      const list = document.createElement("dl");
+      for (const [pct, key] of WPT_BANDS) {
+        const dt = document.createElement("dt"), dd = document.createElement("dd");
+        dt.textContent = pct + "%"; dd.textContent = T(key);
+        list.append(dt, dd);
+      }
+      const note = document.createElement("p"); note.className = "help"; note.textContent = T("cs.wpt.note");
+      wptPop.replaceChildren(list, note); wptPop.hidden = false; wptBtn.setAttribute("aria-expanded", "true");
+    });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !wptPop.hidden) { shut(); wptBtn.focus(); } });
+    document.addEventListener("click", e => { if (!wptPop.hidden && !wptPop.contains(e.target) && e.target !== wptBtn) shut(); });
+  }
 
   const fieldsOf = () => [...SAMPLING.map(f => ({ ...f, id: `cs-${f.key}`, label: `cs.${f.key}` })), ...OTHER];
   function read() {

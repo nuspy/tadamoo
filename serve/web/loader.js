@@ -372,6 +372,8 @@
         <div class="sh"><b>${esc(T("ln.title"))}</b></div>
         ${body}
         <div class="setactions"><p class="setstatus">${esc(T("ln.help"))}</p>
+          <label>${esc(T("ln.set.limit"))} <input type="number" id="ld-len-limit" min="0" step="1000" inputmode="numeric" value="${L.manual_limit_tokens || ""}" placeholder="${L.limit_tokens || ""}"></label>
+          <button type="button" class="btn" data-act="length-set" ${can ? "" : "disabled"}>${esc(T("ln.set.save"))}</button>
           <button type="button" class="btn" data-act="length" ${can ? "" : "disabled"}>${esc(T("ln.measure"))}</button>
           <button type="button" class="btn" data-act="length-stop" ${run ? "" : "disabled"}>${esc(T("ln.stop"))}</button></div>
       </section>`;
@@ -549,6 +551,12 @@
     const { r, j } = await post("api/loader/length", { action });
     if (!r.ok) { say(T("ld.phase.failed", failText(j, r)), "err"); return; }
     if (action === "measure") { INFO.status = { phase: "calibrating", job: "length", step: "length" }; watch(); }
+  }
+  async function setLength() {
+    const { r, j } = await post("api/loader/length", { action: "set", manual_limit_tokens: Number(($("#ld-len-limit") || {}).value || 0) });
+    if (!r.ok) { say(T("ld.phase.failed", failText(j, r)), "err"); return; }
+    say(T("ln.set.saved"));
+    refresh();
   }
   function say(text, kind) {
     $$(".ldstate").forEach(e => { e.textContent = text; e.dataset.kind = kind || ""; });
@@ -830,6 +838,7 @@
     if (b.dataset.act === "calibrate") calibrate();
     if (b.dataset.act === "length") measureLength("measure");
     if (b.dataset.act === "length-stop") measureLength("stop");
+    if (b.dataset.act === "length-set") setLength();
   });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
   document.addEventListener("tadamoo:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });

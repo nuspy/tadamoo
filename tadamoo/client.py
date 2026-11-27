@@ -190,18 +190,22 @@ class TadamooClient:
     def length_limit(self, timeout: float = 3.0) -> int:
         """The tokens of a reply (thinking and answer) this model is known to write well, as /v1/status reports them; 0 while the server has
         not measured it or cannot be reached. Asked at most once per LENGTH_ASK_S."""
+        return self._length_numbers(timeout)[0]
+
+
+    def _length_numbers(self, timeout: float) -> tuple:
         asked = self.__dict__.get("_length")
         if asked is not None and time.monotonic() - asked[0] < self.LENGTH_ASK_S:
-            return asked[1]
-        value = 0
+            return (asked[1],)
+        limit = 0
         try:
             length = self._get("/v1/status", timeout).get("length")
             seen = length.get("limit_tokens") if isinstance(length, dict) else 0
-            value = int(seen) if isinstance(seen, (int, float)) and not isinstance(seen, bool) and seen > 0 else 0
+            limit = int(seen) if isinstance(seen, (int, float)) and not isinstance(seen, bool) and seen > 0 else 0
         except Exception:                                    # no answer is no limit
-            value = 0
-        self.__dict__["_length"] = (time.monotonic(), value)
-        return value
+            limit = 0
+        self.__dict__["_length"] = (time.monotonic(), limit)
+        return (limit,)
 
     SIDE_ASK_S = 30.0          # how long the server's answer about its technical session is kept
     SIDE_RETRY_S = 3.0         # how long "could not be asked" is kept: a connection that failed once is no proof the session is gone

@@ -242,6 +242,7 @@ class AgentLoop:
         context: Optional[ContextManager] = None,
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         sampling: Optional[Dict[str, Any]] = None,
+        words_per_token: int = 0,
         on_delta: Optional[Callable[[str, str], None]] = None,
         before_inference: Optional[Callable[[], Optional[str]]] = None,
         batch_interrupt: Optional[Callable[[], str]] = None,
@@ -303,6 +304,7 @@ class AgentLoop:
         self._card: Optional[Card] = None
         self._retried = False
         self.sampling = dict(sampling or {})      # temperature, seed, top_p...; what is not set is the model file's own
+        self.words_per_token = int(words_per_token or 0)    # the words a token makes in the conversation's language, in percent; 0: the general one
         self.max_tokens = max_tokens              # the most one reply may write; None: the server's own limit
         self.gate = gate                          # the project's own checks, run before a turn ends after edits (tadamoo/gate.py)
         self.changes = changes                    # how many file changes have been recorded: a change is progress, and what the gate looks at

@@ -5,8 +5,10 @@ cloud route carries:
 
 * `cache_control`: the request marks the stable start of the prompt (the tools and the system text) for the provider's cache. On for
   Anthropic routes unless the record says `"cache_control": false`.
-* `context_window` and `max_output`: whole numbers of tokens the person put in the provider's record (`set_limits`), else unknown (None).
-  The client keeps a request's output inside `max_output`, and the agent plans its context by `context_window`.
+* `context_window`, `max_output` and `reply_length`: whole numbers of tokens the person put in the provider's record (`set_limits`), else unknown (None).
+  The client keeps a request's output inside `max_output`, the agent plans its context by `context_window`, and `reply_length` is how long a reply the
+  model writes well: with the words a token makes (a setting of the conversation) it gives the words one reply holds, the size of a part (serve/longform.py
+  `Capacity`).
 * `stateless`: every call carries the whole conversation. `accepts_ids` is the other kind, a provider that can refer to what it already
   holds by id; none of the types here does, and the record may say `"accepts_ids": true` for one that does.
 """
@@ -22,6 +24,7 @@ class RouteProfile:
     cache_control: bool = False
     context_window: Optional[int] = None
     max_output: Optional[int] = None
+    reply_length: Optional[int] = None
     accepts_ids: bool = False
 
     @property
@@ -30,7 +33,7 @@ class RouteProfile:
 
     def as_dict(self) -> Dict[str, Any]:
         return {"local": self.local, "cache_control": self.cache_control, "context_window": self.context_window,
-                "max_output": self.max_output, "stateless": self.stateless, "accepts_ids": self.accepts_ids}
+                "max_output": self.max_output, "reply_length": self.reply_length, "stateless": self.stateless, "accepts_ids": self.accepts_ids}
 
 
 def _tokens(value: Any) -> Optional[int]:
@@ -47,5 +50,6 @@ def route_profile(prov: Optional[Dict[str, Any]], spec: Optional[Dict[str, Any]]
         cache_control=spec.get("api") == "anthropic" and prov.get("cache_control") is not False,
         context_window=_tokens(prov.get("context_window")),
         max_output=_tokens(prov.get("max_output")),
+        reply_length=_tokens(prov.get("reply_length")),
         accepts_ids=prov.get("accepts_ids") is True,
     )

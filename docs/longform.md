@@ -69,8 +69,25 @@ default, for conversations started afterwards); with it off the answer stays emp
 
 ## The segmented mode
 
-For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never
-over 2500), and the segments are put together. Each segment is checked by plain code before it is kept.
+For a final text that is too long for one turn the text is planned, then written one **segment** per model call (at most what one reply
+holds, see [the capacity](#the-capacity-of-a-reply)), and the segments are put together. Each segment is checked by plain code before it is kept.
+
+### The capacity of a reply
+
+Every size below comes from one number, the **capacity**: the tokens one reply of the model in use holds, times the **words a token makes** (a
+percent). The tokens are the reply length written by hand for the model or the provider, else the measured one ([length](configuration/length.md)),
+else 10,000. The percent is a setting of the conversation (Settings > Inference, "Words per token", with an "i" that lists typical values by
+language), 60 when empty, because a language and a tokenizer decide it. Their product is the words one part holds (`serve.longform.Capacity`); the
+same place turns words into tokens (`tokens_for`). A text over those words is written in parts, a part holds at most that many words and the least
+a part is planned at is a quarter of it. The most parts of a text and the continuations of a cut part follow from the part size (`max_segments`,
+`continuations`).
+
+### How exact a length is
+
+A length the person gives is an order of magnitude: a text from 0.8 to 1.25 times it is right, and nothing is added or rewritten to move it
+inside that band. When the request says the length is exact ("exactly", "esattamente", "di preciso") the band is 0.97 to 1.03
+(`length_band`, `Spec.exact`). The final `verify` event carries `band` and `within_band`. The harness texts say the same, so the model does not
+chase a number the person gave loosely.
 
 Two ways to start it, both with the same engine:
 
@@ -80,12 +97,10 @@ Two ways to start it, both with the same engine:
    text then goes through the same flow as in the Agent (below; the page's length field is a declared length, so no estimate is asked, and
    a plan given as `outline` is followed as it is); in the Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
    no card, and for a new text no length estimate (the person chose it).
-2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above 10,000 tokens (about
-   6,000 words; "10,000 words", "10.000 parole", "40 pages", "7k words") with a writing verb or a document kind, a translation or
-   rewrite of a text over 10,000 tokens, an analysis of a very large text. Words become tokens in one place (`tokens_for_words`): 1.35 tokens a
-   word for English and 1.6 for Italian and any language not recognised, by the language of the request, so 6,500 words ask for parts in
-   Italian (10,400 tokens) and not in English (8,775). A chapter with no length counts as 2500 words. Where the person is, a card offers "About
-   10,000 words (13,500 tokens): write it in 5 parts?" (the first option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
+2. **By the harness.** A deterministic check of the person's request (`detect_long_request`): a length asked for above the capacity ("10,000
+   words", "10.000 parole", "40 pages", "7k words") with a writing verb or a document kind, a translation or rewrite of a text over the
+   capacity, an analysis of a very large text. Where the person is, a card offers "About 30,000 words: write it in 4 parts?" (the first
+   option is recommended) and the turn ends on it; where nobody watches (a routine, `--unattended`) the offer is taken at once and
    noted as an assumption. Once taken, **the harness writes the text itself**: the model is not asked to call anything. There is no tool for it
    (`plan_long_answer` was removed, so the stable tool list lost one entry once: a conversation saved before that has a different cached
    prefix on its first request).
@@ -104,16 +119,16 @@ conversation's own session, with the earlier text turns of the conversation ahea
 
 1. **Estimate.** The question alone, the form `{words, reason}`. The words are clamped to 50..200000 and bounded: within 0.8 to 1.25 times
    a length the request states, else within a quarter to four times the rule-based words. A reply that cannot be read falls back to the
-   rule-based words (`source: rule`). At or under the threshold (10,000 tokens) the harness stops and the model answers as usual
+   rule-based words (`source: rule`). At or under the capacity the harness stops and the model answers as usual
    (`estimate` event with `long: false`).
-2. **Plan.** The question, the words and the number of parts (about one per 2000 words); the form is `{title, chunks: [{id, heading, goal,
-   target_words, key_points, instruction}]}`. Caps are enforced in code: the count must allow parts of 700 to 2500 words (one more try
+2. **Plan.** The question, the words and the number of parts (the words over what a part holds, rounded up); the form is `{title, chunks: [{id, heading, goal,
+   target_words, key_points, instruction}]}`. Caps are enforced in code: the count must allow parts of a quarter of the capacity up to the capacity (one more try
    with the allowed range, then an even plan with `fallback: true`), the parts are numbered in order (the model's `id` is not trusted),
-   their words are scaled to the total and kept within 700..2500, and every field is cut to a limit. `instruction` is the exact task
+   their words are scaled to the total and kept in that range, and every field is cut to a limit. `instruction` is the exact task
    for the writer of that part.
 3. **Parts.** One call each, by `LongAnswer`: protected content, the checks after each part, continuation of a cut part. The part's message
    carries its `instruction` and key points, and the harness adds where the previous part ended (the last 120 words).
-4. **Check.** For each piece of the text that fits (consecutive parts up to 3000 words) a short call sees the request, the plan and the
+4. **Check.** For each piece of the text that fits (consecutive parts up to what a part holds) a short call sees the request, the plan and the
    piece, and lists fixes `{op: replace | insert_after | delete, chunk, anchor, instruction}`, the anchor being 6 to 12 words copied from the
    text. The harness finds the anchor itself: exact, then ignoring whitespace, quote marks and dashes, in the named part only; under 4
    words, not found, found twice, or crossing two paragraphs, the fix is not applied. The passage is the paragraph that holds the anchor;

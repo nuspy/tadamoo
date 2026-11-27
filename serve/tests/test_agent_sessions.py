@@ -1248,3 +1248,19 @@ def test_the_pictures_and_diagrams_levels_and_the_sampling_of_a_conversation_can
     for bad in ({"temperature": 9}, {"temperature": "hot"}, {"max_tokens": -5}, {"max_tokens": 1.5}):
         with pytest.raises(RunError):
             mgr.set_settings(sid, **bad)
+
+
+def test_the_words_per_token_of_a_conversation_is_kept_given_to_its_process_and_changed_by_its_settings(make, ws):
+    mgr = make()
+    rec = mgr.create(ws, inference_settings={"words_per_token": "65"})
+    assert rec["words_per_token"] == 65
+    cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
+    assert cmd[cmd.index("--words-per-token") + 1] == "65"
+    plain = mgr.create(ws)
+    assert plain["words_per_token"] == 0 and "--words-per-token" not in mgr._command(plain["id"], plain, mgr.history_dir(plain["id"]))
+    changed = mgr.set_inference(plain["id"], {"words_per_token": 55})
+    assert changed["words_per_token"] == 55 and mgr._record(plain["id"])["words_per_token"] == 55
+    assert mgr.set_inference(plain["id"], {})["words_per_token"] == 0                  # emptied: the general one again
+    for bad in ("9", 201, "many", True):
+        with pytest.raises(RunError):
+            mgr.set_inference(plain["id"], {"words_per_token": bad})

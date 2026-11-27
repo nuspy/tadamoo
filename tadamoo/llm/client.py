@@ -230,6 +230,15 @@ class RoutedClient:
             return self.local.context_window(*a, **k)
         return self.profile(pid).context_window
 
+    def length_limit(self, *a: Any, **k: Any) -> int:
+        """How long a reply the route a call of this function takes now writes well, in tokens (0: not known): the provider's own number from its
+        record, or the loaded model's (written by hand in its record, else measured) when the call goes to it. Nothing is shared between routes."""
+        pid, _ = self.registry.resolve_route(self.function, local_loaded=not self._nothing_loaded())
+        if pid is None:
+            ask = getattr(self.local, "length_limit", None)
+            return int(ask(*a, **k)) if callable(ask) else 0
+        return int(self.profile(pid).reply_length or 0)
+
     def profile(self, pid: Optional[str] = None) -> RouteProfile:
         """What the route this function is pointed at (or the provider `pid`) can do. The loaded model has the plain profile."""
         data = self.registry.load()

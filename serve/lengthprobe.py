@@ -225,6 +225,26 @@ class Lengths:
         measured = r.get("reliable_tokens") or 0 if r.get("bounded") else 0
         return int(max(measured, r.get("observed_max_tokens") or 0))
 
+    def set_manual(self, limit_tokens: int) -> dict:
+        """Writes by hand into the record of the model in use how long a reply it writes well (0 clears it), making the record when the model has
+        none yet; what was measured stays. Returns the summary."""
+        facts = self.facts()
+        key = facts.get("meta_hash")
+        if not key:
+            raise ValueError("no model is loaded")
+        if limit_tokens < 0:
+            raise ValueError("the reply length is a number of tokens")
+        with self.lock:
+            r = self.record or read(key) or {"version": VERSION, "model": identity(facts), "rungs": [], "complete": False, "stopped_by": "manual",
+                                             "reliable_tokens": 0, "bounded": False, "observed_max_tokens": 0}
+            if int(limit_tokens) > 0:
+                r["manual_limit_tokens"] = int(limit_tokens)
+            else:
+                r.pop("manual_limit_tokens", None)
+            self.record = r
+            write(key, r)
+        return self.summary()
+
     def set(self, record: dict) -> None:
         with self.lock:
             self.record = record
@@ -261,7 +281,8 @@ class Lengths:
         r = self.record
         if not r:
             return {"known": False}
-        return {"known": True, "limit_tokens": self.limit_tokens(), "reliable_tokens": r.get("reliable_tokens"), "bounded": bool(r.get("bounded")),
+        return {"known": True, "limit_tokens": self.limit_tokens(), "manual_limit_tokens": int(r.get("manual_limit_tokens") or 0),
+                "reliable_tokens": r.get("reliable_tokens"), "bounded": bool(r.get("bounded")),
                 "first_stop_tokens": r.get("first_stop_tokens"), "settings": r.get("settings") or {},
                 "reliable_words": r.get("reliable_words"), "natural_tokens": r.get("natural_tokens"), "natural_words": r.get("natural_words"),
                 "reached_cap": r.get("reached_cap"), "observed_max_tokens": r.get("observed_max_tokens"), "measured_at": r.get("measured_at"),

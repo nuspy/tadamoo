@@ -554,6 +554,7 @@
     body.messages = api.out.filter((x, k) => api.at[k] < 0 || !messages[api.at[k]].outside);
     if (cont) body.messages.push({ role: "user", content: CONTINUE_NOTE });
     if (effort.value) body.reasoning_effort = effort.value;
+    if (!long) delete body.words_per_token;                                       // only the parts of a long text use it
     if (long) { body.long_answer = long; for (const k of ["max_tokens", "max_answer_tokens", "response_format", "structured_retries"]) delete body[k]; }
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,

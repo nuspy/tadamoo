@@ -12,6 +12,7 @@ the retries is reported, never hidden.
 from __future__ import annotations
 
 import json
+import math
 import queue
 import re
 import threading
@@ -23,18 +24,11 @@ from tadamoo.continuation import cut_point, join_continuation
 from tadamoo.markdown_chunks import joiner, split_markdown, whole_blocks
 
 MODES = ("write", "translate", "rewrite")
-SEGMENT_WORDS = 2000            # words one segment aims at
-SEGMENT_WORDS_RANGE = (200, 2500)
 TARGET_WORDS_RANGE = (50, 200000)
-CHUNK_WORDS = (700, 2500)               # the words a part reliably holds when a plan is cut into parts
-CHUNK_MAX = 2500                        # a part is never planned longer than this
-MAX_SEGMENTS = 60
 RETRIES_MAX = 3
 LOW_RATIO, HIGH_RATIO = 0.7, 1.6        # a segment outside this part of its target is flagged
-TOKENS_PER_WORD = 2.2                   # cap on a segment's output, in tokens per word of its upper bound
 TRANSCRIPT_SHARE = 0.6                  # past this share of the context the earlier segments are dropped from the prompt
 ANCHOR_WORDS = 120                      # the end of the text so far, repeated in a prompt that carries no earlier segments
-CONTINUATIONS = 2
 CHARS_PER_TOKEN = 3.0
 SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n",
                    "seed")      # the request's own sampling, passed on to every call that writes
@@ -186,16 +180,46 @@ def protect(text: str) -> Tuple[str, Protected]:
 
 # -- when a request needs parts -------------------------------------------------------------------------------------------
 
-LONG_MIN_TOKENS = 10000             # a text asked for above this is written in parts, for a model whose length is not known
-ANSWER_SHARE = 0.6                  # of the tokens a model writes well in one reply, thinking included, the share the answer may take
-LONG_MIN_FLOOR = 500                # the least threshold a measured length gives
+GENERAL_REPLY_TOKENS = 10000        # the reply length taken when none is set for the model or provider and none was measured
+WORDS_PER_TOKEN_PERCENT = 60        # the words a token makes, in percent, when none is set
 
 
-def long_min_tokens(limit: int = 0) -> int:
-    """The answer tokens above which a text is written in parts: the general threshold, lowered for a model whose measured reliable reply
-    (serve/lengthprobe.py), less what its thinking takes, is shorter."""
-    return min(LONG_MIN_TOKENS, max(LONG_MIN_FLOOR, int(limit * ANSWER_SHARE))) if limit and limit > 0 else LONG_MIN_TOKENS
-TOKENS_PER_WORD_BY_LANGUAGE = {"en": 1.35, "it": 1.6}   # a language not listed (or not recognised) counts like Italian: a long request is not missed
+@dataclass(frozen=True)
+class Capacity:
+    """What one reply of the model or provider in use holds: its length in tokens (set by hand for it, else measured, else the general number) and
+    the words a token makes. A text longer than `words` is written in parts, each at most `words` long, and the tokens shown are these words
+    turned back. Words and tokens are converted here and nowhere else (serve/lengthprobe.py and the provider's record hold the two numbers)."""
+    tokens: int = GENERAL_REPLY_TOKENS
+    percent: int = WORDS_PER_TOKEN_PERCENT
+
+    @property
+    def words(self) -> int:
+        return max(1, int(self.tokens * self.percent / 100))
+
+    def tokens_for(self, words: float) -> int:
+        return int(round(words * 100 / self.percent))
+
+
+def capacity(limit: int = 0, percent: int = 0) -> Capacity:
+    """The capacity of a route from its numbers (0: not set): the declared, else the measured length, else the general one."""
+    return Capacity(int(limit) if limit and limit > 0 else GENERAL_REPLY_TOKENS, int(percent) if percent and percent > 0 else WORDS_PER_TOKEN_PERCENT)
+
+
+def part_floor(part_words: int) -> int:
+    """The least a part is planned at when a plan is cut into parts: a quarter of what a part holds."""
+    return max(1, part_words // 4)
+
+
+def max_segments(part_words: int) -> int:
+    """The most parts a text may be planned in: the longest text a request may ask for, cut into parts of `part_words`."""
+    return max(1, math.ceil(TARGET_WORDS_RANGE[1] / max(1, part_words)))
+
+
+def continuations(part_words: int) -> int:
+    """How many times a part that was cut off is asked to go on: it is reached in pieces of at least the least a part is planned at."""
+    return max(1, part_words // part_floor(part_words) - 1)
+
+
 WORDS_ASKED_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:[.,' ]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b)?\s*(?:-\s*)?(?:words?|parole|palabras|mots|wörter|palavras)\b", re.I)
 PAGES_ASKED_RE = re.compile(r"(?<![\w.])(\d+)\s*(?:pages?|pagine|páginas|paginas|seiten)\b", re.I)
 WORDS_PER_PAGE = 450
@@ -205,25 +229,27 @@ KIND_RE = re.compile(r"\b(?:report|relazione|rapporto|saggio|essay|ebook|libro|b
 TRANSLATE_RE = re.compile(r"\b(?:translate|traduci|traduzione|traducir|traduire|übersetze)\b", re.I)
 REWRITE_RE = re.compile(r"\b(?:rewrite|riscrivi|riscrittura|riformula|reescribe|réécris|umschreiben)\b", re.I)
 ANALYSE_RE = re.compile(r"\b(?:analy[sz]e|analysis|analizza|analisi|riassumi|summari[sz]e)\b", re.I)
-CHAPTER_WORDS = 2500                # a chapter asked for without a length
-
-
-def tokens_per_word(language: str = "") -> float:
-    return TOKENS_PER_WORD_BY_LANGUAGE.get(language, TOKENS_PER_WORD_BY_LANGUAGE["it"])
-
-
-def tokens_for_words(words: float, language: str = "") -> int:
-    """The tokens a text of `words` words takes in `language` (the one place words and tokens are converted)."""
-    return int(round(words * tokens_per_word(language)))
-
-
-def words_for_tokens(tokens: float, language: str = "") -> int:
-    return int(round(tokens / tokens_per_word(language)))
 
 
 def request_language(text: str) -> str:
     """The language of a request, or '' when it cannot be told (a short request is judged from fewer words than a long text)."""
     return detect_language(text, min_words=4)
+
+
+ASKED_BAND = (0.8, 1.25)            # a length the person stated is an order of magnitude: a text within this share of it is right
+EXACT_BAND = (0.97, 1.03)           # the same when the person wrote that the length is exact
+EXACT_RE = re.compile(r"\b(exactly|precisely|exact|esattamente|precisamente|di preciso|esatte|esatti)\b", re.I)
+
+
+def asks_exactly(text: str) -> bool:
+    """Whether the request says its length is exact; without that, a stated length is approximate."""
+    return isinstance(text, str) and bool(EXACT_RE.search(text))
+
+
+def length_band(words: int, exact: bool = False) -> Tuple[int, int]:
+    """The least and the most words of a text that was asked about `words` long and is right."""
+    low, high = EXACT_BAND if exact else ASKED_BAND
+    return int(words * low), int(math.ceil(words * high))
 
 
 def asked_words(text: str) -> int:
@@ -248,7 +274,7 @@ SIZES = ("fixed", "heuristic", "hybrid")     # fixed: words is the target, as gi
 # request. hybrid: words bounds that same judgment instead of fixing it (serve/longflow.py's LongFlow, hint_words + stated)
 
 
-def parse_hint(text: str) -> Optional[Dict[str, Any]]:
+def parse_hint(text: str, cap: Optional[Capacity] = None) -> Optional[Dict[str, Any]]:
     """The line the Agentic coding tab's Long answer control puts at the end of a message ("[long answer: mode=translate; words=5000; language=it]"):
     the request without it, the mode, the words and the other fields, or None when the message has no such line. `size` (a plain write only) is
     "fixed" when the line has no size field of its own, for a line from before this existed."""
@@ -259,24 +285,25 @@ def parse_hint(text: str) -> Optional[Dict[str, Any]]:
     body = text[:m.start()].rstrip()
     mode = fields.get("mode") if fields.get("mode") in MODES else "write"
     size = fields.get("size") if fields.get("size") in SIZES else "fixed"
-    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), SEGMENT_WORDS)
-    return {"mode": mode, "size": size, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
+    cap = cap or capacity()
+    words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), cap.words)
+    return {"mode": mode, "size": size, "words": words, "parts": chunk_count(words, 0, cap.words), "reason": "asked", "text": body, "fields": fields}
 
 
-def detect_long_request(text: str, source_words: int = 0, min_tokens: int = LONG_MIN_TOKENS) -> Optional[Dict[str, Any]]:
-    """A request that needs parts, found by plain rules, or None. `source_words` are the words of an attached text; `min_tokens`, the answer
-    length above which a text goes in parts (long_min_tokens). The answer holds the mode, the words the text will have, the number of parts and why."""
+def detect_long_request(text: str, source_words: int = 0, cap: Optional[Capacity] = None) -> Optional[Dict[str, Any]]:
+    """A request that needs parts, found by plain rules, or None. `source_words` are the words of an attached text; `cap`, what one reply of the
+    route holds: a text longer than its words goes in parts. The answer holds the mode, the words the text will have, the number of parts and why."""
     if not isinstance(text, str) or not text.strip():
         return None
+    cap = cap or capacity()
     typed, asked = count_words(text), asked_words(text)
     size = max(typed, source_words)
-    lang = request_language(text)
 
     def over(words: int, times: int = 1) -> bool:
-        return tokens_for_words(words, lang) > times * min_tokens
+        return words > times * cap.words
 
     def found(mode: str, words: int, reason: str) -> Dict[str, Any]:
-        return {"mode": mode, "words": words, "tokens": tokens_for_words(words, lang), "parts": chunk_count(words), "reason": reason}
+        return {"mode": mode, "words": words, "tokens": cap.tokens_for(words), "parts": chunk_count(words, 0, cap.words), "reason": reason}
     if TRANSLATE_RE.search(text) or REWRITE_RE.search(text):
         mode = "translate" if TRANSLATE_RE.search(text) else "rewrite"
         return found(mode, size, "source") if over(size) else None
@@ -284,8 +311,6 @@ def detect_long_request(text: str, source_words: int = 0, min_tokens: int = LONG
         return found("write", size // 2, "source")
     if over(asked) and (WRITE_VERB_RE.search(text) or CHAPTER_RE.search(text) or KIND_RE.search(text) or over(asked, 2)):       # twice the threshold needs no writing verb
         return found("write", asked, "length")
-    if not asked and CHAPTER_RE.search(text) and WRITE_VERB_RE.search(text) and over(CHAPTER_WORDS):
-        return found("write", CHAPTER_WORDS, "chapter")
     return None
 
 
@@ -642,27 +667,46 @@ class Spec:
     language: str = ""                  # code when known, else as the person wrote it
     style: str = ""
     glossary: Dict[str, str] = field(default_factory=dict)
-    segment_words: int = SEGMENT_WORDS
+    segment_words: int = 0              # 0: the words a part holds (part_max)
+    part_max: int = 0                   # the most words a part is planned at; 0: the general capacity's
+    words_percent: int = 0              # the words a token makes, in percent; 0: the general one
     sections: int = 0
     headings: Optional[bool] = None
     retries: int = 1
     protect: bool = True
-    max_segments: int = MAX_SEGMENTS
+    max_segments: int = 0               # the most parts a text may be planned in; 0: what the part size gives (`segments_cap`)
     max_seconds: float = 0.0
     context_tokens: int = 0
     end_turn_bias: Optional[float] = None
     outline: List[Dict[str, Any]] = field(default_factory=list)     # sections the caller planned: heading, goal, target_words, key_points
     title: str = ""
+    exact: bool = False                 # the request said the length is exact: the band around it is narrow
     declared: bool = False              # the request stated the length (or gave the plan), so nothing is asked of the model about it
 
+    def part_cap(self) -> int:
+        """The most words a part is planned at."""
+        return self.part_max or capacity().words
+
+    def tokens_for(self, words: float) -> int:
+        """The tokens that many words take, at the words a token makes for this text's route."""
+        return Capacity(percent=self.words_percent or WORDS_PER_TOKEN_PERCENT).tokens_for(words)
+
+    def segments_cap(self) -> int:
+        """The most parts this text may be planned in."""
+        return self.max_segments or max_segments(self.part_cap())
+
+    def segment(self) -> int:
+        """The words a segment aims at: the request's, else what a part holds."""
+        return self.segment_words or self.part_cap()
+
     @staticmethod
-    def from_request(raw: Any, task_text: str = "") -> "Spec":
+    def from_request(raw: Any, task_text: str = "", cap: Optional[Capacity] = None) -> "Spec":
         """The long-answer options of a request (`true` for the defaults). LongformError for anything the mode cannot take."""
         if raw is True:
             raw = {}
         if not isinstance(raw, dict):
             raise LongformError("long_answer: true or an object")
-        known = {"mode", "task", "instruction", "source", "target_words", "target_language", "language", "style", "glossary",
+        known = {"mode", "task", "instruction", "source", "target_words", "exact", "target_language", "language", "style", "glossary",
                  "segment_words", "sections", "headings", "retries", "protect", "max_segments", "max_seconds", "context_tokens",
                  "end_turn_bias", "outline", "title", "size"}
         unknown = sorted(set(raw) - known)
@@ -696,7 +740,7 @@ class Spec:
         target = number("target_words", *TARGET_WORDS_RANGE, 0)
         if mode == "write":
             text = text or task_text.strip()
-            fallback = 0 if size == "heuristic" else 2000           # heuristic judges freely: no number fills in behind its back
+            fallback = 0 if size == "heuristic" else (cap or capacity()).words           # heuristic judges freely: no number fills in behind its back
             target = target or (sum(r["target_words"] for r in outline if r["target_words"]) if outline else 0) or fallback
             if not text:
                 raise LongformError("long_answer: write needs a task (the last user message, or `task`)")
@@ -720,12 +764,14 @@ class Spec:
             raise LongformError("long_answer.end_turn_bias: a number from -20 to 0")
         return Spec(mode=mode, task=text, source=source, target_words=target, language=language_code(lang) or lang,
                     style=(raw.get("style") or "").strip(), glossary=dict(glossary),
-                    segment_words=number("segment_words", *SEGMENT_WORDS_RANGE, SEGMENT_WORDS),
-                    sections=number("sections", 0, MAX_SEGMENTS, 0), headings=headings, retries=retries,
-                    protect=raw.get("protect", True), max_segments=number("max_segments", 1, 500, MAX_SEGMENTS),
+                    segment_words=number("segment_words", 1, (cap or capacity()).words, 0),
+                    part_max=cap.words if cap else 0, words_percent=cap.percent if cap else 0,
+                    sections=number("sections", 0, max_segments((cap or capacity()).words), 0), headings=headings, retries=retries,
+                    protect=raw.get("protect", True), max_segments=number("max_segments", 1, max_segments(part_floor((cap or capacity()).words)), 0),
                     max_seconds=number("max_seconds", 0, 86400 * 7, 0.0, whole=False), context_tokens=number("context_tokens", 0, 10 ** 8, 0),
                     end_turn_bias=float(bias) if bias is not None else None, outline=outline,
                     title=" ".join(str(raw.get("title") or "").split())[:160],
+                    exact=bool(raw.get("exact")) or asks_exactly(text),
                     declared=mode == "write" and size == "fixed" and (raw.get("target_words") is not None or bool(outline)))
 
 
@@ -800,19 +846,21 @@ def clean_outline(raw: Any) -> List[Dict[str, Any]]:
     return rows
 
 
-def chunk_count(total_words: int, chunk_words: int = SEGMENT_WORDS) -> int:
-    """How many parts a text of `total_words` is written in: parts of `chunk_words` (kept within what a part reliably holds)."""
-    size = min(max(chunk_words, CHUNK_WORDS[0]), CHUNK_WORDS[1])
+def chunk_count(total_words: int, chunk_words: int = 0, part_max: int = 0) -> int:
+    """How many parts a text of `total_words` is written in: parts of `chunk_words` (0: what a part holds), kept within what a part holds
+    (`part_max`, 0: the general threshold's)."""
+    cap = part_max or capacity().words
+    size = min(max(chunk_words or cap, part_floor(cap)), cap)
     n = max(1, round(total_words / size))
-    while total_words / n > CHUNK_MAX:
+    while total_words / n > cap:
         n += 1
     return n
 
 
-def chunks_from_outline(rows: List[Dict[str, Any]], total_words: int, chunk_words: int = SEGMENT_WORDS) -> List[Segment]:
+def chunks_from_outline(rows: List[Dict[str, Any]], total_words: int, chunk_words: int = 0, part_max: int = 0) -> List[Segment]:
     """The parts of a planned text: the number comes from the total, and each part takes the sections that fall in its share of the words
     (a section longer than a part is written over several, a short one shares a part with its neighbours)."""
-    n = chunk_count(total_words, chunk_words)
+    n = chunk_count(total_words, chunk_words, part_max)
     known = sum(r["target_words"] for r in rows)
     sizes = [r["target_words"] * total_words / known if known and r["target_words"] else total_words / len(rows) for r in rows]
     scale = total_words / (sum(sizes) or 1)
@@ -850,7 +898,7 @@ def even_outline(spec: Spec, sections: int) -> List[Segment]:
 
 def source_plan(spec: Spec, masked: str, prot: Protected) -> List[Segment]:
     """Translate and rewrite: the source blocks are the plan, and each block's length decides the length of its part."""
-    pieces = pack(split_units(masked), spec.segment_words)
+    pieces = pack(split_units(masked), spec.segment())
     total = sum(count_words(p) for p in pieces) or 1
     ratio = 1.0
     if spec.mode == "translate":
@@ -1078,7 +1126,7 @@ class LongAnswer:
         """One part, continued when the limit or a mid-sentence end cut it. Returns (text, finish, continuations)."""
         text, finish = yield from self._call(messages, cap)
         conts = 0
-        while conts < CONTINUATIONS and (finish == "length" or (finish == "stop" and ends_midword(text))) and not self.cancel.is_set():
+        while conts < continuations(self.spec.part_cap()) and (finish == "length" or (finish == "stop" and ends_midword(text))) and not self.cancel.is_set():
             conts += 1
             more = [*messages, {"role": "assistant", "content": text[:cut_point(text)]}, {"role": "user", "content": CONTINUE_NOTE}]
             piece, finish = yield from self._call(more, cap)
@@ -1092,28 +1140,28 @@ class LongAnswer:
         if spec.mode != "write":
             masked, self.prot = protect(spec.source) if spec.protect else (spec.source.replace("\r\n", "\n"), Protected())
             plan = source_plan(spec, masked, self.prot)
-            if len(plan) > spec.max_segments:
-                raise LongformError(f"the source needs {len(plan)} segments, over the limit of {spec.max_segments}; raise max_segments")
+            if len(plan) > spec.segments_cap():
+                raise LongformError(f"the source needs {len(plan)} segments, over the limit of {spec.segments_cap()}; raise max_segments")
             return plan, False
         if spec.outline:
             self.title = spec.title
-            plan = chunks_from_outline(spec.outline, spec.target_words, spec.segment_words)
-            if len(plan) > spec.max_segments:
-                raise LongformError(f"the plan needs {len(plan)} parts, over the limit of {spec.max_segments}; raise max_segments")
+            plan = chunks_from_outline(spec.outline, spec.target_words, spec.segment_words, spec.part_max)
+            if len(plan) > spec.segments_cap():
+                raise LongformError(f"the plan needs {len(plan)} parts, over the limit of {spec.segments_cap()}; raise max_segments")
             return plan, False
-        sections = spec.sections or max(1, round(spec.target_words / spec.segment_words))
-        if sections > spec.max_segments:
-            raise LongformError(f"the text needs {sections} segments, over the limit of {spec.max_segments}; raise max_segments")
+        sections = spec.sections or max(1, round(spec.target_words / spec.segment()))
+        if sections > spec.segments_cap():
+            raise LongformError(f"the text needs {sections} segments, over the limit of {spec.segments_cap()}; raise max_segments")
         if sections == 1:
             return [Segment(0, goal="", words=spec.target_words)], False
         messages = [{"role": "user", "content": outline_request(spec, sections)}]
         for _ in range(2):
-            reply, _finish = yield from self._call(messages, 2000)
+            reply, _finish = yield from self._call(messages, spec.tokens_for(spec.part_cap()))
             found = parse_outline(reply, sections, spec.target_words)
             if found:
                 self.title, plan = found
-                if len(plan) > spec.max_segments:
-                    raise LongformError(f"the outline has {len(plan)} sections, over the limit of {spec.max_segments}")
+                if len(plan) > spec.segments_cap():
+                    raise LongformError(f"the outline has {len(plan)} sections, over the limit of {spec.segments_cap()}")
                 return plan, False
             messages = [*messages, {"role": "assistant", "content": reply},
                         {"role": "user", "content": "That was not usable. Reply with only the JSON object, nothing before or after it."}]
@@ -1125,7 +1173,7 @@ class LongAnswer:
                  system: str) -> Iterator[Any]:
         spec = self.spec
         lo, hi = seg.words * LOW_RATIO, ask * HIGH_RATIO
-        cap = max(256, int(max(hi, seg.words * HIGH_RATIO) * TOKENS_PER_WORD) + 64)
+        cap = spec.tokens_for(max(hi, seg.words * HIGH_RATIO, part_floor(spec.part_cap())))       # the most a segment may write: its upper bound in tokens, at least the least a part is planned at
         language = language_code(spec.language)
         earlier = "\n\n".join(self.parts)
         anchor = " ".join(earlier.split()[-ANCHOR_WORDS:]) if (rolling or seg.instruction) and earlier else ""
@@ -1245,7 +1293,9 @@ class LongAnswer:
         total = sum(s.words for s in plan)
         if stopped == "time":
             self.warnings.append({"code": "stopped_time", "segment": len(self.parts), "detail": "the time limit was reached"})
+        band = length_band(total, spec.exact)
         yield {"event": "verify", "words": words, "target_words": total, "ratio": round(words / total, 2) if total else None,
+               "band": list(band), "within_band": band[0] <= words <= band[1],
                "segments": len(self.parts), "of": len(plan), "warnings": self.warnings}
         yield {"event": "done", "finish": "length" if (truncated or stopped in ("short_segments", "time", "incomplete", "cancelled")) else "stop",
                "stopped": stopped, "words": words, "target_words": total, "segments": len(self.parts), "of": len(plan),

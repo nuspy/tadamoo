@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from serve import lengthprobe  # noqa: E402
 from serve.engine.mock import MockEngine  # noqa: E402
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import serve  # noqa: E402
@@ -53,6 +54,8 @@ class LongAnswerApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.svc = make_service()
+        cls.svc.lengths = lengthprobe.Lengths(lambda: {"meta_hash": "api"})
+        cls.svc.lengths.set({"model": {"meta_hash": "api"}, "manual_limit_tokens": 3000})        # with 25 words a hundred tokens (the scripted tokenizer makes a token a byte): a reply of 750 words
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -73,7 +76,7 @@ class LongAnswerApi(unittest.TestCase):
 
     def long(self, **extra):
         return {"messages": [{"role": "user", "content": "Write about rivers"}],
-                "long_answer": {"mode": "write", "target_words": 2100, "segment_words": 700, "outline": OUTLINE, **extra}, **{k: v for k, v in extra.items() if k == "stream"}}
+                "words_per_token": 25, "long_answer": {"mode": "write", "target_words": 2100, "segment_words": 700, "outline": OUTLINE, **extra}, **{k: v for k, v in extra.items() if k == "stream"}}
 
     def test_a_streamed_long_answer_has_progress_content_and_totals(self):
         with contextlib.redirect_stdout(io.StringIO()):
