@@ -71,7 +71,8 @@ Everything below is in the repository. The [manual](docs/harness-manual.md) says
 - **Plans.** A goal becomes a plan as a graph of actions, sensors, decisions, merges and tasks handed to you; a failed step rewrites the plan, with history and restore; a plan can start another, start at a time you give in words, and be run as a script. See [orchestration](docs/orchestration.md).
 - **Routines** run a prompt in a folder on a schedule, always Automatic. **Required actions** put everything that waits for you in one list.
 - **Target Loop.** Works on a target until it is met, stalls or you stop it, judging each result against evidence. See [the Target Loop](docs/target-loop.md).
-- **Long texts.** A request too long for one reply (a chapter, a report, a long translation) is planned in parts, each written in a call of its own, checked and corrected, then the whole is checked again. A reply cut by the output limit continues by itself. See [long answers](docs/longform.md).
+- **Long texts.** A request too long for one reply (a chapter, a report, a long translation) is planned in parts, each written in a call of its own, checked and corrected, then the whole is checked again. A reply cut by the output limit continues by itself. The size of a part follows from the reply length of the model and the words a token makes in the language of the conversation, and a very long final answer is also kept as a file with a link. See [long answers](docs/longform.md).
+- **Long files by blocks.** The file tools give the map of a file, read, replace, move or delete a section by its title, and copy a text from the last reply or from another file without typing it again. See [file tools](docs/harness-file-tools.md).
 
 ### Context that holds
 - **Six layers of reduction**, in order as the context fills: limits on tool output, masking of old results, compaction of older steps (even inside a single turn of hundreds of tool calls), a policy for a full chat (summarise the middle, drop the oldest or stop), short records for old long replies, and the **Billion Context** proxy; summary and sliding-window patterns are on top. See [the layers](docs/context-layers.md) and [compaction](docs/compaction.md).
@@ -148,15 +149,15 @@ The server also speaks both APIs outward, so editors and tools you already use c
 
 ## Install
 
-**Current release: 2.4, *victory-lap*.**
+**Current release: 2.5, *victory-lap*.**
 
 | What | Where | For |
 |---|---|---|
-| **Windows**, complete | [windows-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.4) | the app, the engine, the server and Python on one PC |
-| **Windows**, GUI only | [windows-gui-only-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.4) | a window on a server that runs elsewhere |
-| **Linux**, complete | [linux-complete-v2.4](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.4) | the harness, the installer and the Basalt-Plus engine |
-| **Linux**, server | [server-linux-v2.4](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.4) | the harness and the installer |
-| **Android** | [android-v2.4](https://github.com/nuspy/tadamoo/releases/tag/android-v2.4) | the phone app |
+| **Windows**, complete | [windows-v2.5](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.5) | the app, the engine, the server and Python on one PC |
+| **Windows**, GUI only | [windows-gui-only-v2.5](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.5) | a window on a server that runs elsewhere |
+| **Linux**, complete | [linux-complete-v2.5](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.5) | the harness, the installer and the Basalt-Plus engine |
+| **Linux**, server | [server-linux-v2.5](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.5) | the harness and the installer |
+| **Android** | [android-v2.5](https://github.com/nuspy/tadamoo/releases/tag/android-v2.5) | the phone app |
 | **Mac** | compile from this repository | the window on a server (prepared in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_party/` and ship inside the Windows and Linux packages.
@@ -164,7 +165,7 @@ agent-desktop and agent-browser (Vercel Labs, Apache-2.0) are built from `third_
 On Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v2.4.tar.gz && cd tadamoo-2.4
+tar xzf TaDaMoo-linux-complete-v2.5.tar.gz && cd tadamoo-2.5
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 

@@ -71,7 +71,8 @@ Tutto ciò che segue è nel repository. Il [manuale](docs/harness-manual.it.md) 
 - **Piani.** Un obiettivo diventa un piano a grafo di azioni, sensori, decisioni, unioni e compiti affidati a te; un passo fallito riscrive il piano, con storico e ripristino; un piano può avviarne un altro, partire a un'ora che dici a parole ed essere eseguito come script. Vedi [orchestrazione](docs/orchestration.md).
 - **Routine** eseguono una richiesta in una cartella a orario, sempre in Automatico. Le **Azioni richieste** mettono in una lista sola tutto ciò che aspetta te.
 - **Target Loop.** Lavora su un obiettivo finché è raggiunto, si blocca o lo fermi tu, giudicando ogni risultato su prove. Vedi [il Target Loop](docs/target-loop.md).
-- **Testi lunghi.** Una richiesta troppo lunga per una sola risposta (un capitolo, una relazione, una traduzione lunga) viene pianificata a parti, ciascuna scritta in una chiamata a sé, controllata e corretta, poi si ricontrolla il tutto. Una risposta tagliata dal limite di output continua da sola. Vedi [risposte lunghe](docs/longform.md).
+- **Testi lunghi.** Una richiesta troppo lunga per una sola risposta (un capitolo, una relazione, una traduzione lunga) viene pianificata a parti, ciascuna scritta in una chiamata a sé, controllata e corretta, poi si ricontrolla il tutto. Una risposta tagliata dal limite di output continua da sola. La dimensione di una parte deriva dalla lunghezza di risposta del modello e dalle parole per token della lingua della conversazione, e una risposta finale molto lunga viene anche salvata come file con un link. Vedi [risposte lunghe](docs/longform.md).
+- **File lunghi a blocchi.** Gli strumenti sui file danno la mappa di un file, leggono, sostituiscono, spostano o cancellano una sezione dal titolo, e copiano un testo dall'ultima risposta o da un altro file senza riscriverlo. Vedi [strumenti sui file](docs/harness-file-tools.md).
 
 ### Un contesto che regge
 - **Sei livelli di riduzione**, in ordine mentre il contesto si riempie: limiti sull'output degli strumenti, mascheramento dei risultati vecchi, compattazione dei passi più vecchi (anche dentro un solo turno di centinaia di chiamate), una politica per la chat piena (riassumere il centro, scartare i turni più vecchi o fermarsi), record brevi per le vecchie risposte lunghe e il proxy **Billion Context**; sopra, modelli di riassunto e finestra scorrevole. Vedi [i livelli](docs/context-layers.md) e [la compattazione](docs/compaction.md).
@@ -148,15 +149,15 @@ Il server parla entrambe le API anche verso l'esterno, così gli editor e gli st
 
 ## Installazione
 
-**Release attuale: 2.4, *victory-lap*.**
+**Release attuale: 2.5, *victory-lap*.**
 
 | Cosa | Dove | Per |
 |---|---|---|
-| **Windows**, completo | [windows-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.4) | app, motore, server e Python su un solo PC |
-| **Windows**, solo GUI | [windows-gui-only-v2.4](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.4) | una finestra su un server che gira altrove |
-| **Linux**, completo | [linux-complete-v2.4](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.4) | harness, installer e motore Basalt-Plus |
-| **Linux**, server | [server-linux-v2.4](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.4) | harness e installer |
-| **Android** | [android-v2.4](https://github.com/nuspy/tadamoo/releases/tag/android-v2.4) | l'app per il telefono |
+| **Windows**, completo | [windows-v2.5](https://github.com/nuspy/tadamoo/releases/tag/windows-v2.5) | app, motore, server e Python su un solo PC |
+| **Windows**, solo GUI | [windows-gui-only-v2.5](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v2.5) | una finestra su un server che gira altrove |
+| **Linux**, completo | [linux-complete-v2.5](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v2.5) | harness, installer e motore Basalt-Plus |
+| **Linux**, server | [server-linux-v2.5](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v2.5) | harness e installer |
+| **Android** | [android-v2.5](https://github.com/nuspy/tadamoo/releases/tag/android-v2.5) | l'app per il telefono |
 | **Mac** | da compilare da questo repository | la finestra su un server (predisposto in [deploy/mac](deploy/mac/README.md)) |
 
 agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third_party/` e stanno dentro i pacchetti Windows e Linux.
@@ -164,7 +165,7 @@ agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third
 Su Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v2.4.tar.gz && cd tadamoo-2.4
+tar xzf TaDaMoo-linux-complete-v2.5.tar.gz && cd tadamoo-2.5
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
