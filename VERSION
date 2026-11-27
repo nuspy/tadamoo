@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "subversion": 4,
+  "subversion": 5,
   "name": "victory-lap",
   "names_used": [
     "bizarre-smarttv",
     "statutory-gravity",
     "victory-lap"
   ],
-  "release": "victory-lap_(v_2_4)",
-  "built": "2026-11-26T21:01:28",
-  "commit": "016618895"
+  "release": "victory-lap_(v_2_5)",
+  "built": "2026-11-27T02:24:25",
+  "commit": "464863261"
 }
