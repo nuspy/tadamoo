@@ -2,13 +2,13 @@
 
 Gli adapter LoRA nel motore sono fatti, esperti compresi. L'addestramento vero è in corso. In fondo ci sono anche gli altri task del progetto, fatti e da fare. Tocca una voce per le note.
 
-_Aggiornato il 25/11/2026. Generato da `docs/roadmap.json`: non si modifica a mano._
+_Aggiornato il 27/11/2026. Generato da `docs/roadmap.json`: non si modifica a mano._
 
 | Stato | Nodi |
 |---|---|
-| fatto | 33 |
+| fatto | 35 |
 | in corso | 9 |
-| in attesa | 12 |
+| in attesa | 13 |
 | non iniziato | 1 |
 
 ## Il motore: adapter fusi all'avvio
@@ -1017,7 +1017,7 @@ Richiesta dell'utente (26 novembre): nella pagina Models > Providers i provider 
 
 - Non verificata a vista nella pagina vera (solo test e controllo DOM esistente); l'app in uso gira ancora da master.
 
-### 61. Risposte lunghe a parti: soglia dal limite misurato (22k token?) contro il comportamento reale del modello (chiude a 1,5-3k) (todo)
+### 61. Risposte lunghe a parti: soglia dal limite misurato (22k token?) contro il comportamento reale del modello (chiude a 1,5-3k) (fatto)
 
 Verifica chiesta dall'utente (26 novembre): non esiste un limite fisso di 4000 token. Soglia 3000 token se il modello non è misurato, altrimenti 60% di length.limit_tokens; parti da ~2000 parole (~3000 token) con tetto ~7000 token (2000 x 1,6 x 2,2); il «4k» viene dal consiglio di Gemini Neon (non misurato) e dalle misure nostre: first_stop 1560 token (IQ4_XS) e 3192 (IQ3_S); studio: chiesto 10000 parole il modello chiude mediamente a 5045, 6000 a 3285, 3000 a 2073, sempre finish=stop.
 
@@ -1027,6 +1027,10 @@ Verifica chiesta dall'utente (26 novembre): non esiste un limite fisso di 4000 t
 - Dal record misurato del motore locale (IQ4_XS): limit_tokens = max(reliable 30000, observed_max 37092) = 37092 -> soglia = 60% = 22255 token (circa 14800 parole in italiano). Il reliable_tokens somma 19-34 pezzi continuati da ~1k token e observed_max conta il ragionamento: sono molto più della risposta in un turno (first_stop 1560-3192; studio ~5000 parole). Se confermato dal server vivo, una relazione da 5000 parole (~7500 token) NON verrebbe divisa in parti.
 - MISURA DAL VIVO (26 novembre, motore locale IQ4_XS, RTX 5090 a 600 W, 40 prove dirette sul server, richiesta in italiano di una relazione con introduzione, sezioni e conclusione, 5 campioni per cella, token della risposta contati sul solo testo con il tokenizer del server, ragionamento a parte): tutte finite con stop, nessuna con length. Parole scritte / chieste (mediana), ragionamento acceso: 1000 -> 1,06; 2000 -> 1,19; 4000 -> 1,17; 8000 -> 0,75 (5528-11109 parole, risposta 9017-15450 token). Ragionamento spento: 1,14; 1,06; 0,97; 0,81. Quindi fino a 4000 parole il modello scrive quanto chiesto in un solo turno; a 8000 ne scrive il 75-81%; il punto di rottura sta fra 4000 e 8000 parole (circa 6000-12000 token), non a 3000 né a 4000 token. La soglia di 3000 token (modello non misurato) divide troppo presto; quella da misura (22255 token, circa 14800 parole) troppo tardi. Mancano: 6000, 10000, 12000, 16000 parole e la via del harness (temperatura 0).
 - UNITO in master e nella release 2.4 (26 novembre): soglia a 10000 token e conversione italiana 1,6. Restano da misurare il guardiano dei passaggi ripetuti (una prova da 16000 parole chiusa per lunghezza a 19894 token) e la via del harness: col prompt di sistema del harness il modello a volte risponde con una chiamata a strumenti o con un testo corto (5 prove su 12).
+- FATTO (27 novembre, master 02cc8d9d0, non pushato): la capacità di una risposta (lunghezza in token dichiarata a mano per modello o provider, altrimenti misurata, altrimenti 10000, per le parole per token) dimensiona parte, minimo di una parte, massimo di parti, continuazioni, tetto di uscita del segmento, prompt del piano, pezzi del controllo e lunghezza di default. Le parole per token sono un'impostazione della conversazione (Settings > Inference, icona «i» con le fasce per lingua), 60 se vuoto; tolte dal record del modello e dal form dei provider.
+- FATTO: una lunghezza data è un ordine di grandezza (0,8-1,25 volte), stretta (0,97-1,03) se la richiesta dice «esattamente»; l'evento verify porta band e within_band.
+- Impostata a mano a 15000 la lunghezza del modello Qwen3.8 Flash IQ4_XS (record nei dati utente); il server già acceso la rilegge al prossimo caricamento.
+- Resta fisso solo VERIFY_TOKENS = 1500 (risposta corta del controllo), non una soglia di parole. Le continuazioni sono ora 3 (erano 2).
 
 **Decisioni e punti aperti**
 
@@ -1036,6 +1040,26 @@ Verifica chiesta dall'utente (26 novembre): non esiste un limite fisso di 4000 t
 **Problemi futuri previsti e come pensiamo di risolverli**
 
 - Soglia troppo bassa = parti inutili e più chiamate; troppo alta = il turno chiude a metà del testo.
+
+### 62. Strumenti sui file a blocchi: mappa, sezioni, intervallo di parole e copia da una risposta senza riscriverla (fatto)
+
+Richiesta dell'utente (27 novembre) dopo la sessione «Progetta un sistema su aws…»: per scrivere in un file la risposta appena data servivano 22 chiamate, perché nessuno strumento copia un testo già scritto e edit_file chiede di ricopiare il vecchio testo. Estesi i tre strumenti esistenti (nessuno nuovo).
+
+**Fatto e problemi risolti**
+
+- FATTO (master 2bc2dc5db, non pushato): read_file con outline (mappa con versione), section (per titolo) e words=[da, a] (le righe che contengono quelle parole).
+- FATTO: edit_file con lines (serve la versione) o section e action replace, delete, insert_after, insert_before, move_after; il testo da text o da source. Una versione diversa è rifiutata e la risposta porta la mappa attuale.
+- FATTO: write_file ed edit_file prendono source: l'ultima risposta della conversazione («last», «2») o un file, con section, lines o words per una parte; il harness copia, il modello non riscrive. Restano i controlli di write_file (metà del testo chiede overwrite), proprietari, sintassi, fine riga.
+- Test: 20 nuovi in tests/test_file_pieces.py, 69 degli strumenti esistenti e 425 delle suite che toccano i tre strumenti passano; tests/test_cold_tools.py::test_the_real_stack_lists_fewer_characters_with_the_switch falliva già su master (28615 contro 36223 caratteri).
+
+**Decisioni e punti aperti**
+
+- Estendere i tre strumenti invece di crearne di nuovi (deciso dall'utente il 27 novembre): ogni strumento in più costa token fissi; i nuovi parametri aggiungono circa 2200 caratteri (circa 550 token) alla lista, quindi la cache del prefisso si ricalcola alla prima richiesta delle conversazioni aperte.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- words=[da, a] torna righe intere: con paragrafi molto lunghi l'intervallo restituito è più ampio di quello chiesto.
+- section e move_after presuppongono titoli Markdown; su testi senza titoli funzionano solo le righe.
 
 ## Dopo il riavvio di TaDaMoo e prove tue
 
@@ -1094,3 +1118,22 @@ Idea dell'utente (25 novembre, dalla risposta di Gemini): ripetere un blocco di 
 - Flash-Next ha 36 layer GDN con stato ricorrente (aggiornato una volta per token) e 12 di attenzione: un layer GDN ripetuto aggiorna lo stato due volte per lo stesso token, serve uno stato per (layer, iterazione). Il costo cresce con la frazione ripetuta, esperti compresi (un terzo della profondità ripetuto due volte: circa +33%).
 - Proposta a tappe: (0) opzione del motore che ripete una finestra di layer k volte con smorzamento, misurata con PPL/KLD e le 70 prove (serve la GPU e il tuo via); (1) allungare l'output con un orientamento in inferenza; (2) la LoRA solo se la tappa 0 promette, dopo la ripresa dell'addestramento LoRA su GPU (settimana del 30 novembre).
 - Decisione dell'utente: spendere le 70 prove (3-4 ore ciascuna) su [8,16) K=2, oppure chiudere la tappa 0. Su wikitext nessun beneficio misurato: se c'è, lo mostrano solo le 70 prove.
+
+### 63. Sessione «Progetta un sistema su aws…»: 39 chiamate in 10 minuti per salvare una risposta in un file (in attesa)
+
+Analisi dei log (27 novembre, richiesta dell'utente) dalla richiesta «Sovrascrivi il file codice_delle_ceneri.md…». 16 chiamate di compattazione (contesto al 79%, fold 91969 a 68034 token, 36 messaggi sostituiti; i prompt di 6-8,5k senza cache sono dedotti, non letti) e 23 dell'agente principale (circa 37000 token generati, 22 senza testo visibile: ragionamento e argomenti). Causa: nessuno strumento copia la risposta già scritta (75.815 caratteri, 13.489 parole) in un file; il modello ha cercato nel file del fold, nel diario e nell'index.db da 155 MB.
+
+**Fatto e problemi risolti**
+
+- La risposta in un colpo solo era di 13.489 parole (il modello satura attorno ai 13-16k token a risposta) contro le 30.854 del file costruito a pezzi, che il modello ha salvato come backup in chat-workspace/.tadamoo/artifacts/codice_delle_ceneri_30k.md prima di sovrascrivere il file.
+- Risolto il caso con gli strumenti a blocchi (task 62): write_file(path, source={message: last}) è una sola chiamata.
+
+**Decisioni e punti aperti**
+
+- Da decidere con l'utente: fare il fold a risposta finita (contesto sopra soglia) invece che alla richiesta successiva, per non far cadere due minuti di compattazione sull'attesa.
+- Da decidere con l'utente: salvare in automatico come file, con il link, ogni risposta finale molto lunga.
+- Nessun limite al ragionamento per passaggio (regola dell'utente): si riduce con meno passaggi.
+
+**Problemi futuri previsti e come pensiamo di risolverli**
+
+- Il server in uso partiva da prima del merge dei task 56, 57, 59: probabile che quella sessione ne fosse senza (non verificato).

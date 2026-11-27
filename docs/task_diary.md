@@ -1,7 +1,15 @@
 # Diario dei task
 
-Ultimo aggiornamento: 24 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 27 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti dalla lista del 17 novembre e da «Decisioni tue in attesa». Il 17 novembre sono state tolte 7 copie vecchie incollate in fondo al file (sezione «12 novembre» compresa): si leggono con `git show 183b0300:docs/task_diary.md`. Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 27 novembre
+
+**Capacità di una risposta, FATTA e unita in master (task 61, `02cc8d9d0`, non pushato).** Un solo numero dimensiona le risposte a parti: la lunghezza di risposta in token (a mano per il modello o il provider, altrimenti misurata, altrimenti 10.000) per le parole per token. Le parole per token sono ora un'impostazione della conversazione (Chat e Agent, icona «i» con le fasce per lingua), 60 se vuote. Una lunghezza data da te è un ordine di grandezza (da 0,8 a 1,25 volte), stretta se scrivi «esattamente». Per il modello Qwen3.8 Flash IQ4_XS la lunghezza a mano è 15.000. Resta fisso solo `VERIFY_TOKENS`.
+
+**Strumenti sui file a blocchi, FATTI e uniti in master (task 62, `2bc2dc5db`, non pushato).** `read_file` dà la mappa, una sezione o un intervallo di parole; `edit_file` cambia un blocco per righe (con la versione) o per sezione; `write_file` ed `edit_file` copiano un testo dall'ultima risposta o da un file senza riscriverlo.
+
+**Analisi della sessione «Progetta un sistema su aws…» (task 63), in attesa di tue decisioni.** 39 chiamate in 10 minuti per salvare una risposta in un file: 16 di compattazione e 23 dell'agente. La causa è che nessuno strumento copiava il testo; ora c'è. Restano da decidere: fare il fold a risposta finita e salvare in automatico, con link, le risposte finali molto lunghe.
 
 ## 25 novembre
 
